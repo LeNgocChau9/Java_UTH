@@ -51,6 +51,7 @@ out/
 # 6. Chặn file bí mật và biến môi trường
 .env
 .env.*
+!.env.example
 *.key
 *.pem
 *.cert
