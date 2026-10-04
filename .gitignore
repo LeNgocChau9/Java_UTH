@@ -1,0 +1,75 @@
+# ==============================================================================
+# LivingDocs - Global .gitignore
+# Chặn toàn bộ: Docker, file build, file wrapper (mvnw), file tài liệu (.md),
+# file cấu hình pom.xml, file IDE, môi trường ảo và dữ liệu runtime.
+# CHỈ THEO DÕI VÀ COMMIT DUY NHẤT MÃ NGUỒN (CODE)
+# ==============================================================================
+
+# 1. Chặn Docker và file cấu hình container
+[Dd]ockerfile*
+docker-compose*
+*.dockerignore
+
+# 2. Chặn các file Maven Wrapper và cấu hình build pom.xml
+mvnw
+mvnw.cmd
+.mvn/
+pom.xml
+pom.xml.*
+
+# 3. Chặn toàn bộ file tài liệu Markdown, Word, PDF và thư mục docs
+docs/
+documentation/
+reports/
+*.md
+*.docx
+*.pptx
+*.pdf
+*.xlsx
+
+# 4. Chặn file rác hệ điều hành
+Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini
+$RECYCLE.BIN/
+.DS_Store
+.AppleDouble
+.LSOverride
+*~
+
+# 5. Chặn IDE và Editors (VS Code, IntelliJ, Eclipse)
+.vscode/
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+.project
+.classpath
+.settings/
+
+# 6. Chặn file bí mật và biến môi trường
+.env
+.env.*
+*.key
+*.pem
+*.cert
+
+# 7. Chặn file build của Java (target, jar, class)
+**/target/
+**/build/
+*.class
+*.jar
+*.war
+
+# 8. Chặn dependencies của Frontend (Next.js/React)
+**/node_modules/
+**/.next/
+**/out/
+
+# 9. Chặn môi trường ảo và cache của Python (AI Engine)
+**/__pycache__/
+*.py[cod]
+**/venv/
+**/.venv/
+**/env/
