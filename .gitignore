@@ -22,6 +22,7 @@ docs/
 documentation/
 reports/
 *.md
+!demo-samples/**/*.md
 *.docx
 *.pptx
 *.pdf
