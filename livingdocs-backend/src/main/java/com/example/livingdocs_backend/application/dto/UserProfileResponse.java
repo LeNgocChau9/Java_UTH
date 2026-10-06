@@ -17,5 +17,6 @@ public class UserProfileResponse {
     private String fullName;
     private String avatarUrl;
     private String status;
+    private java.util.Set<String> roles;
     private Instant createdAt;
 }

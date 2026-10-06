@@ -24,17 +24,22 @@ public class JwtTokenProvider {
         this.tokenValidityInMilliseconds = expirationSeconds * 1000;
     }
 
-    public String generateToken(Long userId, String email) {
+    public String generateToken(Long userId, String email, java.util.Collection<String> roles) {
         Date now = new Date();
         Date validity = new Date(now.getTime() + tokenValidityInMilliseconds);
 
         return Jwts.builder()
                 .subject(email)
                 .claim("userId", userId)
+                .claim("roles", roles != null ? roles : java.util.Collections.emptyList())
                 .issuedAt(now)
                 .expiration(validity)
                 .signWith(secretKey)
                 .compact();
+    }
+
+    public String generateToken(Long userId, String email) {
+        return generateToken(userId, email, java.util.Collections.emptyList());
     }
 
     public String getEmailFromToken(String token) {
@@ -49,6 +54,16 @@ public class JwtTokenProvider {
             return number.longValue();
         }
         return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    public java.util.List<String> getRolesFromToken(String token) {
+        Claims claims = getClaims(token);
+        Object rolesObj = claims.get("roles");
+        if (rolesObj instanceof java.util.List<?> list) {
+            return list.stream().map(Object::toString).toList();
+        }
+        return java.util.Collections.emptyList();
     }
 
     public boolean validateToken(String token) {
