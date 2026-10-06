@@ -61,7 +61,11 @@ public class AuthServiceImpl implements AuthServicePort {
             throw new AuthenticationException("Tài khoản của bạn đã bị khóa hoặc chưa kích hoạt");
         }
 
-        String token = jwtTokenProvider.generateToken(user.getUserId(), user.getEmail());
+        java.util.Set<String> roleStrings = user.getRoles() != null
+                ? user.getRoles().stream().map(Enum::name).collect(java.util.stream.Collectors.toSet())
+                : java.util.Collections.singleton("ROLE_DEVELOPER");
+
+        String token = jwtTokenProvider.generateToken(user.getUserId(), user.getEmail(), roleStrings);
 
         return AuthResponse.builder()
                 .token(token)
@@ -80,12 +84,17 @@ public class AuthServiceImpl implements AuthServicePort {
     }
 
     private UserProfileResponse toProfileResponse(User user) {
+        java.util.Set<String> roleStrings = user.getRoles() != null
+                ? user.getRoles().stream().map(Enum::name).collect(java.util.stream.Collectors.toSet())
+                : java.util.Collections.singleton("ROLE_DEVELOPER");
+
         return UserProfileResponse.builder()
                 .userId(user.getUserId())
                 .email(user.getEmail())
                 .fullName(user.getFullName())
                 .avatarUrl(user.getAvatarUrl())
                 .status(user.getStatus())
+                .roles(roleStrings)
                 .createdAt(user.getCreatedAt())
                 .build();
     }
