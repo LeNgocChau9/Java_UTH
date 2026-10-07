@@ -18,6 +18,8 @@ public class User {
     private String fullName;
     private String avatarUrl;
     private String status;
+    @Builder.Default
+    private java.util.Set<RoleType> roles = new java.util.HashSet<>();
     private Instant createdAt;
     private Instant updatedAt;
 }

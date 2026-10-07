@@ -38,6 +38,16 @@ public class UserRepositoryAdapter implements UserRepositoryPort {
     }
 
     private User toDomain(UserEntity entity) {
+        java.util.List<String> roleNames = springDataUserRepository.findRoleNamesByUserId(entity.getUserId());
+        java.util.Set<com.example.livingdocs_backend.domain.model.RoleType> roles = new java.util.HashSet<>();
+        if (roleNames != null && !roleNames.isEmpty()) {
+            for (String r : roleNames) {
+                roles.add(com.example.livingdocs_backend.domain.model.RoleType.fromString(r));
+            }
+        } else {
+            roles.add(com.example.livingdocs_backend.domain.model.RoleType.ROLE_DEVELOPER);
+        }
+
         return User.builder()
                 .userId(entity.getUserId())
                 .email(entity.getEmail())
@@ -45,6 +55,7 @@ public class UserRepositoryAdapter implements UserRepositoryPort {
                 .fullName(entity.getFullName())
                 .avatarUrl(entity.getAvatarUrl())
                 .status(entity.getStatus())
+                .roles(roles)
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
                 .build();
