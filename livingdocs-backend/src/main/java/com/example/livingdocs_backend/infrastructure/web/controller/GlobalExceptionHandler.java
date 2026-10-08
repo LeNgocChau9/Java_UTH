@@ -2,6 +2,7 @@ package com.example.livingdocs_backend.infrastructure.web.controller;
 
 import com.example.livingdocs_backend.domain.exception.AuthenticationException;
 import com.example.livingdocs_backend.domain.exception.EmailAlreadyExistsException;
+import com.example.livingdocs_backend.domain.exception.InvalidDocumentStatusTransitionException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
@@ -51,4 +52,21 @@ public class GlobalExceptionHandler {
         error.put("timestamp", Instant.now().toString());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
     }
+
+    @ExceptionHandler(InvalidDocumentStatusTransitionException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidDocumentStatusTransitionException(InvalidDocumentStatusTransitionException ex) {
+        Map<String, Object> error = new HashMap<>();
+        error.put("status", HttpStatus.BAD_REQUEST.value());
+        error.put("error", "Invalid Status Transition");
+        error.put("message", ex.getMessage());
+        if (ex.getFromStatus() != null) {
+            error.put("fromStatus", ex.getFromStatus().name());
+        }
+        if (ex.getToStatus() != null) {
+            error.put("toStatus", ex.getToStatus().name());
+        }
+        error.put("timestamp", Instant.now().toString());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
 }
+
