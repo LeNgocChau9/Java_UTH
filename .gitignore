@@ -75,3 +75,7 @@ out/
 **/venv/
 **/.venv/
 **/env/
+
+# 10. Skill agent cài local, không đưa lên GitHub
+.agents/
+skills-lock.json
