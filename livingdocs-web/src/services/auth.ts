@@ -1,22 +1,34 @@
-import { apiClient, ACCESS_TOKEN_KEY } from "@/services/apiClient";
-import type { AuthResponse, LoginRequest } from "@/types/auth";
+import { ACCESS_TOKEN_KEY } from "@/services/apiClient";
+import { clearSession } from "@/services/authService";
+import type { UserProfile } from "@/types/auth";
+import { USER_PROFILE_KEY } from "@/services/apiClient";
 
-export async function login(payload: LoginRequest) {
-  const { data } = await apiClient.post<AuthResponse>(
-    "/api/auth/login",
-    payload,
-  );
+export { login } from "@/services/authService";
 
-  if (typeof window !== "undefined") {
-    window.localStorage.setItem(ACCESS_TOKEN_KEY, data.token);
+export function readProfile(): UserProfile | null {
+  if (typeof window === "undefined") {
+    return null;
   }
 
-  return data;
+  const raw = window.localStorage.getItem(USER_PROFILE_KEY);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(raw) as UserProfile;
+  } catch {
+    return null;
+  }
 }
 
 export function logout() {
+  clearSession();
+}
+
+export function hasToken() {
   if (typeof window === "undefined") {
-    return;
+    return false;
   }
-  window.localStorage.removeItem(ACCESS_TOKEN_KEY);
+  return Boolean(window.localStorage.getItem(ACCESS_TOKEN_KEY));
 }

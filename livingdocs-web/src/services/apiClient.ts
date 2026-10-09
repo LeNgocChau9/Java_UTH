@@ -4,10 +4,11 @@ import axios, {
 } from "axios";
 
 export const ACCESS_TOKEN_KEY = "livingdocs_access_token";
+export const USER_PROFILE_KEY = "livingdocs_user";
 export const LOGIN_PATH = "/login";
 
 export const apiClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080",
+  baseURL: process.env.NEXT_PUBLIC_API_BASE_URL ?? "",
   headers: {
     Accept: "application/json",
   },
@@ -31,6 +32,7 @@ apiClient.interceptors.response.use(
   (error: AxiosError) => {
     if (error.response?.status === 401 && typeof window !== "undefined") {
       window.localStorage.removeItem(ACCESS_TOKEN_KEY);
+      window.localStorage.removeItem(USER_PROFILE_KEY);
 
       if (window.location.pathname !== LOGIN_PATH) {
         const next = window.location.pathname + window.location.search;
