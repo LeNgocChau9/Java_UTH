@@ -68,5 +68,36 @@ public class GlobalExceptionHandler {
         error.put("timestamp", Instant.now().toString());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
     }
+
+    @ExceptionHandler(com.example.livingdocs_backend.domain.exception.GitHubRateLimitException.class)
+    public ResponseEntity<Map<String, Object>> handleGitHubRateLimitException(com.example.livingdocs_backend.domain.exception.GitHubRateLimitException ex) {
+        Map<String, Object> error = new HashMap<>();
+        error.put("status", HttpStatus.TOO_MANY_REQUESTS.value());
+        error.put("error", "Rate Limit Exceeded");
+        error.put("message", ex.getMessage());
+        if (ex.getResetTime() != null) {
+            error.put("resetTime", ex.getResetTime().toString());
+        }
+        error.put("limit", ex.getLimit());
+        error.put("remaining", ex.getRemaining());
+        error.put("timestamp", Instant.now().toString());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(error);
+    }
+
+    @ExceptionHandler(com.example.livingdocs_backend.domain.exception.GitHubApiException.class)
+    public ResponseEntity<Map<String, Object>> handleGitHubApiException(com.example.livingdocs_backend.domain.exception.GitHubApiException ex) {
+        HttpStatus status = HttpStatus.resolve(ex.getStatusCode());
+        if (status == null) {
+            status = HttpStatus.INTERNAL_SERVER_ERROR;
+        }
+
+        Map<String, Object> error = new HashMap<>();
+        error.put("status", status.value());
+        error.put("error", status.getReasonPhrase());
+        error.put("message", ex.getMessage());
+        error.put("timestamp", Instant.now().toString());
+        return ResponseEntity.status(status).body(error);
+    }
 }
+
 
