@@ -9,4 +9,5 @@ public interface UserRepositoryPort {
     Optional<User> findById(Long userId);
     boolean existsByEmail(String email);
     User save(User user);
+    void assignDefaultWorkspaceRole(Long userId);
 }
