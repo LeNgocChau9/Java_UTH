@@ -1,17 +1,22 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
+import { Roboto, Roboto_Mono, Instrument_Serif } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
+// Font chủ đạo toàn hệ thống: Roboto (thân thiện, dễ đọc, hỗ trợ tiếng Việt).
+// Giữ nguyên tên CSS variable để không phá vỡ các chỗ tham chiếu trong globals.css.
+const robotoSans = Roboto({
   variable: "--font-geist-sans",
-  subsets: ["latin"],
+  subsets: ["latin", "vietnamese"],
+  weight: ["400", "500", "700"],
 });
 
-const geistMono = Geist_Mono({
+// Font mono cho số liệu, mã nguồn, hash commit.
+const robotoMono = Roboto_Mono({
   variable: "--font-geist-mono",
-  subsets: ["latin"],
+  subsets: ["latin", "vietnamese"],
 });
 
+// Giữ font display (Instrument Serif): Header của team đang dùng class font-display.
 const display = Instrument_Serif({
   weight: "400",
   subsets: ["latin"],
@@ -31,7 +36,7 @@ export default function RootLayout({
   return (
     <html
       lang="vi"
-      className={`dark ${geistSans.variable} ${geistMono.variable} ${display.variable} h-full antialiased`}
+      className={`dark ${robotoSans.variable} ${robotoMono.variable} ${display.variable} h-full antialiased`}
     >
       <body className="min-h-dvh bg-slate-950 text-slate-100">{children}</body>
     </html>
