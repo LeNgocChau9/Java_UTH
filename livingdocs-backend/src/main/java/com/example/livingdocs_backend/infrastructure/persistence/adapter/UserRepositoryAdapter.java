@@ -6,12 +6,18 @@ import com.example.livingdocs_backend.infrastructure.persistence.entity.UserEnti
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataUserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 
 @Component
 @RequiredArgsConstructor
 public class UserRepositoryAdapter implements UserRepositoryPort {
+
+    /** Workspace mặc định 'LivingDocs Core Workspace' (seed trong docker/postgres/init/00_init.sql). */
+    private static final long DEFAULT_WORKSPACE_ID = 1L;
+    /** Vai trò mặc định DEVELOPER cho người dùng tự đăng ký / đăng nhập qua GitHub (seed roles). */
+    private static final long DEFAULT_ROLE_ID = 5L;
 
     private final SpringDataUserRepository springDataUserRepository;
 
@@ -35,6 +41,12 @@ public class UserRepositoryAdapter implements UserRepositoryPort {
         UserEntity entity = toEntity(user);
         UserEntity savedEntity = springDataUserRepository.save(entity);
         return toDomain(savedEntity);
+    }
+
+    @Override
+    @Transactional
+    public void assignDefaultWorkspaceRole(Long userId) {
+        springDataUserRepository.assignWorkspaceRole(DEFAULT_WORKSPACE_ID, userId, DEFAULT_ROLE_ID);
     }
 
     private User toDomain(UserEntity entity) {

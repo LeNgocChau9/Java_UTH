@@ -46,14 +46,14 @@ function loginErrorMessage(caught: unknown) {
   return "Đăng nhập thất bại. Vui lòng thử lại.";
 }
 
-export function LoginForm() {
+export function LoginForm({ initialError }: { initialError?: string }) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [pending, setPending] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
-  const [formError, setFormError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(initialError ?? null);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -78,7 +78,10 @@ export function LoginForm() {
   }
 
   function onGithub() {
-    window.location.assign("/api/auth/github");
+    const next = new URLSearchParams(window.location.search).get("next");
+    const target = next && next.startsWith("/") && !next.startsWith("//") ? next : null;
+    const query = target ? `?redirect=${encodeURIComponent(target)}` : "";
+    window.location.assign(`/api/auth/github${query}`);
   }
 
   return (

@@ -1,5 +1,5 @@
 import { apiClient, ACCESS_TOKEN_KEY, USER_PROFILE_KEY, ACCESS_TOKEN_COOKIE, clearAuthStorage } from "@/services/apiClient";
-import type { AuthResponse, LoginRequest } from "@/types/auth";
+import type { AuthResponse, LoginRequest, UserProfile } from "@/types/auth";
 
 export async function login(payload: LoginRequest) {
   const { data } = await apiClient.post<AuthResponse>("/api/auth/login", payload);
@@ -7,16 +7,27 @@ export async function login(payload: LoginRequest) {
   return data;
 }
 
-export function saveSession(data: AuthResponse) {
+/** Lưu token vào localStorage + cookie (dùng cho cả đăng nhập email và GitHub OAuth). */
+export function saveToken(token: string, expiresIn = 86400) {
   if (typeof window === "undefined") {
     return;
   }
+  window.localStorage.setItem(ACCESS_TOKEN_KEY, token);
+  const maxAge = expiresIn > 0 ? expiresIn : 86400;
+  document.cookie = `${ACCESS_TOKEN_COOKIE}=${token}; Path=/; SameSite=Lax; Max-Age=${maxAge}`;
+}
 
-  window.localStorage.setItem(ACCESS_TOKEN_KEY, data.token);
-  window.localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(data.user));
+/** Lưu thông tin hồ sơ người dùng vào localStorage. */
+export function saveProfile(user: UserProfile) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(user));
+}
 
-  const maxAge = data.expiresIn > 0 ? data.expiresIn : 86400;
-  document.cookie = `${ACCESS_TOKEN_COOKIE}=${data.token}; Path=/; SameSite=Lax; Max-Age=${maxAge}`;
+export function saveSession(data: AuthResponse) {
+  saveToken(data.token, data.expiresIn);
+  saveProfile(data.user);
 }
 
 export function clearSession() {

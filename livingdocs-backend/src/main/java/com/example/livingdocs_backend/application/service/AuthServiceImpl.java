@@ -1,6 +1,7 @@
 package com.example.livingdocs_backend.application.service;
 
 import com.example.livingdocs_backend.application.dto.AuthResponse;
+import com.example.livingdocs_backend.application.dto.GitHubProfileRequest;
 import com.example.livingdocs_backend.application.dto.LoginRequest;
 import com.example.livingdocs_backend.application.dto.RegisterRequest;
 import com.example.livingdocs_backend.application.dto.UserProfileResponse;
@@ -73,6 +74,64 @@ public class AuthServiceImpl implements AuthServicePort {
                 .expiresIn(jwtTokenProvider.getExpirationSeconds())
                 .user(toProfileResponse(user))
                 .build();
+    }
+
+    @Override
+    public AuthResponse loginWithGithub(GitHubProfileRequest request) {
+        String email = request.getEmail() != null ? request.getEmail().toLowerCase().trim() : null;
+        if (email == null || email.isBlank()) {
+            throw new AuthenticationException("GitHub không cung cấp email để đăng nhập");
+        }
+
+        User user = userRepositoryPort.findByEmail(email).orElse(null);
+
+        if (user == null) {
+            // Người dùng mới: tạo tài khoản từ danh tính GitHub.
+            // Mật khẩu là chuỗi ngẫu nhiên đã băm -> không thể đăng nhập bằng email/mật khẩu.
+            User newUser = User.builder()
+                    .email(email)
+                    .passwordHash(passwordEncoder.encode(java.util.UUID.randomUUID().toString()))
+                    .fullName(resolveFullName(request))
+                    .avatarUrl(request.getAvatarUrl())
+                    .status("ACTIVE")
+                    .build();
+            user = userRepositoryPort.save(newUser);
+            // Gán vai trò mặc định (DEVELOPER) tại workspace mặc định để vai trò được ghi nhận trong CSDL.
+            userRepositoryPort.assignDefaultWorkspaceRole(user.getUserId());
+            user = userRepositoryPort.findById(user.getUserId()).orElse(user);
+        } else {
+            if (!"ACTIVE".equalsIgnoreCase(user.getStatus())) {
+                throw new AuthenticationException("Tài khoản của bạn đã bị khóa hoặc chưa kích hoạt");
+            }
+            // Làm mới ảnh đại diện nếu GitHub có và khác ảnh hiện tại.
+            if (request.getAvatarUrl() != null && !request.getAvatarUrl().equals(user.getAvatarUrl())) {
+                user.setAvatarUrl(request.getAvatarUrl());
+                user = userRepositoryPort.save(user);
+            }
+        }
+
+        java.util.Set<String> roleStrings = user.getRoles() != null
+                ? user.getRoles().stream().map(Enum::name).collect(java.util.stream.Collectors.toSet())
+                : java.util.Collections.singleton("ROLE_DEVELOPER");
+
+        String token = jwtTokenProvider.generateToken(user.getUserId(), user.getEmail(), roleStrings);
+
+        return AuthResponse.builder()
+                .token(token)
+                .tokenType("Bearer")
+                .expiresIn(jwtTokenProvider.getExpirationSeconds())
+                .user(toProfileResponse(user))
+                .build();
+    }
+
+    private String resolveFullName(GitHubProfileRequest request) {
+        if (request.getName() != null && !request.getName().isBlank()) {
+            return request.getName().trim();
+        }
+        if (request.getLogin() != null && !request.getLogin().isBlank()) {
+            return request.getLogin().trim();
+        }
+        return request.getEmail();
     }
 
     @Override
