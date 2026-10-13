@@ -15,10 +15,10 @@ export default function SectionPage() {
   return (
     <AppShell>
       <article className="mx-auto max-w-3xl">
-        <h1 className="font-display text-4xl tracking-[-0.03em] text-paper sm:text-5xl">
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
           {item?.label ?? "Không có mục này"}
         </h1>
-        <p className="mt-5 max-w-[58ch] text-base leading-7 text-slate-300">
+        <p className="mt-5 max-w-[58ch] text-base leading-7 text-slate-500">
           {!ready
             ? "Đang đọc quyền của phiên đăng nhập."
             : !item
