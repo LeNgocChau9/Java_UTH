@@ -18,8 +18,8 @@ public enum RoleType {
     }
 
     public static RoleType fromString(String roleName) {
-        if (roleName == null) {
-            return ROLE_DEVELOPER;
+        if (roleName == null || roleName.isBlank()) {
+            throw new IllegalArgumentException("Vai trò không được để trống");
         }
         String clean = roleName.trim().toUpperCase();
         if (clean.startsWith("ROLE_")) {
@@ -30,7 +30,8 @@ public enum RoleType {
             case "TECH_LEAD" -> ROLE_TECH_LEAD;
             case "MANAGER" -> ROLE_MANAGER;
             case "STAFF" -> ROLE_STAFF;
-            default -> ROLE_DEVELOPER;
+            case "DEVELOPER" -> ROLE_DEVELOPER;
+            default -> throw new IllegalArgumentException("Vai trò không hợp lệ: " + roleName);
         };
     }
 }

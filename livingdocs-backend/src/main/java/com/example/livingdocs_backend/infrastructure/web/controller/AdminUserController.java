@@ -1,0 +1,44 @@
+package com.example.livingdocs_backend.infrastructure.web.controller;
+
+import com.example.livingdocs_backend.application.dto.AdminUserResponse;
+import com.example.livingdocs_backend.application.port.AdminUserServicePort;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/admin/users")
+@PreAuthorize("hasRole('ADMIN')")
+@RequiredArgsConstructor
+@SecurityRequirement(name = "BearerAuth")
+@Tag(name = "Admin - Quản trị người dùng", description = "API dành cho ADMIN: xem danh sách, đổi vai trò, khóa/mở khóa tài khoản")
+public class AdminUserController {
+
+    private final AdminUserServicePort adminUserServicePort;
+
+    @GetMapping
+    @Operation(summary = "Danh sách người dùng", description = "Trả về toàn bộ người dùng kèm vai trò và trạng thái. Chỉ ADMIN.")
+    public ResponseEntity<List<AdminUserResponse>> listUsers() {
+        return ResponseEntity.ok(adminUserServicePort.listUsers());
+    }
+
+    @PutMapping("/{userId}/role")
+    @Operation(summary = "Đổi vai trò người dùng", description = "Cập nhật vai trò (DEVELOPER, STAFF, MANAGER, TECH_LEAD, ADMIN) cho người dùng.")
+    public ResponseEntity<AdminUserResponse> changeRole(@PathVariable Long userId,
+                                                        @RequestParam String role) {
+        return ResponseEntity.ok(adminUserServicePort.changeRole(userId, role));
+    }
+
+    @PutMapping("/{userId}/status")
+    @Operation(summary = "Khóa / mở khóa tài khoản", description = "active=true -> mở khóa (ACTIVE); active=false -> khóa (LOCKED).")
+    public ResponseEntity<AdminUserResponse> changeStatus(@PathVariable Long userId,
+                                                          @RequestParam boolean active) {
+        return ResponseEntity.ok(adminUserServicePort.changeStatus(userId, active));
+    }
+}
