@@ -108,5 +108,25 @@ public class GlobalExceptionHandler {
         error.put("timestamp", Instant.now().toString());
         return ResponseEntity.status(status).body(error);
     }
+
+    @ExceptionHandler(com.example.livingdocs_backend.domain.exception.DocumentNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleDocumentNotFoundException(com.example.livingdocs_backend.domain.exception.DocumentNotFoundException ex) {
+        Map<String, Object> error = new HashMap<>();
+        error.put("status", HttpStatus.NOT_FOUND.value());
+        error.put("error", "Not Found");
+        error.put("message", ex.getMessage());
+        error.put("timestamp", Instant.now().toString());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler(com.example.livingdocs_backend.domain.exception.DocumentVersionNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleDocumentVersionNotFoundException(com.example.livingdocs_backend.domain.exception.DocumentVersionNotFoundException ex) {
+        Map<String, Object> error = new HashMap<>();
+        error.put("status", HttpStatus.NOT_FOUND.value());
+        error.put("error", "Not Found");
+        error.put("message", ex.getMessage());
+        error.put("timestamp", Instant.now().toString());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
 }
 
