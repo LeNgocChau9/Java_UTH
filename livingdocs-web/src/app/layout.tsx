@@ -36,9 +36,9 @@ export default function RootLayout({
   return (
     <html
       lang="vi"
-      className={`dark ${robotoSans.variable} ${robotoMono.variable} ${display.variable} h-full antialiased`}
+      className={`${robotoSans.variable} ${robotoMono.variable} ${display.variable} h-full antialiased`}
     >
-      <body className="min-h-dvh bg-slate-950 text-slate-100">{children}</body>
+      <body className="min-h-dvh bg-[#f7faf8] text-slate-900">{children}</body>
     </html>
   );
 }
