@@ -2,12 +2,14 @@ package com.example.livingdocs_backend.infrastructure.web.controller;
 
 import com.example.livingdocs_backend.application.dto.AdminUserResponse;
 import com.example.livingdocs_backend.application.port.AdminUserServicePort;
+import com.example.livingdocs_backend.infrastructure.security.UserPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -31,8 +33,10 @@ public class AdminUserController {
     @PutMapping("/{userId}/role")
     @Operation(summary = "Đổi vai trò người dùng", description = "Cập nhật vai trò (DEVELOPER, STAFF, MANAGER, TECH_LEAD, ADMIN) cho người dùng.")
     public ResponseEntity<AdminUserResponse> changeRole(@PathVariable Long userId,
-                                                        @RequestParam String role) {
-        return ResponseEntity.ok(adminUserServicePort.changeRole(userId, role));
+                                                        @RequestParam String role,
+                                                        @AuthenticationPrincipal UserPrincipal actor) {
+        return ResponseEntity.ok(adminUserServicePort.changeRole(
+                userId, role, actor.getUserId(), actor.getEmail()));
     }
 
     @PutMapping("/{userId}/status")

@@ -1,6 +1,7 @@
 package com.example.livingdocs_backend.application.service;
 
 import com.example.livingdocs_backend.application.dto.AdminUserResponse;
+import com.example.livingdocs_backend.application.port.AuditServicePort;
 import com.example.livingdocs_backend.application.port.AdminUserServicePort;
 import com.example.livingdocs_backend.domain.exception.AuthenticationException;
 import com.example.livingdocs_backend.domain.model.RoleType;
@@ -8,6 +9,7 @@ import com.example.livingdocs_backend.domain.model.User;
 import com.example.livingdocs_backend.domain.repository.UserRepositoryPort;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -16,6 +18,7 @@ import java.util.List;
 public class AdminUserServiceImpl implements AdminUserServicePort {
 
     private final UserRepositoryPort userRepositoryPort;
+    private final AuditServicePort auditServicePort;
 
     @Override
     public List<AdminUserResponse> listUsers() {
@@ -25,11 +28,16 @@ public class AdminUserServiceImpl implements AdminUserServicePort {
     }
 
     @Override
-    public AdminUserResponse changeRole(Long userId, String role) {
+    @Transactional
+    public AdminUserResponse changeRole(Long userId, String role, Long actorId, String actorEmail) {
         RoleType roleType = RoleType.fromString(role);
         User user = userRepositoryPort.findById(userId)
                 .orElseThrow(() -> new AuthenticationException("Không tìm thấy người dùng"));
+        String previousRoles = user.getRoles() == null
+                ? ""
+                : user.getRoles().stream().map(Enum::name).sorted().collect(java.util.stream.Collectors.joining(","));
         userRepositoryPort.changeRole(user.getUserId(), roleType.getRawName());
+        auditServicePort.recordRoleChange(actorId, actorEmail, userId, previousRoles, roleType.getRawName());
         return toResponse(userRepositoryPort.findById(userId).orElse(user));
     }
 
