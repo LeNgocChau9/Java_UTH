@@ -29,4 +29,24 @@ public interface SpringDataUserRepository extends JpaRepository<UserEntity, Long
     void assignWorkspaceRole(@org.springframework.data.repository.query.Param("workspaceId") Long workspaceId,
                              @org.springframework.data.repository.query.Param("userId") Long userId,
                              @org.springframework.data.repository.query.Param("roleId") Long roleId);
+
+    @org.springframework.data.jpa.repository.Query(value = "SELECT role_id FROM roles WHERE role_name = :roleName", nativeQuery = true)
+    java.util.Optional<Long> findRoleIdByName(@org.springframework.data.repository.query.Param("roleName") String roleName);
+
+    @Modifying
+    @org.springframework.data.jpa.repository.Query(value = """
+        INSERT INTO workspace_members (workspace_id, user_id, role_id)
+        VALUES (:workspaceId, :userId, :roleId)
+        ON CONFLICT (workspace_id, user_id) DO UPDATE SET role_id = EXCLUDED.role_id
+    """, nativeQuery = true)
+    void upsertWorkspaceMemberRole(@org.springframework.data.repository.query.Param("workspaceId") Long workspaceId,
+                                   @org.springframework.data.repository.query.Param("userId") Long userId,
+                                   @org.springframework.data.repository.query.Param("roleId") Long roleId);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @org.springframework.data.jpa.repository.Query(value = """
+        UPDATE users SET status = :status, updated_at = CURRENT_TIMESTAMP WHERE user_id = :userId
+    """, nativeQuery = true)
+    void updateUserStatus(@org.springframework.data.repository.query.Param("userId") Long userId,
+                          @org.springframework.data.repository.query.Param("status") String status);
 }

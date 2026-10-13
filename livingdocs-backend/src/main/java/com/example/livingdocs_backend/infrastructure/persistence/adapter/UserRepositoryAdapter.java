@@ -49,6 +49,30 @@ public class UserRepositoryAdapter implements UserRepositoryPort {
         springDataUserRepository.assignWorkspaceRole(DEFAULT_WORKSPACE_ID, userId, DEFAULT_ROLE_ID);
     }
 
+    @Override
+    public java.util.List<User> findAll() {
+        return springDataUserRepository.findAll().stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public User updateStatus(Long userId, String status) {
+        springDataUserRepository.updateUserStatus(userId, status);
+        return springDataUserRepository.findById(userId)
+                .map(this::toDomain)
+                .orElseThrow(() -> new com.example.livingdocs_backend.domain.exception.AuthenticationException("Không tìm thấy người dùng"));
+    }
+
+    @Override
+    @Transactional
+    public void changeRole(Long userId, String roleName) {
+        Long roleId = springDataUserRepository.findRoleIdByName(roleName)
+                .orElseThrow(() -> new com.example.livingdocs_backend.domain.exception.AuthenticationException("Vai trò không hợp lệ: " + roleName));
+        springDataUserRepository.upsertWorkspaceMemberRole(DEFAULT_WORKSPACE_ID, userId, roleId);
+    }
+
     private User toDomain(UserEntity entity) {
         java.util.List<String> roleNames = springDataUserRepository.findRoleNamesByUserId(entity.getUserId());
         java.util.Set<com.example.livingdocs_backend.domain.model.RoleType> roles = new java.util.HashSet<>();

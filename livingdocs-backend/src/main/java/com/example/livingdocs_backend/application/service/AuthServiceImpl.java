@@ -5,6 +5,7 @@ import com.example.livingdocs_backend.application.dto.GitHubProfileRequest;
 import com.example.livingdocs_backend.application.dto.LoginRequest;
 import com.example.livingdocs_backend.application.dto.RegisterRequest;
 import com.example.livingdocs_backend.application.dto.UserProfileResponse;
+import com.example.livingdocs_backend.application.port.AuditServicePort;
 import com.example.livingdocs_backend.application.port.AuthServicePort;
 import com.example.livingdocs_backend.domain.exception.AuthenticationException;
 import com.example.livingdocs_backend.domain.exception.EmailAlreadyExistsException;
@@ -20,6 +21,7 @@ import org.springframework.stereotype.Service;
 public class AuthServiceImpl implements AuthServicePort {
 
     private final UserRepositoryPort userRepositoryPort;
+    private final AuditServicePort auditServicePort;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
 
@@ -52,15 +54,24 @@ public class AuthServiceImpl implements AuthServicePort {
     public AuthResponse login(LoginRequest request) {
         String email = request.getEmail().toLowerCase().trim();
         User user = userRepositoryPort.findByEmail(email)
-                .orElseThrow(() -> new AuthenticationException("Email hoặc mật khẩu không chính xác"));
+                .orElse(null);
+
+        if (user == null) {
+            auditServicePort.recordLogin(null, email, false);
+            throw new AuthenticationException("Email hoặc mật khẩu không chính xác");
+        }
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
+            auditServicePort.recordLogin(user.getUserId(), email, false);
             throw new AuthenticationException("Email hoặc mật khẩu không chính xác");
         }
 
         if (!"ACTIVE".equalsIgnoreCase(user.getStatus())) {
+            auditServicePort.recordLogin(user.getUserId(), email, false);
             throw new AuthenticationException("Tài khoản của bạn đã bị khóa hoặc chưa kích hoạt");
         }
+
+        auditServicePort.recordLogin(user.getUserId(), email, true);
 
         java.util.Set<String> roleStrings = user.getRoles() != null
                 ? user.getRoles().stream().map(Enum::name).collect(java.util.stream.Collectors.toSet())
@@ -80,6 +91,7 @@ public class AuthServiceImpl implements AuthServicePort {
     public AuthResponse loginWithGithub(GitHubProfileRequest request) {
         String email = request.getEmail() != null ? request.getEmail().toLowerCase().trim() : null;
         if (email == null || email.isBlank()) {
+            auditServicePort.recordLogin(null, email, false);
             throw new AuthenticationException("GitHub không cung cấp email để đăng nhập");
         }
 
@@ -101,6 +113,7 @@ public class AuthServiceImpl implements AuthServicePort {
             user = userRepositoryPort.findById(user.getUserId()).orElse(user);
         } else {
             if (!"ACTIVE".equalsIgnoreCase(user.getStatus())) {
+                auditServicePort.recordLogin(user.getUserId(), email, false);
                 throw new AuthenticationException("Tài khoản của bạn đã bị khóa hoặc chưa kích hoạt");
             }
             // Làm mới ảnh đại diện nếu GitHub có và khác ảnh hiện tại.
@@ -109,6 +122,8 @@ public class AuthServiceImpl implements AuthServicePort {
                 user = userRepositoryPort.save(user);
             }
         }
+
+        auditServicePort.recordLogin(user.getUserId(), email, true);
 
         java.util.Set<String> roleStrings = user.getRoles() != null
                 ? user.getRoles().stream().map(Enum::name).collect(java.util.stream.Collectors.toSet())

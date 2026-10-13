@@ -10,4 +10,7 @@ public interface UserRepositoryPort {
     boolean existsByEmail(String email);
     User save(User user);
     void assignDefaultWorkspaceRole(Long userId);
+    java.util.List<User> findAll();
+    User updateStatus(Long userId, String status);
+    void changeRole(Long userId, String roleName);
 }
