@@ -34,4 +34,20 @@ public interface RepositoryServicePort {
      * Lấy danh sách repositories thuộc về một workspace.
      */
     List<RepoResponse> listRepositories(Long workspaceId);
+
+    /**
+     * Lấy thông tin chi tiết một repository.
+     */
+    RepoResponse getRepository(Long repositoryId);
+
+    /**
+     * Lấy danh sách Pull Requests đã lưu trong database của repository.
+     */
+    List<com.example.livingdocs_backend.infrastructure.persistence.entity.PullRequestEntity> getRepoPullRequests(Long repositoryId);
+
+    /**
+     * Lấy danh sách Commits đã lưu trong database của repository.
+     */
+    List<com.example.livingdocs_backend.infrastructure.persistence.entity.CommitEntity> getRepoCommits(Long repositoryId);
 }
+
