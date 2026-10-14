@@ -40,21 +40,21 @@ export function Header({
   }
 
   return (
-    <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-line bg-ink/95 px-3 backdrop-blur-sm sm:px-5">
+    <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-[#e4eae6] bg-white/95 px-3 backdrop-blur-sm sm:px-5">
       <button
         type="button"
         onClick={onMenu}
-        className="grid size-10 place-items-center rounded-md text-slate-200 hover:bg-sheet lg:hidden"
+        className="grid size-10 place-items-center rounded-md text-[#526158] hover:bg-[#f2f6f3] lg:hidden"
         aria-label="Mở menu"
       >
         <Menu aria-hidden strokeWidth={1.75} className="size-5" />
       </button>
 
       <Link href="/" className="flex min-w-0 items-center gap-2">
-        <span className="grid size-9 shrink-0 place-items-center rounded-md border border-line bg-sheet text-sand">
+        <span className="grid size-9 shrink-0 place-items-center rounded-md border border-[#b8dec5] bg-[#eaf6ef] text-[#087f5b]">
           <BookOpen aria-hidden strokeWidth={1.75} className="size-4" />
         </span>
-        <span className="truncate font-display text-2xl tracking-[-0.03em] text-paper">
+        <span className="truncate font-display text-2xl tracking-[-0.03em] text-[#17231c]">
           LivingDocs
         </span>
       </Link>
@@ -66,19 +66,19 @@ export function Header({
             aria-label="Thông báo"
             aria-expanded={noticesOpen}
             onClick={() => setNoticesOpen((open) => !open)}
-            className="grid size-10 place-items-center rounded-md text-slate-200 hover:bg-sheet"
+            className="grid size-10 place-items-center rounded-md text-[#526158] hover:bg-[#f2f6f3]"
           >
             <BellIcon className="size-4" />
           </button>
           {noticesOpen ? (
-            <p className="absolute right-0 z-30 mt-2 w-56 rounded-md border border-line bg-sheet px-3 py-3 text-sm text-slate-300">
+            <p className="absolute right-0 z-30 mt-2 w-56 rounded-md border border-[#e4eae6] bg-white px-3 py-3 text-sm text-[#526158] shadow-lg">
               Chưa có thông báo mới.
             </p>
           ) : null}
         </div>
 
         <span
-          className="grid size-9 place-items-center overflow-hidden rounded-full border border-line bg-sheet text-xs font-medium text-paper"
+          className="grid size-9 place-items-center overflow-hidden rounded-full border border-[#e4eae6] bg-[#f2f6f3] text-xs font-medium text-[#17231c]"
           aria-label={user?.fullName ? `Ảnh đại diện ${user.fullName}` : "Ảnh đại diện"}
         >
           {user?.avatarUrl ? (
@@ -93,7 +93,7 @@ export function Header({
           <button
             type="button"
             onClick={logout}
-            className="inline-flex h-10 items-center gap-2 rounded-md px-2 text-sm text-slate-200 hover:bg-sheet sm:px-3"
+            className="inline-flex h-10 items-center gap-2 rounded-md px-2 text-sm text-[#526158] hover:bg-[#f2f6f3] sm:px-3"
           >
             <LogOut aria-hidden strokeWidth={1.75} className="size-4" />
             <span className="hidden sm:inline">Đăng xuất</span>
@@ -101,7 +101,7 @@ export function Header({
         ) : (
           <Link
             href="/login"
-            className="inline-flex h-10 items-center rounded-md px-3 text-sm text-sand hover:bg-sheet"
+            className="inline-flex h-10 items-center rounded-md px-3 text-sm font-medium text-[#087f5b] hover:bg-[#eaf6ef]"
           >
             Đăng nhập
           </Link>
