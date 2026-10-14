@@ -58,4 +58,24 @@ public class RepositoryController {
         List<RepoResponse> list = repositoryService.listRepositories(workspaceId);
         return ResponseEntity.ok(list);
     }
+
+    @GetMapping("/{id}")
+    @Operation(summary = "Lấy chi tiết một Repository theo ID")
+    public ResponseEntity<RepoResponse> getRepository(@PathVariable("id") Long id) {
+        RepoResponse repo = repositoryService.getRepository(id);
+        return ResponseEntity.ok(repo);
+    }
+
+    @GetMapping("/{id}/pulls")
+    @Operation(summary = "Lấy danh sách PR đã lưu của Repository")
+    public ResponseEntity<List<com.example.livingdocs_backend.infrastructure.persistence.entity.PullRequestEntity>> getPullRequests(@PathVariable("id") Long id) {
+        return ResponseEntity.ok(repositoryService.getRepoPullRequests(id));
+    }
+
+    @GetMapping("/{id}/commits")
+    @Operation(summary = "Lấy danh sách Commits đã lưu của Repository")
+    public ResponseEntity<List<com.example.livingdocs_backend.infrastructure.persistence.entity.CommitEntity>> getCommits(@PathVariable("id") Long id) {
+        return ResponseEntity.ok(repositoryService.getRepoCommits(id));
+    }
 }
+

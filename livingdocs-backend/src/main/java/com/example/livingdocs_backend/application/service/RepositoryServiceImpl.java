@@ -124,6 +124,27 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
                 .toList();
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public RepoResponse getRepository(Long repositoryId) {
+        RepositoryEntity repo = repositoryRepository.findById(repositoryId)
+                .orElseThrow(() -> new GitHubApiException("Không tìm thấy repository với ID: " + repositoryId, 404));
+        return mapToRepoResponse(repo);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PullRequestEntity> getRepoPullRequests(Long repositoryId) {
+        return pullRequestRepository.findByRepositoryId(repositoryId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<CommitEntity> getRepoCommits(Long repositoryId) {
+        return commitRepository.findByRepositoryId(repositoryId);
+    }
+
+
     private int syncPullRequests(RepositoryEntity repo, String token, String owner, String repoName) {
         List<GitHubPullRequestDto> prs;
         try {
