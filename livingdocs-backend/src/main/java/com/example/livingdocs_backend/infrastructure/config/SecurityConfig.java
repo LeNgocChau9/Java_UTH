@@ -56,7 +56,8 @@ public class SecurityConfig {
                     "/api/auth/login",
                     "/api/auth/github",
                     "/api/auth/github/callback",
-                    "/api/jobs/**"
+                     "/api/jobs/**",
+                    "/api/templates/**"
                 ).permitAll()
                 .requestMatchers("/api/me").authenticated()
                 .anyRequest().authenticated()
