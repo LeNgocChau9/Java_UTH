@@ -101,6 +101,38 @@ public class DocumentController {
         return ResponseEntity.ok(documentServicePort.verifyIntegrity(docId));
     }
 
+    @PostMapping("/{docId}/rollback/{targetVersion}")
+    @Operation(summary = "Khôi phục tài liệu về phiên bản chỉ định", description = "Khôi phục nội dung tài liệu về một phiên bản chỉ định trong quá khứ. Tự động tạo phiên bản mới tiếp theo để bảo toàn tính bất biến và toàn vẹn chuỗi băm lịch sử.")
+    public ResponseEntity<RollbackResponse> rollbackToVersion(
+            @PathVariable Long docId,
+            @PathVariable Integer targetVersion,
+            @RequestParam(required = false) String reason,
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+
+        Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
+        String actorRole = extractRole(userPrincipal);
+
+        RollbackResponse response = documentServicePort.rollbackToVersion(
+                docId, targetVersion, reason, actorId, actorRole);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/{docId}/rollback")
+    @Operation(summary = "Khôi phục tài liệu về phiên bản chỉ định (qua Request Body)", description = "Khôi phục nội dung tài liệu với tham số chi tiết trong Request Body bao gồm số phiên bản mục tiêu, lý do khôi phục và vai trò thực hiện.")
+    public ResponseEntity<RollbackResponse> rollbackWithBody(
+            @PathVariable Long docId,
+            @Valid @RequestBody RollbackDocumentRequest request,
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+
+        Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
+        String actorRole = (request.getActorRole() != null && !request.getActorRole().isBlank())
+                ? request.getActorRole() : extractRole(userPrincipal);
+
+        RollbackResponse response = documentServicePort.rollbackToVersion(
+                docId, request.getTargetVersion(), request.getReason(), actorId, actorRole);
+        return ResponseEntity.ok(response);
+    }
+
     private String extractRole(UserPrincipal userPrincipal) {
         if (userPrincipal == null || userPrincipal.getAuthorities() == null || userPrincipal.getAuthorities().isEmpty()) {
             return "DEV";

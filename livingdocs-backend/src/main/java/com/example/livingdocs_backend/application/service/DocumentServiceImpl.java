@@ -297,6 +297,73 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 .build();
     }
 
+    @Override
+    @Transactional
+    public RollbackResponse rollbackToVersion(Long docId, Integer targetVersion, String reason, Long actorId, String actorRole) {
+        if (targetVersion == null || targetVersion < 1) {
+            throw new IllegalArgumentException("Phiên bản mục tiêu để khôi phục không hợp lệ: " + targetVersion);
+        }
+
+        Document document = documentRepositoryPort.findById(docId)
+                .orElseThrow(() -> new DocumentNotFoundException(docId));
+
+        // 1. Tìm phiên bản mục tiêu cần khôi phục
+        DocumentVersion targetVersionEntity = documentVersionRepositoryPort.findByDocIdAndVersionNum(docId, targetVersion)
+                .orElseThrow(() -> new DocumentVersionNotFoundException(docId, targetVersion));
+
+        // 2. Lấy hash của phiên bản mới nhất hiện tại để kế thừa prev_hash
+        String prevHash = documentVersionRepositoryPort.findLatestByDocId(docId)
+                .map(DocumentVersion::getHash)
+                .orElse(HashUtils.GENESIS_HASH);
+
+        int nextVersionNum = document.getCurrentVersion() != null ? document.getCurrentVersion() + 1 : targetVersion + 1;
+
+        ActorRole role = resolveActorRole(actorRole, null);
+        String triggerType = "ROLLBACK_TO_V" + targetVersion;
+
+        // 3. Tính toán mã băm mới cho phiên bản rollback
+        String newHash = HashUtils.calculateVersionHash(
+                prevHash,
+                nextVersionNum,
+                targetVersionEntity.getContent(),
+                role.name(),
+                triggerType
+        );
+
+        // 4. Lưu bản ghi DocumentVersion mới (Bảo toàn tính bất biến - không xóa lịch sử)
+        DocumentVersion newVersion = DocumentVersion.builder()
+                .docId(docId)
+                .versionNum(nextVersionNum)
+                .content(targetVersionEntity.getContent())
+                .actorRole(role)
+                .triggerType(triggerType)
+                .prevHash(prevHash)
+                .hash(newHash)
+                .createdAt(Instant.now())
+                .build();
+        DocumentVersion savedVersion = documentVersionRepositoryPort.save(newVersion);
+
+        // 5. Cập nhật current_version của Document
+        document.setCurrentVersion(nextVersionNum);
+        document.setUpdatedAt(Instant.now());
+        documentRepositoryPort.save(document);
+
+        log.info("Đã khôi phục tài liệu ID: {} về phiên bản v{} -> Tạo phiên bản mới v{} (Hash: {}, PrevHash: {}) bởi actor: {}",
+                docId, targetVersion, nextVersionNum, newHash, prevHash, actorId);
+
+        String msgReason = (reason != null && !reason.isBlank()) ? " (Lý do: " + reason + ")" : "";
+        String message = "Đã khôi phục thành công tài liệu về nội dung của phiên bản v" + targetVersion
+                + ", tạo phiên bản mới v" + nextVersionNum + " để bảo đảm toàn vẹn chuỗi băm lịch sử" + msgReason + ".";
+
+        return RollbackResponse.builder()
+                .docId(docId)
+                .targetVersion(targetVersion)
+                .newVersion(nextVersionNum)
+                .message(message)
+                .version(toVersionResponse(savedVersion))
+                .build();
+    }
+
     private ActorRole resolveActorRole(String requestRole, String tokenRole) {
         if (requestRole != null && !requestRole.isBlank()) {
             return ActorRole.fromString(requestRole);
