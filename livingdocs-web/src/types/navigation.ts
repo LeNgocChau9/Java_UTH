@@ -26,5 +26,6 @@ export type NavItem = {
     | "graph"
     | "users"
     | "settings"
-    | "activity";
+    | "activity"
+    | "tree";
 };

@@ -33,6 +33,7 @@ const ICONS: Record<NavItem["icon"], LucideIcon> = {
   users: Users,
   settings: Settings,
   activity: Activity,
+  tree: GitFork,
 };
 
 export function NavIcon({

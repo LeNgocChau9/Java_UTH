@@ -65,6 +65,12 @@ const NAV: NavItem[] = [
     roles: ["DEVELOPER"],
   },
   {
+    href: "/cay-ma-nguon",
+    label: "Cây mã nguồn & AST",
+    icon: <GitFork size={16} />,
+    roles: ["DEVELOPER", "TECH_LEAD"],
+  },
+  {
     href: "/yeu-cau-sinh-tai-lieu",
     label: "Sinh tài liệu AI",
     icon: <Sparkles size={16} />,
