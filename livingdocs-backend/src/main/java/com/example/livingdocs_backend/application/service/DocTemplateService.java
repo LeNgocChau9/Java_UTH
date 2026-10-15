@@ -2,6 +2,8 @@ package com.example.livingdocs_backend.application.service;
 
 import com.example.livingdocs_backend.application.dto.DocTemplateRequest;
 import com.example.livingdocs_backend.application.dto.DocTemplateResponse;
+import com.example.livingdocs_backend.application.dto.TemplatePreviewRequest;
+import com.example.livingdocs_backend.application.dto.TemplatePreviewResponse;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocTemplate;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.DocTemplateRepository;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +19,7 @@ import java.util.List;
 public class DocTemplateService {
 
     private final DocTemplateRepository docTemplateRepository;
+    private final TemplateMarkdownRenderer templateMarkdownRenderer;
 
     @Transactional(readOnly = true)
     public List<DocTemplateResponse> list() {
@@ -59,6 +62,22 @@ public class DocTemplateService {
         template.setStructureJson(request.getStructureJson());
         template.setIsDefault(Boolean.TRUE.equals(request.getIsDefault()));
         return DocTemplateResponse.from(docTemplateRepository.save(template));
+    }
+
+    @Transactional(readOnly = true)
+    public TemplatePreviewResponse preview(Long id, TemplatePreviewRequest request) {
+        DocTemplate template = findOrThrow(id);
+        try {
+            String markdown = templateMarkdownRenderer.render(template.getName(), template.getStructureJson(), request);
+            return TemplatePreviewResponse.builder()
+                    .templateId(template.getId())
+                    .templateName(template.getName())
+                    .templateType(template.getType())
+                    .markdown(markdown)
+                    .build();
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
+        }
     }
 
     @Transactional

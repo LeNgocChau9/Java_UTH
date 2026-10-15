@@ -4,11 +4,13 @@ import com.example.livingdocs_backend.domain.exception.AuthenticationException;
 import com.example.livingdocs_backend.domain.exception.EmailAlreadyExistsException;
 import com.example.livingdocs_backend.domain.exception.InvalidDocumentStatusTransitionException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -35,6 +37,17 @@ public class GlobalExceptionHandler {
         error.put("message", ex.getMessage());
         error.put("timestamp", Instant.now().toString());
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<Map<String, Object>> handleResponseStatusException(ResponseStatusException ex) {
+        HttpStatusCode status = ex.getStatusCode();
+        Map<String, Object> error = new HashMap<>();
+        error.put("status", status.value());
+        error.put("error", HttpStatus.valueOf(status.value()).getReasonPhrase());
+        error.put("message", ex.getReason() != null ? ex.getReason() : status.toString());
+        error.put("timestamp", Instant.now().toString());
+        return ResponseEntity.status(status).body(error);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

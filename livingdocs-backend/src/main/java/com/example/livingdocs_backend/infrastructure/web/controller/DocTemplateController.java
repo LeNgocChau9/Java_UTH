@@ -2,6 +2,8 @@ package com.example.livingdocs_backend.infrastructure.web.controller;
 
 import com.example.livingdocs_backend.application.dto.DocTemplateRequest;
 import com.example.livingdocs_backend.application.dto.DocTemplateResponse;
+import com.example.livingdocs_backend.application.dto.TemplatePreviewRequest;
+import com.example.livingdocs_backend.application.dto.TemplatePreviewResponse;
 import com.example.livingdocs_backend.application.service.DocTemplateService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -51,6 +53,14 @@ public class DocTemplateController {
     public ResponseEntity<DocTemplateResponse> update(@PathVariable Long id,
                                                       @Valid @RequestBody DocTemplateRequest request) {
         return ResponseEntity.ok(docTemplateService.update(id, request));
+    }
+
+    @PostMapping("/{id}/preview")
+    @Operation(summary = "Xem trước mẫu với dữ liệu giả",
+            description = "Nhận class name và danh sách method, điền vào structure của template rồi trả Markdown.")
+    public ResponseEntity<TemplatePreviewResponse> preview(@PathVariable Long id,
+                                                           @Valid @RequestBody TemplatePreviewRequest request) {
+        return ResponseEntity.ok(docTemplateService.preview(id, request));
     }
 
     @DeleteMapping("/{id}")

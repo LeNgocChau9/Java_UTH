@@ -6,6 +6,7 @@ import com.example.livingdocs_backend.application.port.CodeIndexServicePort;
 import com.example.livingdocs_backend.domain.model.CodeEntity;
 import com.example.livingdocs_backend.domain.repository.CodeEntityRepositoryPort;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -27,6 +28,7 @@ public class CodeIndexService implements CodeIndexServicePort {
     private final CodeEntityRepositoryPort codeEntityRepository;
     private final RestClient restClient;
 
+    @Autowired
     public CodeIndexService(
             CodeEntityRepositoryPort codeEntityRepository,
             @Value("${ai.engine.url:http://localhost:8000}") String aiEngineUrl
