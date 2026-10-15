@@ -47,4 +47,11 @@ public interface DocumentServicePort {
      * để chứng minh lịch sử phiên bản chưa từng bị chỉnh sửa trái phép trong CSDL.
      */
     IntegrityCheckResponse verifyIntegrity(Long docId);
+
+    /**
+     * Khôi phục (Rollback) tài liệu về một phiên bản chỉ định.
+     * Tạo ra một phiên bản mới kế tiếp với nội dung của phiên bản mục tiêu,
+     * liên kết nối tiếp chuỗi băm (hash chain) để đảm bảo lịch sử bất biến và toàn vẹn.
+     */
+    RollbackResponse rollbackToVersion(Long docId, Integer targetVersion, String reason, Long actorId, String actorRole);
 }
