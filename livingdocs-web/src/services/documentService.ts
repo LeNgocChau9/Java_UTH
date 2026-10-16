@@ -1,0 +1,110 @@
+import { apiClient } from "./apiClient";
+import type {
+  CreateDocumentPayload,
+  DocCollection,
+  DocumentDetail,
+  DocumentItem,
+  IntegrityCheckResult,
+  UpdateDocumentPayload,
+} from "@/types/document";
+
+export const documentService = {
+  /**
+   * Lấy danh sách tài liệu, hỗ trợ lọc theo collectionId hoặc repoId
+   */
+  async getDocuments(params?: {
+    collectionId?: number;
+    repoId?: number;
+  }): Promise<DocumentItem[]> {
+    const res = await apiClient.get<DocumentItem[]>("/api/documents", {
+      params,
+    });
+    return res.data;
+  },
+
+  /**
+   * Lấy chi tiết tài liệu kèm nội dung mới nhất và lịch sử các phiên bản
+   */
+  async getDocumentById(docId: number): Promise<DocumentDetail> {
+    const res = await apiClient.get<DocumentDetail>(`/api/documents/${docId}`);
+    return res.data;
+  },
+
+  /**
+   * Tạo tài liệu mới và tự động sinh phiên bản Genesis v1
+   */
+  async createDocument(payload: CreateDocumentPayload): Promise<DocumentItem> {
+    const res = await apiClient.post<DocumentItem>("/api/documents", payload);
+    return res.data;
+  },
+
+  /**
+   * Cập nhật tài liệu và tự động tạo phiên bản tiếp theo v(N+1) kèm chuỗi băm
+   */
+  async updateDocument(
+    docId: number,
+    payload: UpdateDocumentPayload
+  ): Promise<DocumentItem> {
+    const res = await apiClient.put<DocumentItem>(
+      `/api/documents/${docId}`,
+      payload
+    );
+    return res.data;
+  },
+
+  /**
+   * Xóa tài liệu
+   */
+  async deleteDocument(docId: number): Promise<void> {
+    await apiClient.delete(`/api/documents/${docId}`);
+  },
+
+  /**
+   * Gửi tài liệu để review (chuyển trạng thái từ DRAFT -> UNDER_REVIEW_STAFF)
+   */
+  async submitForReview(docId: number): Promise<DocumentItem> {
+    const res = await apiClient.post<DocumentItem>(
+      `/api/documents/${docId}/submit-review`
+    );
+    return res.data;
+  },
+
+  /**
+   * Xác thực tính toàn vẹn chuỗi băm SHA-256
+   */
+  async verifyIntegrity(docId: number): Promise<IntegrityCheckResult> {
+    const res = await apiClient.get<IntegrityCheckResult>(
+      `/api/documents/${docId}/verify-integrity`
+    );
+    return res.data;
+  },
+
+  /**
+   * Lấy danh sách toàn bộ các bộ sưu tập tài liệu
+   */
+  async getCollections(): Promise<DocCollection[]> {
+    const res = await apiClient.get<DocCollection[]>("/api/collections");
+    return res.data;
+  },
+
+  /**
+   * Tạo bộ sưu tập mới
+   */
+  async createCollection(payload: {
+    name: string;
+    description?: string;
+  }): Promise<DocCollection> {
+    const res = await apiClient.post<DocCollection>(
+      "/api/collections",
+      payload
+    );
+    return res.data;
+  },
+
+  /**
+   * Xóa bộ sưu tập
+   */
+  async deleteCollection(id: number): Promise<void> {
+    await apiClient.delete(`/api/collections/${id}`);
+  },
+};

@@ -43,6 +43,12 @@ public interface DocumentServicePort {
     DocumentVersionResponse getDocumentVersion(Long docId, Integer versionNum);
 
     /**
+     * Gửi tài liệu để review: Chuyển trạng thái từ DRAFT sang UNDER_REVIEW_STAFF
+     * theo đúng quy tắc kiểm soát của DocumentStateMachine.
+     */
+    DocumentResponse submitForReview(Long docId, Long actorId);
+
+    /**
      * Kiểm tra tính toàn vẹn chuỗi băm (Hash Chain Integrity Verification)
      * để chứng minh lịch sử phiên bản chưa từng bị chỉnh sửa trái phép trong CSDL.
      */
