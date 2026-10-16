@@ -52,6 +52,17 @@ public class DocumentController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/{docId}/submit-review")
+    @Operation(summary = "Gửi tài liệu để review", description = "Chuyển trạng thái tài liệu từ DRAFT sang UNDER_REVIEW_STAFF tuân theo máy trạng thái.")
+    public ResponseEntity<DocumentResponse> submitForReview(
+            @PathVariable Long docId,
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+
+        Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
+        DocumentResponse response = documentServicePort.submitForReview(docId, actorId);
+        return ResponseEntity.ok(response);
+    }
+
     @GetMapping("/{docId}")
     @Operation(summary = "Xem chi tiết tài liệu", description = "Lấy thông tin tài liệu kèm nội dung phiên bản mới nhất và danh sách các phiên bản trong lịch sử.")
     public ResponseEntity<DocumentDetailResponse> getDocument(@PathVariable Long docId) {

@@ -8,6 +8,7 @@ import com.example.livingdocs_backend.domain.exception.DocumentVersionNotFoundEx
 import com.example.livingdocs_backend.domain.model.ActorRole;
 import com.example.livingdocs_backend.domain.model.Document;
 import com.example.livingdocs_backend.domain.model.DocumentStatus;
+import com.example.livingdocs_backend.domain.model.DocumentStateMachine;
 import com.example.livingdocs_backend.domain.model.DocumentVersion;
 import com.example.livingdocs_backend.domain.repository.DocumentRepositoryPort;
 import com.example.livingdocs_backend.domain.repository.DocumentVersionRepositoryPort;
@@ -228,6 +229,25 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 .orElseThrow(() -> new DocumentVersionNotFoundException(docId, versionNum));
 
         return toVersionResponse(version);
+    }
+
+    @Override
+    @Transactional
+    public DocumentResponse submitForReview(Long docId, Long actorId) {
+        Document document = documentRepositoryPort.findById(docId)
+                .orElseThrow(() -> new DocumentNotFoundException(docId));
+
+        DocumentStatus currentStatus = document.getStatus() != null ? document.getStatus() : DocumentStatus.DRAFT;
+        DocumentStatus nextStatus = DocumentStateMachine.transition(currentStatus, DocumentStatus.UNDER_REVIEW_STAFF);
+
+        document.setStatus(nextStatus);
+        document.setUpdatedAt(Instant.now());
+        Document saved = documentRepositoryPort.save(document);
+
+        DocumentVersion latest = documentVersionRepositoryPort.findLatestByDocId(docId).orElse(null);
+        log.info("Tài liệu ID: {} đã được chuyển trạng thái sang {} bởi actor: {}", docId, nextStatus, actorId);
+
+        return toDocumentResponse(saved, latest);
     }
 
     @Override
