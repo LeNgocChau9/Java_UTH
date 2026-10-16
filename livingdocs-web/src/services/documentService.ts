@@ -4,7 +4,9 @@ import type {
   DocCollection,
   DocumentDetail,
   DocumentItem,
+  DocumentVersionItem,
   IntegrityCheckResult,
+  RollbackResponse,
   UpdateDocumentPayload,
 } from "@/types/document";
 
@@ -78,6 +80,48 @@ export const documentService = {
     );
     return res.data;
   },
+
+  /**
+   * Lấy danh sách toàn bộ phiên bản của tài liệu (từ mới nhất đến cũ nhất)
+   */
+  async getDocumentVersions(docId: number): Promise<DocumentVersionItem[]> {
+    const res = await apiClient.get<DocumentVersionItem[]>(
+      `/api/documents/${docId}/versions`
+    );
+    return res.data;
+  },
+
+  /**
+   * Lấy chi tiết và nội dung của một phiên bản cụ thể
+   */
+  async getDocumentVersion(
+    docId: number,
+    versionNum: number
+  ): Promise<DocumentVersionItem> {
+    const res = await apiClient.get<DocumentVersionItem>(
+      `/api/documents/${docId}/versions/${versionNum}`
+    );
+    return res.data;
+  },
+
+  /**
+   * Khôi phục tài liệu về phiên bản chỉ định (tạo phiên bản mới bảo toàn chuỗi băm)
+   */
+  async rollbackToVersion(
+    docId: number,
+    payload: {
+      targetVersion: number;
+      reason?: string;
+      actorRole?: string;
+    }
+  ): Promise<RollbackResponse> {
+    const res = await apiClient.post<RollbackResponse>(
+      `/api/documents/${docId}/rollback`,
+      payload
+    );
+    return res.data;
+  },
+
 
   /**
    * Lấy danh sách toàn bộ các bộ sưu tập tài liệu

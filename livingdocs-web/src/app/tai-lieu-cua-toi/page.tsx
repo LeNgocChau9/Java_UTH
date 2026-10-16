@@ -24,6 +24,7 @@ import {
   Send,
   Layers,
   X,
+  History,
 } from "lucide-react";
 
 const STATUS_CONFIG: Record<
@@ -758,6 +759,17 @@ function DocumentListPageContent() {
                       <span>Gửi review</span>
                     </button>
                   )}
+
+                  {/* Nút Xem Lịch sử & So sánh Diff */}
+                  <Link
+                    href={`/tai-lieu-cua-toi/lich-su?docId=${doc.docId}`}
+                    className="ld-btn ld-btn-ghost ld-btn-sm"
+                    style={{ color: "var(--color-accent)", fontWeight: 500 }}
+                    title="Xem toàn bộ lịch sử các phiên bản và màn hình so sánh Diff song song"
+                  >
+                    <History size={13} />
+                    <span>Lịch sử & Diff</span>
+                  </Link>
 
                   {/* Nút Soạn thảo (Mở Split-View Editor) */}
                   <Link

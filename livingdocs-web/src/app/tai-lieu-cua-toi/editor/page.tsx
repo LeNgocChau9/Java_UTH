@@ -37,6 +37,7 @@ import {
   FileText,
   ShieldCheck,
   ChevronDown,
+  History,
 } from "lucide-react";
 
 const SAMPLE_MARKDOWN = `# Tài liệu Kiến trúc Hệ thống LivingDocs
@@ -503,6 +504,19 @@ function EditorContent() {
                 : status}
               {" · v" + currentVersion}
             </span>
+
+            {/* NÚT XEM LỊCH SỬ & SO SÁNH DIFF */}
+            {docId && (
+              <Link
+                href={`/tai-lieu-cua-toi/lich-su?docId=${docId}`}
+                className="ld-btn ld-btn-ghost"
+                style={{ color: "var(--color-accent)", fontWeight: 500 }}
+                title="Xem lịch sử các phiên bản và so sánh Diff song song"
+              >
+                <History size={15} />
+                <span>Lịch sử & Diff</span>
+              </Link>
+            )}
 
             {/* NÚT LƯU NHÁP */}
             <button
