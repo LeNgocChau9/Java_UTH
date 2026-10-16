@@ -70,3 +70,18 @@ export interface IntegrityCheckResult {
   message: string;
   issues: string[];
 }
+
+export interface RollbackResponse {
+  docId: number;
+  targetVersion: number;
+  newVersion: number;
+  message: string;
+  version?: DocumentVersionItem;
+}
+
+export interface RollbackRequestPayload {
+  targetVersion: number;
+  reason?: string;
+  actorRole?: string;
+}
+

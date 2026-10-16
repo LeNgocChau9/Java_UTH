@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
 import {
   GitBranch,
   Sparkles,
-  ChevronDown,
   Loader2,
   CheckCircle,
   Info,
@@ -229,9 +229,9 @@ export default function YeuCauSinhPage() {
                 <strong style={{ color: "#0f172a" }}>{repo}</strong>. Bản nháp
                 đang chờ Staff xem xét.
               </p>
-              <a href="/tai-lieu-cua-toi" className="ld-btn ld-btn-secondary ld-btn-sm">
+              <Link href="/tai-lieu-cua-toi" className="ld-btn ld-btn-secondary ld-btn-sm">
                 Xem tài liệu của tôi →
-              </a>
+              </Link>
             </div>
           )}
 
