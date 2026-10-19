@@ -9,6 +9,7 @@ from app.schemas.ai_schemas import (
 )
 from app.services.mock_ai_service import MockAIService
 from app.services.tree_sitter_ast_parser import parse_java_with_treesitter
+from app.services.gemini_doc_service import GeminiDocService
 
 router = APIRouter(prefix="/v1", tags=["AI Engine Endpoints"])
 
@@ -96,5 +97,6 @@ async def generate_doc(request: DocGenerateRequest):
     settings = get_settings()
     if settings.mode.lower() == "mock":
         return MockAIService.generate_doc(request)
-    # TODO S3-08: Tích hợp Gemini LLM thật khi MODE=real
-    return MockAIService.generate_doc(request)
+
+    # MODE=real (Task #81): Gọi Google Gemini API thật
+    return GeminiDocService.generate_documentation(request)
