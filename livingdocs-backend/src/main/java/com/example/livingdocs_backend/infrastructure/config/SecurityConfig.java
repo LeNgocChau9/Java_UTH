@@ -60,7 +60,8 @@ public class SecurityConfig {
                     "/api/templates/**",
                     "/api/documents/**",
                     "/api/collections/**",
-                    "/api/repositories/**"
+                    "/api/repositories/**",
+                    "/api/webhooks/**"
                 ).permitAll()
                 .requestMatchers("/api/me").authenticated()
                 .anyRequest().authenticated()
