@@ -63,6 +63,18 @@ public class DocumentController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/{docId}/staff-review")
+    @Operation(summary = "Staff đánh giá tài liệu (Chuyển Manager hoặc Từ chối)", description = "Staff gửi nhận xét đánh giá để chuyển tài liệu sang UNDER_REVIEW_MANAGER hoặc REJECTED.")
+    public ResponseEntity<DocumentResponse> processStaffReview(
+            @PathVariable Long docId,
+            @RequestBody(required = false) StaffReviewDecisionRequest request,
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+
+        Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
+        DocumentResponse response = documentServicePort.processStaffReview(docId, request, actorId);
+        return ResponseEntity.ok(response);
+    }
+
     @GetMapping("/{docId}")
     @Operation(summary = "Xem chi tiết tài liệu", description = "Lấy thông tin tài liệu kèm nội dung phiên bản mới nhất và danh sách các phiên bản trong lịch sử.")
     public ResponseEntity<DocumentDetailResponse> getDocument(@PathVariable Long docId) {
