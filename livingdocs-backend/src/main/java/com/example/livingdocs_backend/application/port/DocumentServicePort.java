@@ -60,4 +60,11 @@ public interface DocumentServicePort {
      * liên kết nối tiếp chuỗi băm (hash chain) để đảm bảo lịch sử bất biến và toàn vẹn.
      */
     RollbackResponse rollbackToVersion(Long docId, Integer targetVersion, String reason, Long actorId, String actorRole);
+
+    /**
+     * Xử lý phê duyệt hoặc từ chối tài liệu bởi Staff (Role Level 1).
+     * - APPROVE: Chuyển sang UNDER_REVIEW_MANAGER
+     * - REJECT: Chuyển sang REJECTED kèm lý do/nhận xét gửi lại cho tác giả.
+     */
+    DocumentResponse processStaffReview(Long docId, StaffReviewDecisionRequest request, Long actorId);
 }

@@ -72,6 +72,22 @@ export const documentService = {
   },
 
   /**
+   * Staff phê duyệt hoặc từ chối tài liệu:
+   * - decision: "APPROVE" -> Chuyển sang UNDER_REVIEW_MANAGER
+   * - decision: "REJECT" -> Chuyển sang REJECTED kèm lý do/nhận xét
+   */
+  async processStaffReview(
+    docId: number,
+    payload: { decision: "APPROVE" | "REJECT"; comment?: string }
+  ): Promise<DocumentItem> {
+    const res = await apiClient.post<DocumentItem>(
+      `/api/documents/${docId}/staff-review`,
+      payload
+    );
+    return res.data;
+  },
+
+  /**
    * Xác thực tính toàn vẹn chuỗi băm SHA-256
    */
   async verifyIntegrity(docId: number): Promise<IntegrityCheckResult> {

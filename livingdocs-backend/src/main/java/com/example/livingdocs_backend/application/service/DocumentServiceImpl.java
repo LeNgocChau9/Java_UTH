@@ -251,6 +251,32 @@ public class DocumentServiceImpl implements DocumentServicePort {
     }
 
     @Override
+    @Transactional
+    public DocumentResponse processStaffReview(Long docId, StaffReviewDecisionRequest request, Long actorId) {
+        Document document = documentRepositoryPort.findById(docId)
+                .orElseThrow(() -> new DocumentNotFoundException(docId));
+
+        DocumentStatus currentStatus = document.getStatus() != null ? document.getStatus() : DocumentStatus.UNDER_REVIEW_STAFF;
+        String decisionStr = request != null && request.getDecision() != null ? request.getDecision().trim().toUpperCase() : "APPROVE";
+
+        DocumentStatus targetStatus = "REJECT".equals(decisionStr) || "REJECTED".equals(decisionStr)
+                ? DocumentStatus.REJECTED
+                : DocumentStatus.UNDER_REVIEW_MANAGER;
+
+        DocumentStatus nextStatus = DocumentStateMachine.transition(currentStatus, targetStatus);
+
+        document.setStatus(nextStatus);
+        document.setUpdatedAt(Instant.now());
+        Document saved = documentRepositoryPort.save(document);
+
+        DocumentVersion latest = documentVersionRepositoryPort.findLatestByDocId(docId).orElse(null);
+        log.info("Staff (actor: {}) đã xem xét tài liệu ID: {} -> Kết quả: {}, Trạng thái mới: {}, Ghi chú: {}",
+                actorId, docId, decisionStr, nextStatus, request != null ? request.getComment() : "");
+
+        return toDocumentResponse(saved, latest);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public IntegrityCheckResponse verifyIntegrity(Long docId) {
         if (!documentRepositoryPort.existsById(docId)) {

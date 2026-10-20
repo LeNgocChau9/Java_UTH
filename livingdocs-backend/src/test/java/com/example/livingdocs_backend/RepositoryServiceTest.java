@@ -41,8 +41,7 @@ class RepositoryServiceTest {
         repositoryRepository = mock(SpringDataRepositoryRepository.class);
         pullRequestRepository = mock(SpringDataPullRequestRepository.class);
         commitRepository = mock(SpringDataCommitRepository.class);
-        gitHubConnectionRepository = mock(SpringDataGitHubConnectionRepository.class);
-        gitHubClient = mock(GitHubClientPortPort.class != null ? GitHubClientPort.class : GitHubClientPort.class);
+        gitHubClient = mock(GitHubClientPort.class);
 
         repositoryService = new RepositoryServiceImpl(
                 repositoryRepository,
