@@ -1,71 +1,80 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { AppShell } from "@/components/AppShell";
+import { documentService } from "@/services/documentService";
+import { repoService, type RepoItem } from "@/services/repoService";
+import type { DocumentItem, DocumentDetail } from "@/types/document";
 import {
   CheckCircle,
   XCircle,
   FileText,
   GitBranch,
-  User,
   Clock,
   Eye,
   MessageSquare,
   ChevronRight,
+  RefreshCw,
+  AlertCircle,
 } from "lucide-react";
 
-const PENDING = [
-  {
-    id: 201,
-    title: "AuthService API Reference v3.2",
-    repo: "livingdocs-backend",
-    submittedBy: "dev01@company.com",
-    reviewedBy: "staff01@company.com",
-    submittedAt: "Hôm nay, 08:00",
-    type: "api",
-    wordCount: 1240,
-    staffNote: "Nội dung rõ ràng, đầy đủ ví dụ. Đề xuất duyệt.",
-    aiScore: 87,
-  },
-  {
-    id: 202,
-    title: "Notification Service Docs v1.1",
-    repo: "notification-svc",
-    submittedBy: "dev02@company.com",
-    reviewedBy: "staff01@company.com",
-    submittedAt: "Hôm nay, 09:30",
-    type: "api",
-    wordCount: 860,
-    staffNote: "Ổn, đã thêm ghi chú về rate limit.",
-    aiScore: 72,
-  },
-  {
-    id: 203,
-    title: "Database Schema v3 Guide",
-    repo: "livingdocs-backend",
-    submittedBy: "dev04@company.com",
-    reviewedBy: "staff02@company.com",
-    submittedAt: "Hôm qua",
-    type: "architecture",
-    wordCount: 1780,
-    staffNote: "",
-    aiScore: 79,
-  },
-];
-
-const TYPE_LABEL: Record<string, string> = {
-  api: "API Reference", module: "Module Guide", changelog: "Changelog", architecture: "Architecture", readme: "README",
-};
-
-function ApprovalCard({ doc }: { doc: (typeof PENDING)[0] }) {
+function ApprovalCard({
+  doc,
+  repoName,
+  onActionComplete,
+}: {
+  doc: DocumentItem;
+  repoName: string;
+  onActionComplete: () => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [managerNote, setManagerNote] = useState("");
-  const [decision, setDecision] = useState<"approved" | "rejected" | null>(null);
+  const [loadingAction, setLoadingAction] = useState<"APPROVE" | "REJECT" | null>(null);
+  const [decisionDone, setDecisionDone] = useState<"approved" | "rejected" | null>(null);
+  const [docDetail, setDocDetail] = useState<DocumentDetail | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const scoreColor =
-    doc.aiScore >= 80 ? "#059669" : doc.aiScore >= 60 ? "#b45309" : "#b91c1c";
+  const handleToggle = async () => {
+    const nextExpanded = !expanded;
+    setExpanded(nextExpanded);
+    if (nextExpanded && !docDetail) {
+      setLoadingDetail(true);
+      try {
+        const detail = await documentService.getDocumentById(doc.docId);
+        setDocDetail(detail);
+      } catch (err) {
+        console.error("Không thể tải chi tiết tài liệu:", err);
+      } finally {
+        setLoadingDetail(false);
+      }
+    }
+  };
 
-  if (decision) {
+  const handleDecision = async (decision: "APPROVE" | "REJECT") => {
+    if (decision === "REJECT" && !managerNote.trim()) {
+      setErrorMsg("Vui lòng nhập lý do từ chối vào ô ghi chú.");
+      return;
+    }
+
+    setLoadingAction(decision);
+    setErrorMsg(null);
+    try {
+      await documentService.processManagerReview(doc.docId, {
+        decision,
+        comment: managerNote.trim() || (decision === "APPROVE" ? "Manager phê duyệt cấp 2 và phát hành tài liệu (PUBLISHED)." : "Manager từ chối."),
+      });
+      setDecisionDone(decision === "APPROVE" ? "approved" : "rejected");
+      onActionComplete();
+    } catch (err: unknown) {
+      console.error(`Lỗi khi Manager xử lý ${decision}:`, err);
+      setErrorMsg("Thao tác thất bại. Vui lòng kiểm tra lại quyền Manager hoặc máy chủ.");
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  if (decisionDone) {
     return (
       <div
         className="ld-card"
@@ -74,19 +83,21 @@ function ApprovalCard({ doc }: { doc: (typeof PENDING)[0] }) {
           alignItems: "center",
           gap: 12,
           padding: "12px 16px",
-          borderLeft: `3px solid ${decision === "approved" ? "#059669" : "#b91c1c"}`,
-          opacity: 0.7,
+          borderLeft: `3px solid ${decisionDone === "approved" ? "#059669" : "#b91c1c"}`,
+          background: decisionDone === "approved" ? "#f0fdf4" : "#fef2f2",
         }}
       >
-        {decision === "approved" ? (
-          <CheckCircle size={16} style={{ color: "#059669" }} />
+        {decisionDone === "approved" ? (
+          <CheckCircle size={18} style={{ color: "#059669" }} />
         ) : (
-          <XCircle size={16} style={{ color: "#b91c1c" }} />
+          <XCircle size={18} style={{ color: "#b91c1c" }} />
         )}
         <div>
-          <p style={{ fontSize: 13, fontWeight: 500, color: "#0f172a", margin: 0 }}>{doc.title}</p>
+          <p style={{ fontSize: 13, fontWeight: 600, color: "#0f172a", margin: 0 }}>{doc.title}</p>
           <p style={{ fontSize: 12, color: "#475569", margin: 0 }}>
-            {decision === "approved" ? "Đã phê duyệt" : "Đã từ chối"} — bạn vừa quyết định
+            {decisionDone === "approved"
+              ? "Đã phê duyệt cấp 2 và xuất bản (PUBLISHED) thành công!"
+              : "Đã từ chối tài liệu (chuyển sang REJECTED)."}
           </p>
         </div>
       </div>
@@ -94,57 +105,61 @@ function ApprovalCard({ doc }: { doc: (typeof PENDING)[0] }) {
   }
 
   return (
-    <div className="ld-card" style={{ padding: 0, overflow: "hidden" }}>
+    <div className="ld-card" style={{ padding: 0, overflow: "hidden", marginBottom: 12 }}>
       {/* Header */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
           gap: 12,
-          padding: "12px 16px",
+          padding: "14px 16px",
           cursor: "pointer",
+          userSelect: "none",
         }}
-        onClick={() => setExpanded((v) => !v)}
+        onClick={handleToggle}
       >
         <div
           style={{
             width: 36,
             height: 36,
             borderRadius: 6,
-            background: "#ecfdf5",
+            background: "#eff6ff",
             display: "grid",
             placeItems: "center",
             flexShrink: 0,
           }}
         >
-          <FileText size={15} style={{ color: "#047857" }} />
+          <FileText size={16} style={{ color: "#2563eb" }} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <p style={{ fontSize: 13, fontWeight: 500, color: "#0f172a", margin: 0 }}>{doc.title}</p>
-            <span className="ld-badge ld-badge-gray">{TYPE_LABEL[doc.type]}</span>
+            <p style={{ fontSize: 14, fontWeight: 600, color: "#0f172a", margin: 0 }}>{doc.title}</p>
+            <span className="ld-badge" style={{ background: "#fef3c7", color: "#92400e", fontSize: 11 }}>
+              Chờ Manager duyệt
+            </span>
+            <span className="ld-badge ld-badge-gray" style={{ fontSize: 11 }}>
+              v{doc.currentVersion}
+            </span>
           </div>
-          <div style={{ display: "flex", gap: 10, marginTop: 3, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 12, color: "#475569", display: "flex", alignItems: "center", gap: 4 }}>
-              <GitBranch size={11} /> {doc.repo}
+          <div style={{ display: "flex", gap: 14, marginTop: 4, flexWrap: "wrap", fontSize: 12, color: "#64748b" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <GitBranch size={12} /> {repoName || `Repo #${doc.repoId}`}
             </span>
-            <span style={{ fontSize: 12, color: "#64748b" }}>
-              <User size={10} style={{ display: "inline" }} /> {doc.submittedBy.split("@")[0]}
-            </span>
-            <span style={{ fontSize: 12, color: "#64748b" }}>
-              <Clock size={10} style={{ display: "inline" }} /> {doc.submittedAt}
+            {doc.targetPath && (
+              <span style={{ color: "#475569" }}>
+                Đích: <code>{doc.targetPath}</code>
+              </span>
+            )}
+            <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <Clock size={12} /> {new Date(doc.updatedAt || doc.createdAt).toLocaleString("vi-VN")}
             </span>
           </div>
         </div>
-        {/* AI score */}
-        <div style={{ textAlign: "center", flexShrink: 0 }}>
-          <p style={{ fontSize: 16, fontWeight: 600, color: scoreColor, margin: 0 }}>{doc.aiScore}</p>
-          <p style={{ fontSize: 10, color: "#475569", margin: 0 }}>AI</p>
-        </div>
+
         <ChevronRight
-          size={14}
+          size={16}
           style={{
-            color: "#475569",
+            color: "#64748b",
             transform: expanded ? "rotate(90deg)" : "none",
             transition: "transform 150ms",
             flexShrink: 0,
@@ -152,69 +167,92 @@ function ApprovalCard({ doc }: { doc: (typeof PENDING)[0] }) {
         />
       </div>
 
-      {/* Expanded */}
+      {/* Expanded Details */}
       {expanded && (
-        <div style={{ borderTop: "1px solid #e2e8f0", padding: 16 }}>
-          {/* Staff note */}
-          {doc.staffNote && (
-            <div
-              style={{
-                background: "#ecfdf5",
-                border: "1px solid #e2e8f0",
-                borderRadius: 6,
-                padding: "10px 12px",
-                marginBottom: 14,
-                display: "flex",
-                gap: 8,
-              }}
-            >
-              <MessageSquare size={13} style={{ color: "#059669", marginTop: 1, flexShrink: 0 }} />
-              <div>
-                <p style={{ fontSize: 11, fontWeight: 600, color: "#059669", margin: "0 0 4px", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                  Nhận xét Staff ({doc.reviewedBy.split("@")[0]})
-                </p>
-                <p style={{ fontSize: 13, color: "#0f172a", margin: 0 }}>{doc.staffNote}</p>
-              </div>
+        <div style={{ borderTop: "1px solid #e2e8f0", padding: 16, background: "#f8fafc" }}>
+          {errorMsg && (
+            <div style={{ padding: "8px 12px", background: "#fef2f2", color: "#b91c1c", borderRadius: 6, fontSize: 13, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+              <AlertCircle size={15} />
+              {errorMsg}
             </div>
           )}
 
-          {/* Manager note */}
-          <label style={{ fontSize: 12, fontWeight: 500, color: "#475569", display: "block", marginBottom: 6 }}>
-            Ghi chú của Manager (tuỳ chọn)
-          </label>
-          <textarea
-            className="ld-input"
-            style={{ resize: "vertical", minHeight: 64, marginBottom: 12 }}
-            value={managerNote}
-            onChange={(e) => setManagerNote(e.target.value)}
-            placeholder="Lý do phê duyệt hoặc từ chối…"
-          />
+          {loadingDetail ? (
+            <p style={{ fontSize: 13, color: "#64748b" }}>Đang tải nội dung tài liệu...</p>
+          ) : (
+            <>
+              {/* Preview Content Box */}
+              <div style={{ marginBottom: 14 }}>
+                <p style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 6 }}>
+                  Nội dung tài liệu (Trích xuất từ phiên bản mới nhất):
+                </p>
+                <div
+                  style={{
+                    maxHeight: 220,
+                    overflowY: "auto",
+                    padding: 12,
+                    background: "#ffffff",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 6,
+                    fontSize: 13,
+                    fontFamily: "monospace",
+                    whiteSpace: "pre-wrap",
+                    color: "#334155",
+                  }}
+                >
+                  {docDetail?.latestVersion?.content || doc.latestVersion?.content || "(Chưa có nội dung văn bản)"}
+                </div>
+              </div>
 
-          {/* Actions */}
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button
-              type="button"
-              className="ld-btn ld-btn-primary"
-              style={{ gap: 6, background: "#059669", borderColor: "#059669" }}
-              onClick={() => setDecision("approved")}
-            >
-              <CheckCircle size={14} />
-              Phê duyệt & Publish
-            </button>
-            <button
-              type="button"
-              className="ld-btn ld-btn-danger"
-              onClick={() => setDecision("rejected")}
-              style={{ gap: 6 }}
-            >
-              <XCircle size={14} />
-              Từ chối
-            </button>
-            <a href={`/kho-luu-tru/${doc.id}`} className="ld-btn ld-btn-ghost" style={{ gap: 5, marginLeft: "auto" }}>
-              <Eye size={13} />
-              Đọc toàn bộ
-            </a>
-          </div>
+              {/* Manager Note Input */}
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>
+                Ghi chú & Nhận xét của Manager:
+              </label>
+              <textarea
+                className="ld-input"
+                style={{ resize: "vertical", minHeight: 70, marginBottom: 14, width: "100%", fontSize: 13 }}
+                value={managerNote}
+                onChange={(e) => setManagerNote(e.target.value)}
+                placeholder="Nhập ghi chú phê duyệt hoặc lý do từ chối (bắt buộc nếu từ chối)..."
+              />
+
+              {/* Action Buttons */}
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  className="ld-btn ld-btn-primary"
+                  style={{ gap: 6, background: "#059669", borderColor: "#059669" }}
+                  disabled={loadingAction !== null}
+                  onClick={() => handleDecision("APPROVE")}
+                >
+                  <CheckCircle size={15} />
+                  {loadingAction === "APPROVE" ? "Đang xử lý..." : "Phê duyệt & Phát hành (PUBLISHED)"}
+                </button>
+
+                <button
+                  type="button"
+                  className="ld-btn ld-btn-danger"
+                  disabled={loadingAction !== null}
+                  onClick={() => handleDecision("REJECT")}
+                  style={{ gap: 6 }}
+                >
+                  <XCircle size={15} />
+                  {loadingAction === "REJECT" ? "Đang từ chối..." : "Từ chối (REJECTED)"}
+                </button>
+
+                <a
+                  href={`/tai-lieu-cua-toi/editor?docId=${doc.docId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="ld-btn ld-btn-ghost"
+                  style={{ gap: 5, marginLeft: "auto" }}
+                >
+                  <Eye size={14} />
+                  Xem chi tiết trong Editor
+                </a>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -222,7 +260,40 @@ function ApprovalCard({ doc }: { doc: (typeof PENDING)[0] }) {
 }
 
 export default function TrungTamPheDuyetPage() {
-  const [docs] = useState(PENDING);
+  const [docs, setDocs] = useState<DocumentItem[]>([]);
+  const [repositories, setRepositories] = useState<Record<number, RepoItem>>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchManagerQueue = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [allDocs, allRepos] = await Promise.all([
+        documentService.getDocuments(),
+        repoService.getRepositories().catch(() => [] as RepoItem[]),
+      ]);
+
+      // Lọc các tài liệu ở trạng thái UNDER_REVIEW_MANAGER
+      const managerQueue = allDocs.filter((d) => d.status === "UNDER_REVIEW_MANAGER");
+      setDocs(managerQueue);
+
+      const repoMap: Record<number, RepoItem> = {};
+      allRepos.forEach((r) => {
+        repoMap[r.repositoryId] = r;
+      });
+      setRepositories(repoMap);
+    } catch (err) {
+      console.error("Lỗi khi tải hàng đợi Manager:", err);
+      setError("Không thể kết nối đến máy chủ để tải danh sách tài liệu chờ phê duyệt.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchManagerQueue();
+  }, [fetchManagerQueue]);
 
   return (
     <AppShell>
@@ -230,19 +301,58 @@ export default function TrungTamPheDuyetPage() {
         <div>
           <h1 className="ld-page-title">Trung tâm phê duyệt tài liệu</h1>
           <p className="ld-page-subtitle">
-            {docs.length} tài liệu đã qua Staff xem xét, chờ Manager phê duyệt
+            Duyệt cấp 2 dành cho Manager: Phê duyệt để phát hành (PUBLISHED) hoặc Từ chối (REJECTED)
           </p>
         </div>
-        <span className="ld-badge ld-badge-yellow" style={{ fontSize: 13, padding: "4px 10px" }}>
-          ⏳ {docs.length} chờ duyệt
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button
+            onClick={fetchManagerQueue}
+            className="ld-btn ld-btn-ghost"
+            style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}
+            title="Làm mới danh sách"
+          >
+            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+            Làm mới
+          </button>
+          <span className="ld-badge ld-badge-yellow" style={{ fontSize: 13, padding: "6px 12px" }}>
+            ⏳ {docs.length} tài liệu chờ duyệt
+          </span>
+        </div>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {docs.map((d) => (
-          <ApprovalCard key={d.id} doc={d} />
-        ))}
-      </div>
+      {error && (
+        <div style={{ padding: "12px 16px", background: "#fef2f2", color: "#b91c1c", borderRadius: 8, marginBottom: 16 }}>
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="ld-card" style={{ padding: 32, textAlign: "center", color: "#64748b" }}>
+          Đang tải danh sách tài liệu chờ Manager duyệt...
+        </div>
+      ) : docs.length === 0 ? (
+        <div className="ld-card" style={{ padding: 48, textAlign: "center", color: "#64748b" }}>
+          <CheckCircle size={40} style={{ color: "#059669", margin: "0 auto 12px" }} />
+          <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0f172a", marginBottom: 4 }}>
+            Không có tài liệu nào chờ phê duyệt
+          </h3>
+          <p style={{ fontSize: 13, color: "#64748b", margin: 0 }}>
+            Tất cả các tài liệu đã được Staff duyệt sẽ tự động xuất hiện tại đây để Manager ra quyết định.
+          </p>
+        </div>
+      ) : (
+        <div>
+          {docs.map((doc) => (
+            <ApprovalCard
+              key={doc.docId}
+              doc={doc}
+              repoName={repositories[doc.repoId]?.repoFullName || ""}
+              onActionComplete={fetchManagerQueue}
+            />
+          ))}
+        </div>
+      )}
     </AppShell>
   );
 }
+

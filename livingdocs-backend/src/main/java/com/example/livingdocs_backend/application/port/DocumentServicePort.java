@@ -62,9 +62,20 @@ public interface DocumentServicePort {
     RollbackResponse rollbackToVersion(Long docId, Integer targetVersion, String reason, Long actorId, String actorRole);
 
     /**
-     * Xử lý phê duyệt hoặc từ chối tài liệu bởi Staff (Role Level 1).
+     * Xử lý phê duyệt hoặc từ chối tài liệu bởi Staff (Duyệt cấp 1).
+     * Chỉ người có vai trò STAFF hoặc MANAGER mới có quyền thực hiện.
      * - APPROVE: Chuyển sang UNDER_REVIEW_MANAGER
      * - REJECT: Chuyển sang REJECTED kèm lý do/nhận xét gửi lại cho tác giả.
      */
     DocumentResponse processStaffReview(Long docId, StaffReviewDecisionRequest request, Long actorId);
+    DocumentResponse processStaffReview(Long docId, StaffReviewDecisionRequest request, Long actorId, String actorRole);
+
+    /**
+     * Xử lý phê duyệt hoặc từ chối tài liệu bởi Manager (Duyệt cấp 2).
+     * Chỉ người có vai trò MANAGER mới có quyền thực hiện.
+     * - APPROVE: Chuyển sang PUBLISHED (hoặc APPROVED)
+     * - REJECT: Chuyển sang REJECTED kèm lý do/nhận xét gửi lại cho tác giả.
+     */
+    DocumentResponse processManagerReview(Long docId, ManagerReviewDecisionRequest request, Long actorId);
+    DocumentResponse processManagerReview(Long docId, ManagerReviewDecisionRequest request, Long actorId, String actorRole);
 }

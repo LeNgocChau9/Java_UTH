@@ -253,6 +253,12 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @Override
     @Transactional
     public DocumentResponse processStaffReview(Long docId, StaffReviewDecisionRequest request, Long actorId) {
+        return processStaffReview(docId, request, actorId, "STAFF");
+    }
+
+    @Override
+    @Transactional
+    public DocumentResponse processStaffReview(Long docId, StaffReviewDecisionRequest request, Long actorId, String actorRole) {
         Document document = documentRepositoryPort.findById(docId)
                 .orElseThrow(() -> new DocumentNotFoundException(docId));
 
@@ -263,15 +269,49 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 ? DocumentStatus.REJECTED
                 : DocumentStatus.UNDER_REVIEW_MANAGER;
 
-        DocumentStatus nextStatus = DocumentStateMachine.transition(currentStatus, targetStatus);
+        // Chuyển đổi trạng thái kèm kiểm tra nghiêm ngặt quyền hạn (Chỉ STAFF hoặc MANAGER mới được duyệt cấp 1)
+        DocumentStatus nextStatus = DocumentStateMachine.transition(currentStatus, targetStatus, actorRole != null ? actorRole : "STAFF");
 
         document.setStatus(nextStatus);
         document.setUpdatedAt(Instant.now());
         Document saved = documentRepositoryPort.save(document);
 
         DocumentVersion latest = documentVersionRepositoryPort.findLatestByDocId(docId).orElse(null);
-        log.info("Staff (actor: {}) đã xem xét tài liệu ID: {} -> Kết quả: {}, Trạng thái mới: {}, Ghi chú: {}",
-                actorId, docId, decisionStr, nextStatus, request != null ? request.getComment() : "");
+        log.info("Duyệt cấp 1: Actor {} (vai trò: {}) đã xem xét tài liệu ID: {} -> Quyết định: {}, Trạng thái mới: {}, Ghi chú: {}",
+                actorId, actorRole, docId, decisionStr, nextStatus, request != null ? request.getComment() : "");
+
+        return toDocumentResponse(saved, latest);
+    }
+
+    @Override
+    @Transactional
+    public DocumentResponse processManagerReview(Long docId, ManagerReviewDecisionRequest request, Long actorId) {
+        return processManagerReview(docId, request, actorId, "MANAGER");
+    }
+
+    @Override
+    @Transactional
+    public DocumentResponse processManagerReview(Long docId, ManagerReviewDecisionRequest request, Long actorId, String actorRole) {
+        Document document = documentRepositoryPort.findById(docId)
+                .orElseThrow(() -> new DocumentNotFoundException(docId));
+
+        DocumentStatus currentStatus = document.getStatus() != null ? document.getStatus() : DocumentStatus.UNDER_REVIEW_MANAGER;
+        String decisionStr = request != null && request.getDecision() != null ? request.getDecision().trim().toUpperCase() : "APPROVE";
+
+        DocumentStatus targetStatus = "REJECT".equals(decisionStr) || "REJECTED".equals(decisionStr)
+                ? DocumentStatus.REJECTED
+                : DocumentStatus.PUBLISHED;
+
+        // Chuyển đổi trạng thái kèm kiểm tra nghiêm ngặt quyền hạn (Chỉ MANAGER mới được duyệt cấp 2)
+        DocumentStatus nextStatus = DocumentStateMachine.transition(currentStatus, targetStatus, actorRole != null ? actorRole : "MANAGER");
+
+        document.setStatus(nextStatus);
+        document.setUpdatedAt(Instant.now());
+        Document saved = documentRepositoryPort.save(document);
+
+        DocumentVersion latest = documentVersionRepositoryPort.findLatestByDocId(docId).orElse(null);
+        log.info("Duyệt cấp 2: Manager {} (vai trò: {}) đã phê duyệt tài liệu ID: {} -> Quyết định: {}, Trạng thái mới: {}, Ghi chú: {}",
+                actorId, actorRole, docId, decisionStr, nextStatus, request != null ? request.getComment() : "");
 
         return toDocumentResponse(saved, latest);
     }

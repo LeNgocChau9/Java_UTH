@@ -88,6 +88,22 @@ export const documentService = {
   },
 
   /**
+   * Manager phê duyệt cấp 2 hoặc từ chối tài liệu:
+   * - decision: "APPROVE" -> Chuyển sang PUBLISHED
+   * - decision: "REJECT" -> Chuyển sang REJECTED kèm lý do/nhận xét
+   */
+  async processManagerReview(
+    docId: number,
+    payload: { decision: "APPROVE" | "REJECT"; comment?: string }
+  ): Promise<DocumentItem> {
+    const res = await apiClient.post<DocumentItem>(
+      `/api/documents/${docId}/manager-review`,
+      payload
+    );
+    return res.data;
+  },
+
+  /**
    * Xác thực tính toàn vẹn chuỗi băm SHA-256
    */
   async verifyIntegrity(docId: number): Promise<IntegrityCheckResult> {

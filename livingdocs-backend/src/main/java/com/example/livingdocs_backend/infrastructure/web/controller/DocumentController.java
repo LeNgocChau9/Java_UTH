@@ -64,14 +64,28 @@ public class DocumentController {
     }
 
     @PostMapping("/{docId}/staff-review")
-    @Operation(summary = "Staff đánh giá tài liệu (Chuyển Manager hoặc Từ chối)", description = "Staff gửi nhận xét đánh giá để chuyển tài liệu sang UNDER_REVIEW_MANAGER hoặc REJECTED.")
+    @Operation(summary = "Staff đánh giá tài liệu (Duyệt cấp 1)", description = "Chỉ Staff hoặc Manager mới có quyền duyệt cấp 1 để chuyển tài liệu từ UNDER_REVIEW_STAFF sang UNDER_REVIEW_MANAGER hoặc REJECTED.")
     public ResponseEntity<DocumentResponse> processStaffReview(
             @PathVariable Long docId,
             @RequestBody(required = false) StaffReviewDecisionRequest request,
             @AuthenticationPrincipal UserPrincipal userPrincipal) {
 
         Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
-        DocumentResponse response = documentServicePort.processStaffReview(docId, request, actorId);
+        String actorRole = extractRole(userPrincipal);
+        DocumentResponse response = documentServicePort.processStaffReview(docId, request, actorId, actorRole);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/{docId}/manager-review")
+    @Operation(summary = "Manager phê duyệt tài liệu (Duyệt cấp 2)", description = "Chỉ Manager mới có quyền duyệt cấp 2 để chuyển tài liệu từ UNDER_REVIEW_MANAGER sang PUBLISHED hoặc REJECTED.")
+    public ResponseEntity<DocumentResponse> processManagerReview(
+            @PathVariable Long docId,
+            @RequestBody(required = false) ManagerReviewDecisionRequest request,
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+
+        Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
+        String actorRole = extractRole(userPrincipal);
+        DocumentResponse response = documentServicePort.processManagerReview(docId, request, actorId, actorRole);
         return ResponseEntity.ok(response);
     }
 

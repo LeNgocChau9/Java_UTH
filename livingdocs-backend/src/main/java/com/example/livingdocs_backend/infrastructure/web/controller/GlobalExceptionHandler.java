@@ -92,6 +92,28 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
     }
 
+    @ExceptionHandler(com.example.livingdocs_backend.domain.exception.UnauthorizedDocumentReviewException.class)
+    public ResponseEntity<Map<String, Object>> handleUnauthorizedDocumentReviewException(com.example.livingdocs_backend.domain.exception.UnauthorizedDocumentReviewException ex) {
+        Map<String, Object> error = new HashMap<>();
+        error.put("status", HttpStatus.FORBIDDEN.value());
+        error.put("error", "Forbidden");
+        error.put("message", ex.getMessage());
+        if (ex.getCurrentStatus() != null) {
+            error.put("currentStatus", ex.getCurrentStatus().name());
+        }
+        if (ex.getTargetStatus() != null) {
+            error.put("targetStatus", ex.getTargetStatus().name());
+        }
+        if (ex.getActualRole() != null) {
+            error.put("actualRole", ex.getActualRole());
+        }
+        if (ex.getRequiredRoles() != null && !ex.getRequiredRoles().isEmpty()) {
+            error.put("requiredRoles", ex.getRequiredRoles());
+        }
+        error.put("timestamp", Instant.now().toString());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error);
+    }
+
     @ExceptionHandler(com.example.livingdocs_backend.domain.exception.GitHubRateLimitException.class)
     public ResponseEntity<Map<String, Object>> handleGitHubRateLimitException(com.example.livingdocs_backend.domain.exception.GitHubRateLimitException ex) {
         Map<String, Object> error = new HashMap<>();
