@@ -5,6 +5,7 @@ import type {
   DocumentDetail,
   DocumentItem,
   DocumentVersionItem,
+  DocumentAuditLogItem,
   IntegrityCheckResult,
   RollbackResponse,
   UpdateDocumentPayload,
@@ -88,17 +89,28 @@ export const documentService = {
   },
 
   /**
-   * Manager phê duyệt cấp 2 hoặc từ chối tài liệu:
-   * - decision: "APPROVE" -> Chuyển sang PUBLISHED
+   * Manager phê duyệt cấp 2, trả lại Staff hoặc từ chối tài liệu:
+   * - decision: "PUBLISH" | "APPROVE" -> Chuyển sang PUBLISHED và đẩy commit lên GitHub
+   * - decision: "RETURN_STAFF" -> Trả lại Staff (UNDER_REVIEW_STAFF)
    * - decision: "REJECT" -> Chuyển sang REJECTED kèm lý do/nhận xét
    */
   async processManagerReview(
     docId: number,
-    payload: { decision: "APPROVE" | "REJECT"; comment?: string }
+    payload: { decision: "PUBLISH" | "APPROVE" | "RETURN_STAFF" | "REJECT"; comment?: string }
   ): Promise<DocumentItem> {
     const res = await apiClient.post<DocumentItem>(
       `/api/documents/${docId}/manager-review`,
       payload
+    );
+    return res.data;
+  },
+
+  /**
+   * Lấy nhật ký lịch sử thay đổi (Audit trail) của tài liệu
+   */
+  async getDocumentAuditTrail(docId: number): Promise<DocumentAuditLogItem[]> {
+    const res = await apiClient.get<DocumentAuditLogItem[]>(
+      `/api/documents/${docId}/audit-trail`
     );
     return res.data;
   },

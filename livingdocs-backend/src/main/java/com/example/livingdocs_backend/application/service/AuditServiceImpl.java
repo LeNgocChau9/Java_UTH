@@ -37,6 +37,16 @@ public class AuditServiceImpl implements AuditServicePort {
         record(actorId, AuditAction.DOCUMENT_APPROVED, "DOCUMENT", documentId.toString(), null);
     }
 
+    @Override
+    public void recordDocumentAction(Long actorId, Long documentId, AuditAction action, String detail) {
+        record(actorId, action, "DOCUMENT", documentId.toString(), detail);
+    }
+
+    @Override
+    public java.util.List<AuditLog> getAuditLogsForResource(String resourceType, String resourceId) {
+        return auditLogRepositoryPort.findByResourceTypeAndResourceId(resourceType, resourceId);
+    }
+
     private void record(Long actorId, AuditAction action, String resourceType,
                         String resourceId, String detail) {
         auditLogRepositoryPort.save(AuditLog.builder()

@@ -192,6 +192,81 @@ public class GitHubClient implements GitHubClientPort {
         }
     }
 
+    @Override
+    public String createOrUpdateFile(String token, String owner, String repo, String filePath, String content, String commitMessage, String branch) {
+        String cleanPath = filePath.startsWith("/") ? filePath.substring(1) : filePath;
+        String uri = "/repos/{owner}/{repo}/contents/" + cleanPath;
+
+        // 1. Kiểm tra xem file đã tồn tại trên branch hay chưa để lấy sha hiện tại
+        String existingFileSha = null;
+        try {
+            String checkUri = UriComponentsBuilder.fromPath("/repos/{owner}/{repo}/contents/{path}")
+                    .queryParam("ref", StringUtils.hasText(branch) ? branch : "main")
+                    .buildAndExpand(owner, repo, cleanPath)
+                    .toUriString();
+
+            GitFileContentResponse fileResp = executeWithAuth(token, checkUri)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .retrieve()
+                    .body(GitFileContentResponse.class);
+
+            if (fileResp != null) {
+                existingFileSha = fileResp.sha();
+            }
+        } catch (RestClientResponseException ex) {
+            if (ex.getStatusCode().value() != 404) {
+                log.warn("Không thể kiểm tra file SHA hiện tại cho {}/{}/{}: {}", owner, repo, cleanPath, ex.getMessage());
+            }
+        } catch (Exception ignored) {
+            // File có thể chưa tồn tại, bỏ qua lỗi 404
+        }
+
+        // 2. Base64 encode content
+        String base64Content = java.util.Base64.getEncoder().encodeToString(
+                content != null ? content.getBytes(java.nio.charset.StandardCharsets.UTF_8) : new byte[0]
+        );
+
+        java.util.Map<String, Object> requestBody = new java.util.HashMap<>();
+        requestBody.put("message", StringUtils.hasText(commitMessage) ? commitMessage : "docs: publish documentation via LivingDocs");
+        requestBody.put("content", base64Content);
+        if (StringUtils.hasText(branch)) {
+            requestBody.put("branch", branch);
+        }
+        if (existingFileSha != null) {
+            requestBody.put("sha", existingFileSha);
+        }
+
+        try {
+            RestClient.RequestBodySpec requestSpec = restClient.put()
+                    .uri(uri, owner, repo)
+                    .header(HttpHeaders.USER_AGENT, "LivingDocs-GitHubClient/1.0")
+                    .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.APPLICATION_JSON);
+
+            if (StringUtils.hasText(token)) {
+                requestSpec.header(HttpHeaders.AUTHORIZATION, "Bearer " + token.trim());
+            }
+
+            GitCommitContentResponse response = requestSpec
+                    .body(requestBody)
+                    .retrieve()
+                    .body(GitCommitContentResponse.class);
+
+            if (response != null && response.commit() != null) {
+                log.info("Đã tạo commit thành công lên GitHub: {}/{}/{} (SHA: {})", owner, repo, cleanPath, response.commit().sha());
+                return response.commit().sha();
+            }
+            return "SUCCESS";
+        } catch (RestClientResponseException ex) {
+            handleErrorResponse(ex, "createOrUpdateFile (" + owner + "/" + repo + " path: " + cleanPath + ")");
+            return null;
+        } catch (Exception ex) {
+            log.error("Lỗi khi đẩy commit lên GitHub {}/{}/{}: {}", owner, repo, cleanPath, ex.getMessage(), ex);
+            throw new GitHubApiException("Lỗi khi đẩy commit lên GitHub: " + ex.getMessage(), 500, ex);
+        }
+    }
+
     /**
      * Tạo RestClient request với Header Authentication và GitHub API Version tiêu chuẩn.
      */
@@ -358,5 +433,24 @@ public class GitHubClient implements GitHubClientPort {
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GitParent(
             String sha
+    ) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record GitFileContentResponse(
+            String sha,
+            String path,
+            String name
+    ) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record GitCommitContentResponse(
+            GitCommitContentDetail commit
+    ) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record GitCommitContentDetail(
+            String sha,
+            @JsonProperty("html_url") String htmlUrl,
+            String message
     ) {}
 }

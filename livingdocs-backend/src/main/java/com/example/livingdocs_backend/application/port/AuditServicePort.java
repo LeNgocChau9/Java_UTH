@@ -1,5 +1,10 @@
 package com.example.livingdocs_backend.application.port;
 
+import com.example.livingdocs_backend.domain.model.AuditAction;
+import com.example.livingdocs_backend.domain.model.AuditLog;
+
+import java.util.List;
+
 public interface AuditServicePort {
     void recordLogin(Long actorId, String actorEmail, boolean successful);
 
@@ -9,4 +14,8 @@ public interface AuditServicePort {
     void recordDocumentDeletion(Long actorId, Long documentId);
 
     void recordDocumentApproval(Long actorId, Long documentId);
+
+    void recordDocumentAction(Long actorId, Long documentId, AuditAction action, String detail);
+
+    List<AuditLog> getAuditLogsForResource(String resourceType, String resourceId);
 }
