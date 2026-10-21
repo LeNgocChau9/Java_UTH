@@ -42,7 +42,9 @@ async def extract_ast(request: AstExtractRequest):
         c_type = parsed.get("class_type", "CLASS")
         c_name = parsed["class_name"]
         mods_str = " ".join(parsed.get("modifiers", [])) or "public"
-        c_sig = f"{mods_str} {c_type.lower()} {c_name}"
+        c_annotations = parsed.get("annotations", [])
+        ann_prefix = f"{' '.join(c_annotations)} " if c_annotations else ""
+        c_sig = f"{ann_prefix}{mods_str} {c_type.lower()} {c_name}"
         class_javadoc = parsed.get("javadoc")
 
         entities.append(CodeEntityItem(
@@ -55,13 +57,18 @@ async def extract_ast(request: AstExtractRequest):
             start_line=parsed.get("start_line", 1),
             end_line=parsed.get("end_line", 1),
             doc_status="DOCUMENTED" if class_javadoc else "UNDOCUMENTED",
-            javadoc=class_javadoc
+            javadoc=class_javadoc,
+            annotations=c_annotations
         ))
 
     # 2. Thêm các METHOD và CONSTRUCTOR bóc tách chi tiết
     for m in parsed.get("methods", []):
         params_list = m.get("parameters", [])
-        params_str = ", ".join([f"{p['type']} {p['name']}" for p in params_list])
+        params_str_parts = []
+        for p in params_list:
+            p_ann = f"{' '.join(p['annotations'])} " if p.get("annotations") else ""
+            params_str_parts.append(f"{p_ann}{p['type']} {p['name']}")
+        params_str = ", ".join(params_str_parts)
         m_javadoc = m.get("javadoc")
 
         entities.append(CodeEntityItem(
@@ -74,7 +81,8 @@ async def extract_ast(request: AstExtractRequest):
             start_line=m["start_line"],
             end_line=m["end_line"],
             doc_status="DOCUMENTED" if m_javadoc else "UNDOCUMENTED",
-            javadoc=m_javadoc
+            javadoc=m_javadoc,
+            annotations=m.get("annotations", [])
         ))
 
     return AstExtractResponse(
