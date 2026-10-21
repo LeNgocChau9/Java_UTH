@@ -5,6 +5,7 @@ import com.example.livingdocs_backend.application.port.AuditServicePort;
 import com.example.livingdocs_backend.application.port.ReviewServicePort;
 import com.example.livingdocs_backend.domain.exception.DocumentNotFoundException;
 import com.example.livingdocs_backend.domain.model.ActorRole;
+import com.example.livingdocs_backend.domain.model.AuditAction;
 import com.example.livingdocs_backend.domain.model.Document;
 import com.example.livingdocs_backend.domain.model.DocumentStateMachine;
 import com.example.livingdocs_backend.domain.model.DocumentStatus;
@@ -104,6 +105,15 @@ public class ReviewServiceImpl implements ReviewServicePort {
                 .build();
         Review savedReview = reviewRepositoryPort.save(reviewRecord);
 
+        // 5. Ghi nhận Audit Log
+        if (auditServicePort != null) {
+            AuditAction action = (nextStatus == DocumentStatus.REJECTED) ? AuditAction.DOCUMENT_REJECTED : AuditAction.DOCUMENT_STAFF_REVIEWED;
+            String detailMsg = (nextStatus == DocumentStatus.REJECTED)
+                    ? "Staff đã từ chối tài liệu. Lý do: " + (comment.isEmpty() ? "Không có lý do chi tiết" : comment)
+                    : "Staff đã phê duyệt tài liệu và chuyển Manager duyệt cấp 2. Nhận xét: " + (comment.isEmpty() ? "Tài liệu đạt chuẩn chất lượng." : comment);
+            auditServicePort.recordDocumentAction(actorId, savedDoc.getDocId(), action, detailMsg);
+        }
+
         log.info("Xử lý Staff Action: Actor {} (vai trò: {}) đã xử lý tài liệu ID: {} -> Trạng thái mới: {}, Review ID: {}",
                 actorId, effectiveRole, savedDoc.getDocId(), nextStatus, savedReview.getReviewId());
 
@@ -174,8 +184,18 @@ public class ReviewServiceImpl implements ReviewServicePort {
         Document savedDoc = documentRepositoryPort.save(document);
 
         // 4. Ghi nhận Audit Log nếu đã phê duyệt xuất bản
-        if (nextStatus == DocumentStatus.PUBLISHED && auditServicePort != null) {
-            auditServicePort.recordDocumentApproval(actorId, savedDoc.getDocId());
+        if (auditServicePort != null) {
+            if (nextStatus == DocumentStatus.PUBLISHED) {
+                auditServicePort.recordDocumentApproval(actorId, savedDoc.getDocId());
+                auditServicePort.recordDocumentAction(actorId, savedDoc.getDocId(), AuditAction.DOCUMENT_PUBLISHED,
+                        "Manager phê duyệt xuất bản tài liệu chính thức lên hệ thống (PUBLISHED).");
+            } else if (nextStatus == DocumentStatus.UNDER_REVIEW_STAFF) {
+                auditServicePort.recordDocumentAction(actorId, savedDoc.getDocId(), AuditAction.DOCUMENT_RETURNED_STAFF,
+                        "Manager yêu cầu xem xét lại (Trả lại Staff).");
+            } else {
+                auditServicePort.recordDocumentAction(actorId, savedDoc.getDocId(), AuditAction.DOCUMENT_REJECTED,
+                        "Manager đã từ chối tài liệu.");
+            }
         }
 
         // 5. Chuẩn hóa ghi chú và lưu bản ghi vào bảng reviews

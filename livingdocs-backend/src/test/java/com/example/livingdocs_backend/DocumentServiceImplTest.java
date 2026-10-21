@@ -1,7 +1,27 @@
 package com.example.livingdocs_backend;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import java.util.List;
+import java.util.Optional;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+
 import com.example.livingdocs_backend.application.dto.CreateDocumentRequest;
-import com.example.livingdocs_backend.application.dto.DocumentDetailResponse;
 import com.example.livingdocs_backend.application.dto.DocumentResponse;
 import com.example.livingdocs_backend.application.dto.IntegrityCheckResponse;
 import com.example.livingdocs_backend.application.dto.UpdateDocumentRequest;
@@ -15,17 +35,6 @@ import com.example.livingdocs_backend.domain.model.DocumentVersion;
 import com.example.livingdocs_backend.domain.repository.DocumentRepositoryPort;
 import com.example.livingdocs_backend.domain.repository.DocumentVersionRepositoryPort;
 import com.example.livingdocs_backend.domain.util.HashUtils;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
-
-import java.time.Instant;
-import java.util.List;
-import java.util.Optional;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
 
 class DocumentServiceImplTest {
 
@@ -42,17 +51,18 @@ class DocumentServiceImplTest {
                 documentRepositoryPort = mock(DocumentRepositoryPort.class);
                 documentVersionRepositoryPort = mock(DocumentVersionRepositoryPort.class);
                 auditServicePort = mock(AuditServicePort.class);
-                repositoryRepository = mock(com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository.class);
-                gitHubConnectionRepository = mock(com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository.class);
+                repositoryRepository = mock(
+                                com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository.class);
+                gitHubConnectionRepository = mock(
+                                com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository.class);
                 gitHubClient = mock(com.example.livingdocs_backend.application.port.GitHubClientPort.class);
                 documentService = new DocumentServiceImpl(
-                        documentRepositoryPort,
-                        documentVersionRepositoryPort,
-                        auditServicePort,
-                        repositoryRepository,
-                        gitHubConnectionRepository,
-                        gitHubClient
-                );
+                                documentRepositoryPort,
+                                documentVersionRepositoryPort,
+                                auditServicePort,
+                                repositoryRepository,
+                                gitHubConnectionRepository,
+                                gitHubClient);
         }
 
         @Test
@@ -95,6 +105,11 @@ class DocumentServiceImplTest {
                 assertEquals(HashUtils.GENESIS_HASH, savedVersion.getPrevHash());
                 assertNotNull(savedVersion.getHash());
                 assertEquals(64, savedVersion.getHash().length()); // SHA-256 length is 64 hex characters
+
+                verify(auditServicePort).recordDocumentAction(
+                                eq(1L), eq(100L),
+                                eq(com.example.livingdocs_backend.domain.model.AuditAction.DOCUMENT_CREATED),
+                                contains("Khởi tạo tài liệu v1"));
         }
 
         @Test
@@ -146,6 +161,11 @@ class DocumentServiceImplTest {
                 assertEquals(2, savedV2.getVersionNum());
                 assertEquals(v1Hash, savedV2.getPrevHash(), "prevHash của v2 phải khớp với hash của v1");
                 assertNotEquals(v1Hash, savedV2.getHash());
+
+                verify(auditServicePort).recordDocumentAction(
+                                eq(2L), eq(docId),
+                                eq(com.example.livingdocs_backend.domain.model.AuditAction.DOCUMENT_UPDATED),
+                                contains("Cập nhật tài liệu lên phiên bản v2"));
         }
 
         @Test
@@ -303,6 +323,64 @@ class DocumentServiceImplTest {
                 ArgumentCaptor<Document> docCaptor = ArgumentCaptor.forClass(Document.class);
                 verify(documentRepositoryPort).save(docCaptor.capture());
                 assertEquals(4, docCaptor.getValue().getCurrentVersion());
+
+                verify(auditServicePort).recordDocumentAction(
+                                eq(99L), eq(docId),
+                                eq(com.example.livingdocs_backend.domain.model.AuditAction.DOCUMENT_ROLLBACK),
+                                contains("Khôi phục tài liệu về phiên bản v1"));
+        }
+
+        @Test
+        void testUpdateDocument_statusChange_createsNewVersionAndAudits() {
+                Long docId = 105L;
+                Document existingDoc = Document.builder()
+                                .docId(docId)
+                                .repoId(10L)
+                                .title("Tài liệu đặc tả hệ thống")
+                                .currentVersion(1)
+                                .status(DocumentStatus.DRAFT)
+                                .build();
+
+                DocumentVersion v1 = DocumentVersion.builder()
+                                .versionId(10L)
+                                .docId(docId)
+                                .versionNum(1)
+                                .content("# Nội dung đặc tả gốc")
+                                .actorRole(ActorRole.DEV)
+                                .triggerType("MANUAL_CREATE")
+                                .hash("hash_v1_xyz")
+                                .build();
+
+                when(documentRepositoryPort.findById(docId)).thenReturn(Optional.of(existingDoc));
+                when(documentVersionRepositoryPort.findLatestByDocId(docId)).thenReturn(Optional.of(v1));
+                when(documentVersionRepositoryPort.save(any(DocumentVersion.class))).thenAnswer(i -> i.getArgument(0));
+                when(documentRepositoryPort.save(any(Document.class))).thenAnswer(i -> i.getArgument(0));
+
+                UpdateDocumentRequest updateRequest = UpdateDocumentRequest.builder()
+                                .status(DocumentStatus.UNDER_REVIEW_STAFF)
+                                .actorRole("DEV")
+                                .triggerType("STATUS_UPDATE")
+                                .build();
+
+                DocumentResponse response = documentService.updateDocument(docId, updateRequest, 15L, "DEV");
+
+                assertNotNull(response);
+                assertEquals(2, response.getCurrentVersion());
+                assertEquals(DocumentStatus.UNDER_REVIEW_STAFF, response.getStatus());
+
+                ArgumentCaptor<DocumentVersion> versionCaptor = ArgumentCaptor.forClass(DocumentVersion.class);
+                verify(documentVersionRepositoryPort).save(versionCaptor.capture());
+                DocumentVersion savedV2 = versionCaptor.getValue();
+
+                assertEquals(2, savedV2.getVersionNum());
+                assertEquals("# Nội dung đặc tả gốc", savedV2.getContent(),
+                                "Phải kế thừa nội dung phiên bản trước khi content để trống");
+                assertEquals("hash_v1_xyz", savedV2.getPrevHash());
+
+                verify(auditServicePort).recordDocumentAction(
+                                eq(15L), eq(docId),
+                                eq(com.example.livingdocs_backend.domain.model.AuditAction.DOCUMENT_UPDATED),
+                                contains("UNDER_REVIEW_STAFF"));
         }
 
         @Test
@@ -336,25 +414,27 @@ class DocumentServiceImplTest {
                                 .content("# Architecture Guide v2")
                                 .build();
 
-                com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity repoEntity =
-                                com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity.builder()
-                                                .repositoryId(10L)
-                                                .workspaceId(1L)
-                                                .repoFullName("org/livingdocs")
-                                                .defaultBranch("main")
-                                                .build();
+                com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity repoEntity = com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity
+                                .builder()
+                                .repositoryId(10L)
+                                .workspaceId(1L)
+                                .repoFullName("org/livingdocs")
+                                .defaultBranch("main")
+                                .build();
 
-                com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity connEntity =
-                                com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity.builder()
-                                                .accessTokenEncrypted("ghp_valid_mock_token_123")
-                                                .build();
+                com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity connEntity = com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity
+                                .builder()
+                                .accessTokenEncrypted("ghp_valid_mock_token_123")
+                                .build();
 
                 when(documentRepositoryPort.findById(docId)).thenReturn(Optional.of(doc));
                 when(documentRepositoryPort.save(any(Document.class))).thenAnswer(i -> i.getArgument(0));
                 when(documentVersionRepositoryPort.findLatestByDocId(docId)).thenReturn(Optional.of(version2));
                 when(repositoryRepository.findById(10L)).thenReturn(Optional.of(repoEntity));
-                when(gitHubConnectionRepository.findFirstByWorkspaceIdOrderByCreatedAtDesc(1L)).thenReturn(Optional.of(connEntity));
-                when(gitHubClient.createOrUpdateFile(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString()))
+                when(gitHubConnectionRepository.findFirstByWorkspaceIdOrderByCreatedAtDesc(1L))
+                                .thenReturn(Optional.of(connEntity));
+                when(gitHubClient.createOrUpdateFile(anyString(), anyString(), anyString(), anyString(), anyString(),
+                                anyString(), anyString()))
                                 .thenReturn("commit_sha_abc123");
 
                 var request = com.example.livingdocs_backend.application.dto.ManagerReviewDecisionRequest.builder()
@@ -375,15 +455,13 @@ class DocumentServiceImplTest {
                                 eq("docs/architecture.md"),
                                 eq("# Architecture Guide v2"),
                                 contains("Kiến trúc hệ thống"),
-                                eq("main")
-                );
+                                eq("main"));
 
                 // Verify audit log
                 verify(auditServicePort).recordDocumentAction(
                                 eq(5L), eq(docId),
                                 eq(com.example.livingdocs_backend.domain.model.AuditAction.DOCUMENT_PUBLISHED),
-                                contains("commit_sha_abc123")
-                );
+                                contains("commit_sha_abc123"));
         }
 
         @Test
@@ -412,8 +490,7 @@ class DocumentServiceImplTest {
                 verify(auditServicePort).recordDocumentAction(
                                 eq(8L), eq(docId),
                                 eq(com.example.livingdocs_backend.domain.model.AuditAction.DOCUMENT_RETURNED_STAFF),
-                                contains("Cần bổ sung thêm ví dụ API")
-                );
+                                contains("Cần bổ sung thêm ví dụ API"));
         }
 
         @Test
@@ -428,13 +505,13 @@ class DocumentServiceImplTest {
                                                 .resourceType("DOCUMENT")
                                                 .resourceId("302")
                                                 .detail("Gửi duyệt")
-                                                .build()
-                ));
+                                                .build()));
 
                 var logs = documentService.getDocumentAuditLogs(docId);
                 assertEquals(1, logs.size());
                 assertEquals(1L, logs.get(0).getLogId());
-                assertEquals(com.example.livingdocs_backend.domain.model.AuditAction.DOCUMENT_SUBMITTED, logs.get(0).getAction());
+                assertEquals(com.example.livingdocs_backend.domain.model.AuditAction.DOCUMENT_SUBMITTED,
+                                logs.get(0).getAction());
         }
 
         @Test

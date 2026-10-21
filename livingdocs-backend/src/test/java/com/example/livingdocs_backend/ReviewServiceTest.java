@@ -184,6 +184,10 @@ class ReviewServiceTest {
                     r.getDocId().equals(10L) &&
                     "APPROVED".equals(r.getResult()) &&
                     r.getGeneralComment().contains("AST")));
+            verify(auditServicePort).recordDocumentAction(
+                    eq(201L), eq(10L),
+                    eq(com.example.livingdocs_backend.domain.model.AuditAction.DOCUMENT_STAFF_REVIEWED),
+                    contains("Staff đã phê duyệt tài liệu"));
         }
 
         @Test
@@ -213,6 +217,10 @@ class ReviewServiceTest {
 
             verify(documentRepositoryPort).save(argThat(d -> d.getStatus() == DocumentStatus.REJECTED));
             verify(reviewRepositoryPort).save(argThat(r -> "REJECTED".equals(r.getResult())));
+            verify(auditServicePort).recordDocumentAction(
+                    eq(201L), eq(10L),
+                    eq(com.example.livingdocs_backend.domain.model.AuditAction.DOCUMENT_REJECTED),
+                    contains("Staff đã từ chối tài liệu"));
         }
 
         @Test
@@ -300,6 +308,10 @@ class ReviewServiceTest {
 
             verify(documentRepositoryPort).save(argThat(d -> d.getStatus() == DocumentStatus.PUBLISHED));
             verify(auditServicePort).recordDocumentApproval(301L, 20L);
+            verify(auditServicePort).recordDocumentAction(
+                    eq(301L), eq(20L),
+                    eq(com.example.livingdocs_backend.domain.model.AuditAction.DOCUMENT_PUBLISHED),
+                    contains("Manager phê duyệt xuất bản"));
             verify(reviewRepositoryPort).save(argThat(r ->
                     r.getDocId().equals(20L) &&
                     "PUBLISHED".equals(r.getResult())));
@@ -331,6 +343,10 @@ class ReviewServiceTest {
             verify(documentRepositoryPort).save(argThat(d -> d.getStatus() == DocumentStatus.REJECTED));
             verify(reviewRepositoryPort).save(argThat(r -> "REJECTED".equals(r.getResult())));
             verify(auditServicePort, never()).recordDocumentApproval(any(), any());
+            verify(auditServicePort).recordDocumentAction(
+                    eq(301L), eq(20L),
+                    eq(com.example.livingdocs_backend.domain.model.AuditAction.DOCUMENT_REJECTED),
+                    contains("Manager đã từ chối tài liệu"));
         }
 
         @Test

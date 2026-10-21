@@ -1,35 +1,44 @@
 package com.example.livingdocs_backend.application.service;
 
-import com.example.livingdocs_backend.application.dto.*;
-import com.example.livingdocs_backend.application.port.AuditServicePort;
-import com.example.livingdocs_backend.application.port.DocumentServicePort;
-import com.example.livingdocs_backend.domain.exception.DocumentNotFoundException;
-import com.example.livingdocs_backend.domain.exception.DocumentVersionNotFoundException;
-import com.example.livingdocs_backend.domain.model.ActorRole;
-import com.example.livingdocs_backend.domain.model.Document;
-import com.example.livingdocs_backend.domain.model.DocumentStatus;
-import com.example.livingdocs_backend.domain.model.DocumentStateMachine;
-import com.example.livingdocs_backend.domain.model.DocumentVersion;
-import com.example.livingdocs_backend.domain.repository.DocumentRepositoryPort;
-import com.example.livingdocs_backend.domain.repository.DocumentVersionRepositoryPort;
-import com.example.livingdocs_backend.domain.util.HashUtils;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
+import com.example.livingdocs_backend.application.dto.CreateDocumentRequest;
+import com.example.livingdocs_backend.application.dto.DocumentAuditLogResponse;
+import com.example.livingdocs_backend.application.dto.DocumentDetailResponse;
+import com.example.livingdocs_backend.application.dto.DocumentResponse;
+import com.example.livingdocs_backend.application.dto.DocumentVersionResponse;
+import com.example.livingdocs_backend.application.dto.IntegrityCheckResponse;
+import com.example.livingdocs_backend.application.dto.ManagerReviewDecisionRequest;
+import com.example.livingdocs_backend.application.dto.RollbackResponse;
+import com.example.livingdocs_backend.application.dto.StaffReviewDecisionRequest;
+import com.example.livingdocs_backend.application.dto.UpdateDocumentRequest;
+import com.example.livingdocs_backend.application.port.AuditServicePort;
+import com.example.livingdocs_backend.application.port.DocumentServicePort;
 import com.example.livingdocs_backend.application.port.GitHubClientPort;
+import com.example.livingdocs_backend.domain.exception.DocumentNotFoundException;
+import com.example.livingdocs_backend.domain.exception.DocumentVersionNotFoundException;
+import com.example.livingdocs_backend.domain.model.ActorRole;
 import com.example.livingdocs_backend.domain.model.AuditAction;
-import com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity;
+import com.example.livingdocs_backend.domain.model.Document;
+import com.example.livingdocs_backend.domain.model.DocumentStateMachine;
+import com.example.livingdocs_backend.domain.model.DocumentStatus;
+import com.example.livingdocs_backend.domain.model.DocumentVersion;
+import com.example.livingdocs_backend.domain.repository.DocumentRepositoryPort;
+import com.example.livingdocs_backend.domain.repository.DocumentVersionRepositoryPort;
+import com.example.livingdocs_backend.domain.util.HashUtils;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
-import org.springframework.util.StringUtils;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
@@ -48,7 +57,8 @@ public class DocumentServiceImpl implements DocumentServicePort {
     public DocumentResponse createDocument(CreateDocumentRequest request, Long actorId, String actorRole) {
         ActorRole role = resolveActorRole(request.getActorRole(), actorRole);
         String triggerType = (request.getTriggerType() != null && !request.getTriggerType().isBlank())
-                ? request.getTriggerType() : "MANUAL_CREATE";
+                ? request.getTriggerType()
+                : "MANUAL_CREATE";
 
         // 1. Tạo bản ghi Document khởi tạo (version 1, trạng thái DRAFT)
         Document newDoc = Document.builder()
@@ -70,8 +80,7 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 1,
                 request.getContent(),
                 role.name(),
-                triggerType
-        );
+                triggerType);
 
         // 3. Tự động tạo bản ghi document_versions v1
         DocumentVersion version1 = DocumentVersion.builder()
@@ -88,6 +97,16 @@ public class DocumentServiceImpl implements DocumentServicePort {
 
         log.info("Đã tạo mới tài liệu ID: {} kèm phiên bản v1 (Hash: {})", savedDoc.getDocId(), hash);
 
+        // 4. Ghi nhận Audit Log
+        if (auditServicePort != null) {
+            String pathInfo = savedDoc.getTargetPath() != null ? " (Đường dẫn: " + savedDoc.getTargetPath() + ")" : "";
+            auditServicePort.recordDocumentAction(
+                    actorId,
+                    savedDoc.getDocId(),
+                    AuditAction.DOCUMENT_CREATED,
+                    "Khởi tạo tài liệu v1: \"" + savedDoc.getTitle() + "\"" + pathInfo);
+        }
+
         return toDocumentResponse(savedDoc, savedVersion1);
     }
 
@@ -99,29 +118,35 @@ public class DocumentServiceImpl implements DocumentServicePort {
 
         ActorRole role = resolveActorRole(request.getActorRole(), actorRole);
         String triggerType = (request.getTriggerType() != null && !request.getTriggerType().isBlank())
-                ? request.getTriggerType() : "MANUAL_UPDATE";
+                ? request.getTriggerType()
+                : "MANUAL_UPDATE";
 
-        // Lấy phiên bản mới nhất hiện tại để kế thừa chuỗi băm prev_hash
-        String prevHash = documentVersionRepositoryPort.findLatestByDocId(docId)
-                .map(DocumentVersion::getHash)
-                .orElse(HashUtils.GENESIS_HASH);
+        // Lấy phiên bản mới nhất hiện tại để kế thừa chuỗi băm prev_hash và nội dung cũ
+        // nếu cần
+        DocumentVersion latestVersion = documentVersionRepositoryPort.findLatestByDocId(docId).orElse(null);
+        String prevHash = (latestVersion != null && latestVersion.getHash() != null)
+                ? latestVersion.getHash()
+                : HashUtils.GENESIS_HASH;
 
         int nextVersionNum = document.getCurrentVersion() != null ? document.getCurrentVersion() + 1 : 2;
+
+        String contentToSave = (request.getContent() != null && !request.getContent().isBlank())
+                ? request.getContent()
+                : (latestVersion != null && latestVersion.getContent() != null ? latestVersion.getContent() : "");
 
         // Tính toán hash cho phiên bản mới
         String newHash = HashUtils.calculateVersionHash(
                 prevHash,
                 nextVersionNum,
-                request.getContent(),
+                contentToSave,
                 role.name(),
-                triggerType
-        );
+                triggerType);
 
         // Tự động tạo bản ghi document_versions mới
         DocumentVersion nextVersion = DocumentVersion.builder()
                 .docId(docId)
                 .versionNum(nextVersionNum)
-                .content(request.getContent())
+                .content(contentToSave)
                 .actorRole(role)
                 .triggerType(triggerType)
                 .prevHash(prevHash)
@@ -140,12 +165,30 @@ public class DocumentServiceImpl implements DocumentServicePort {
         if (request.getCollectionId() != null) {
             document.setCollectionId(request.getCollectionId());
         }
+        if (request.getStatus() != null) {
+            document.setStatus(request.getStatus());
+        }
         document.setCurrentVersion(nextVersionNum);
         document.setUpdatedAt(Instant.now());
         Document updatedDoc = documentRepositoryPort.save(document);
 
         log.info("Đã cập nhật tài liệu ID: {} lên phiên bản v{} (Hash: {}, PrevHash: {})",
                 docId, nextVersionNum, newHash, prevHash);
+
+        // Ghi nhận Audit Log
+        if (auditServicePort != null) {
+            StringBuilder detailBuilder = new StringBuilder();
+            detailBuilder.append("Cập nhật tài liệu lên phiên bản v").append(nextVersionNum);
+            detailBuilder.append(" (Tiêu đề: \"").append(updatedDoc.getTitle()).append("\")");
+            if (request.getStatus() != null) {
+                detailBuilder.append(" [Trạng thái: ").append(updatedDoc.getStatus()).append("]");
+            }
+            auditServicePort.recordDocumentAction(
+                    actorId,
+                    docId,
+                    AuditAction.DOCUMENT_UPDATED,
+                    detailBuilder.toString());
+        }
 
         return toDocumentResponse(updatedDoc, savedVersion);
     }
@@ -274,19 +317,25 @@ public class DocumentServiceImpl implements DocumentServicePort {
 
     @Override
     @Transactional
-    public DocumentResponse processStaffReview(Long docId, StaffReviewDecisionRequest request, Long actorId, String actorRole) {
+    public DocumentResponse processStaffReview(Long docId, StaffReviewDecisionRequest request, Long actorId,
+            String actorRole) {
         Document document = documentRepositoryPort.findById(docId)
                 .orElseThrow(() -> new DocumentNotFoundException(docId));
 
-        DocumentStatus currentStatus = document.getStatus() != null ? document.getStatus() : DocumentStatus.UNDER_REVIEW_STAFF;
-        String decisionStr = request != null && request.getDecision() != null ? request.getDecision().trim().toUpperCase() : "APPROVE";
+        DocumentStatus currentStatus = document.getStatus() != null ? document.getStatus()
+                : DocumentStatus.UNDER_REVIEW_STAFF;
+        String decisionStr = request != null && request.getDecision() != null
+                ? request.getDecision().trim().toUpperCase()
+                : "APPROVE";
 
         DocumentStatus targetStatus = "REJECT".equals(decisionStr) || "REJECTED".equals(decisionStr)
                 ? DocumentStatus.REJECTED
                 : DocumentStatus.UNDER_REVIEW_MANAGER;
 
-        // Chuyển đổi trạng thái kèm kiểm tra nghiêm ngặt quyền hạn (Chỉ STAFF hoặc MANAGER mới được duyệt cấp 1)
-        DocumentStatus nextStatus = DocumentStateMachine.transition(currentStatus, targetStatus, actorRole != null ? actorRole : "STAFF");
+        // Chuyển đổi trạng thái kèm kiểm tra nghiêm ngặt quyền hạn (Chỉ STAFF hoặc
+        // MANAGER mới được duyệt cấp 1)
+        DocumentStatus nextStatus = DocumentStateMachine.transition(currentStatus, targetStatus,
+                actorRole != null ? actorRole : "STAFF");
 
         document.setStatus(nextStatus);
         document.setUpdatedAt(Instant.now());
@@ -294,14 +343,17 @@ public class DocumentServiceImpl implements DocumentServicePort {
 
         DocumentVersion latest = documentVersionRepositoryPort.findLatestByDocId(docId).orElse(null);
         String comment = request != null && request.getComment() != null ? request.getComment().trim() : "";
-        log.info("Duyệt cấp 1: Actor {} (vai trò: {}) đã xem xét tài liệu ID: {} -> Quyết định: {}, Trạng thái mới: {}, Ghi chú: {}",
+        log.info(
+                "Duyệt cấp 1: Actor {} (vai trò: {}) đã xem xét tài liệu ID: {} -> Quyết định: {}, Trạng thái mới: {}, Ghi chú: {}",
                 actorId, actorRole, docId, decisionStr, nextStatus, comment);
 
         if (auditServicePort != null) {
-            AuditAction action = (nextStatus == DocumentStatus.REJECTED) ? AuditAction.DOCUMENT_REJECTED : AuditAction.DOCUMENT_STAFF_REVIEWED;
+            AuditAction action = (nextStatus == DocumentStatus.REJECTED) ? AuditAction.DOCUMENT_REJECTED
+                    : AuditAction.DOCUMENT_STAFF_REVIEWED;
             String detailMsg = (nextStatus == DocumentStatus.REJECTED)
                     ? "Staff đã từ chối tài liệu. Lý do: " + (comment.isEmpty() ? "Không có lý do chi tiết" : comment)
-                    : "Staff đã phê duyệt tài liệu và chuyển Manager duyệt cấp 2. Nhận xét: " + (comment.isEmpty() ? "Tài liệu đạt chuẩn chất lượng." : comment);
+                    : "Staff đã phê duyệt tài liệu và chuyển Manager duyệt cấp 2. Nhận xét: "
+                            + (comment.isEmpty() ? "Tài liệu đạt chuẩn chất lượng." : comment);
             auditServicePort.recordDocumentAction(actorId, docId, action, detailMsg);
         }
 
@@ -316,12 +368,16 @@ public class DocumentServiceImpl implements DocumentServicePort {
 
     @Override
     @Transactional
-    public DocumentResponse processManagerReview(Long docId, ManagerReviewDecisionRequest request, Long actorId, String actorRole) {
+    public DocumentResponse processManagerReview(Long docId, ManagerReviewDecisionRequest request, Long actorId,
+            String actorRole) {
         Document document = documentRepositoryPort.findById(docId)
                 .orElseThrow(() -> new DocumentNotFoundException(docId));
 
-        DocumentStatus currentStatus = document.getStatus() != null ? document.getStatus() : DocumentStatus.UNDER_REVIEW_MANAGER;
-        String decisionStr = request != null && request.getDecision() != null ? request.getDecision().trim().toUpperCase() : "APPROVE";
+        DocumentStatus currentStatus = document.getStatus() != null ? document.getStatus()
+                : DocumentStatus.UNDER_REVIEW_MANAGER;
+        String decisionStr = request != null && request.getDecision() != null
+                ? request.getDecision().trim().toUpperCase()
+                : "APPROVE";
         String comment = request != null && request.getComment() != null ? request.getComment().trim() : "";
 
         DocumentStatus targetStatus;
@@ -333,15 +389,18 @@ public class DocumentServiceImpl implements DocumentServicePort {
             targetStatus = DocumentStatus.PUBLISHED;
         }
 
-        // Chuyển đổi trạng thái kèm kiểm tra nghiêm ngặt quyền hạn (Chỉ MANAGER mới được duyệt cấp 2)
-        DocumentStatus nextStatus = DocumentStateMachine.transition(currentStatus, targetStatus, actorRole != null ? actorRole : "MANAGER");
+        // Chuyển đổi trạng thái kèm kiểm tra nghiêm ngặt quyền hạn (Chỉ MANAGER mới
+        // được duyệt cấp 2)
+        DocumentStatus nextStatus = DocumentStateMachine.transition(currentStatus, targetStatus,
+                actorRole != null ? actorRole : "MANAGER");
 
         document.setStatus(nextStatus);
         document.setUpdatedAt(Instant.now());
         Document saved = documentRepositoryPort.save(document);
 
         DocumentVersion latest = documentVersionRepositoryPort.findLatestByDocId(docId).orElse(null);
-        log.info("Duyệt cấp 2: Manager {} (vai trò: {}) đã quyết định tài liệu ID: {} -> Quyết định: {}, Trạng thái mới: {}, Ghi chú: {}",
+        log.info(
+                "Duyệt cấp 2: Manager {} (vai trò: {}) đã quyết định tài liệu ID: {} -> Quyết định: {}, Trạng thái mới: {}, Ghi chú: {}",
                 actorId, actorRole, docId, decisionStr, nextStatus, comment);
 
         // Kích hoạt xuất bản và đẩy commit lên GitHub khi chuyển sang PUBLISHED
@@ -402,26 +461,29 @@ public class DocumentServiceImpl implements DocumentServicePort {
 
             // Kiểm tra số thứ tự phiên bản
             if (v.getVersionNum() != expectedVersionNum) {
-                issues.add("Phiên bản thứ " + (i + 1) + " có version_num là " + v.getVersionNum() + " (mong đợi: " + expectedVersionNum + ")");
+                issues.add("Phiên bản thứ " + (i + 1) + " có version_num là " + v.getVersionNum() + " (mong đợi: "
+                        + expectedVersionNum + ")");
             }
 
             // Kiểm tra liên kết chuỗi băm prev_hash
             if (!expectedPrevHash.equalsIgnoreCase(v.getPrevHash())) {
-                issues.add("Phiên bản v" + v.getVersionNum() + " bị đứt gãy chuỗi băm: prev_hash (" + v.getPrevHash() + ") không khớp hash phiên bản trước (" + expectedPrevHash + ")");
+                issues.add("Phiên bản v" + v.getVersionNum() + " bị đứt gãy chuỗi băm: prev_hash (" + v.getPrevHash()
+                        + ") không khớp hash phiên bản trước (" + expectedPrevHash + ")");
             }
 
-            // Tính toán lại mã băm thực tế từ nội dung xem có bị tamper trực tiếp trong DB không
+            // Tính toán lại mã băm thực tế từ nội dung xem có bị tamper trực tiếp trong DB
+            // không
             String roleName = v.getActorRole() != null ? v.getActorRole().name() : "DEV";
             String computedHash = HashUtils.calculateVersionHash(
                     v.getPrevHash(),
                     v.getVersionNum(),
                     v.getContent(),
                     roleName,
-                    v.getTriggerType()
-            );
+                    v.getTriggerType());
 
             if (!computedHash.equalsIgnoreCase(v.getHash())) {
-                issues.add("Phiên bản v" + v.getVersionNum() + " có nội dung bị chỉnh sửa trái phép! Mã băm lưu trữ: " + v.getHash() + ", mã băm tính lại: " + computedHash);
+                issues.add("Phiên bản v" + v.getVersionNum() + " có nội dung bị chỉnh sửa trái phép! Mã băm lưu trữ: "
+                        + v.getHash() + ", mã băm tính lại: " + computedHash);
             }
 
             // Cập nhật expectedPrevHash cho vòng lặp kế tiếp
@@ -430,8 +492,10 @@ public class DocumentServiceImpl implements DocumentServicePort {
 
         boolean isValid = issues.isEmpty();
         String message = isValid
-                ? "Chuỗi băm toàn vẹn: Toàn bộ " + versions.size() + " phiên bản khớp tuyệt đối mã băm SHA-256 và không có dấu hiệu can thiệp trái phép."
-                : "Phát hiện bất thường: Chuỗi băm bị đứt gãy hoặc nội dung đã bị can thiệp ngoài luồng (" + issues.size() + " lỗi)!";
+                ? "Chuỗi băm toàn vẹn: Toàn bộ " + versions.size()
+                        + " phiên bản khớp tuyệt đối mã băm SHA-256 và không có dấu hiệu can thiệp trái phép."
+                : "Phát hiện bất thường: Chuỗi băm bị đứt gãy hoặc nội dung đã bị can thiệp ngoài luồng ("
+                        + issues.size() + " lỗi)!";
 
         return IntegrityCheckResponse.builder()
                 .docId(docId)
@@ -444,7 +508,8 @@ public class DocumentServiceImpl implements DocumentServicePort {
 
     @Override
     @Transactional
-    public RollbackResponse rollbackToVersion(Long docId, Integer targetVersion, String reason, Long actorId, String actorRole) {
+    public RollbackResponse rollbackToVersion(Long docId, Integer targetVersion, String reason, Long actorId,
+            String actorRole) {
         if (targetVersion == null || targetVersion < 1) {
             throw new IllegalArgumentException("Phiên bản mục tiêu để khôi phục không hợp lệ: " + targetVersion);
         }
@@ -453,7 +518,8 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 .orElseThrow(() -> new DocumentNotFoundException(docId));
 
         // 1. Tìm phiên bản mục tiêu cần khôi phục
-        DocumentVersion targetVersionEntity = documentVersionRepositoryPort.findByDocIdAndVersionNum(docId, targetVersion)
+        DocumentVersion targetVersionEntity = documentVersionRepositoryPort
+                .findByDocIdAndVersionNum(docId, targetVersion)
                 .orElseThrow(() -> new DocumentVersionNotFoundException(docId, targetVersion));
 
         // 2. Lấy hash của phiên bản mới nhất hiện tại để kế thừa prev_hash
@@ -461,7 +527,8 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 .map(DocumentVersion::getHash)
                 .orElse(HashUtils.GENESIS_HASH);
 
-        int nextVersionNum = document.getCurrentVersion() != null ? document.getCurrentVersion() + 1 : targetVersion + 1;
+        int nextVersionNum = document.getCurrentVersion() != null ? document.getCurrentVersion() + 1
+                : targetVersion + 1;
 
         ActorRole role = resolveActorRole(actorRole, null);
         String triggerType = "ROLLBACK_TO_V" + targetVersion;
@@ -472,10 +539,10 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 nextVersionNum,
                 targetVersionEntity.getContent(),
                 role.name(),
-                triggerType
-        );
+                triggerType);
 
-        // 4. Lưu bản ghi DocumentVersion mới (Bảo toàn tính bất biến - không xóa lịch sử)
+        // 4. Lưu bản ghi DocumentVersion mới (Bảo toàn tính bất biến - không xóa lịch
+        // sử)
         DocumentVersion newVersion = DocumentVersion.builder()
                 .docId(docId)
                 .versionNum(nextVersionNum)
@@ -493,10 +560,21 @@ public class DocumentServiceImpl implements DocumentServicePort {
         document.setUpdatedAt(Instant.now());
         documentRepositoryPort.save(document);
 
-        log.info("Đã khôi phục tài liệu ID: {} về phiên bản v{} -> Tạo phiên bản mới v{} (Hash: {}, PrevHash: {}) bởi actor: {}",
+        log.info(
+                "Đã khôi phục tài liệu ID: {} về phiên bản v{} -> Tạo phiên bản mới v{} (Hash: {}, PrevHash: {}) bởi actor: {}",
                 docId, targetVersion, nextVersionNum, newHash, prevHash, actorId);
 
         String msgReason = (reason != null && !reason.isBlank()) ? " (Lý do: " + reason + ")" : "";
+
+        // Ghi nhận Audit Log
+        if (auditServicePort != null) {
+            auditServicePort.recordDocumentAction(
+                    actorId,
+                    docId,
+                    AuditAction.DOCUMENT_ROLLBACK,
+                    "Khôi phục tài liệu về phiên bản v" + targetVersion + " -> Tạo phiên bản mới v" + nextVersionNum
+                            + msgReason);
+        }
         String message = "Đã khôi phục thành công tài liệu về nội dung của phiên bản v" + targetVersion
                 + ", tạo phiên bản mới v" + nextVersionNum + " để bảo đảm toàn vẹn chuỗi băm lịch sử" + msgReason + ".";
 
@@ -583,14 +661,16 @@ public class DocumentServiceImpl implements DocumentServicePort {
         try {
             var repoOpt = repositoryRepository.findById(doc.getRepoId());
             if (repoOpt.isEmpty()) {
-                log.warn("Không tìm thấy repository ID: {} để đẩy commit tài liệu docId: {}", doc.getRepoId(), doc.getDocId());
+                log.warn("Không tìm thấy repository ID: {} để đẩy commit tài liệu docId: {}", doc.getRepoId(),
+                        doc.getDocId());
                 return null;
             }
 
             RepositoryEntity repo = repoOpt.get();
             String token = resolveGitHubToken(repo);
             if (!StringUtils.hasText(token)) {
-                log.warn("Không có GitHub Token hợp lệ cho repository: {}. Bỏ qua đẩy commit lên GitHub.", repo.getRepoFullName());
+                log.warn("Không có GitHub Token hợp lệ cho repository: {}. Bỏ qua đẩy commit lên GitHub.",
+                        repo.getRepoFullName());
                 return null;
             }
 
@@ -598,7 +678,8 @@ public class DocumentServiceImpl implements DocumentServicePort {
             String owner = ownerAndRepo[0];
             String repoName = ownerAndRepo[1];
 
-            String filePath = StringUtils.hasText(doc.getTargetPath()) ? doc.getTargetPath() : "docs/" + doc.getTitle().replaceAll("[^a-zA-Z0-9-_]", "_") + ".md";
+            String filePath = StringUtils.hasText(doc.getTargetPath()) ? doc.getTargetPath()
+                    : "docs/" + doc.getTitle().replaceAll("[^a-zA-Z0-9-_]", "_") + ".md";
             String branch = StringUtils.hasText(repo.getDefaultBranch()) ? repo.getDefaultBranch() : "main";
             String commitMessage = "docs(publish): " + doc.getTitle() + " (v" + version.getVersionNum() + ")";
 
@@ -606,8 +687,7 @@ public class DocumentServiceImpl implements DocumentServicePort {
                     doc.getTitle(), owner, repoName, branch);
 
             String commitSha = gitHubClient.createOrUpdateFile(
-                    token, owner, repoName, filePath, version.getContent(), commitMessage, branch
-            );
+                    token, owner, repoName, filePath, version.getContent(), commitMessage, branch);
 
             log.info("Đã xuất bản thành công tài liệu [{}] lên GitHub, Commit SHA: {}", doc.getTitle(), commitSha);
             return commitSha;
@@ -636,8 +716,8 @@ public class DocumentServiceImpl implements DocumentServicePort {
     private String[] parseOwnerAndRepo(String repoFullName) {
         String[] parts = repoFullName.split("/", 2);
         if (parts.length < 2) {
-            return new String[]{repoFullName, repoFullName};
+            return new String[] { repoFullName, repoFullName };
         }
-        return new String[]{parts[0].trim(), parts[1].trim()};
+        return new String[] { parts[0].trim(), parts[1].trim() };
     }
 }
