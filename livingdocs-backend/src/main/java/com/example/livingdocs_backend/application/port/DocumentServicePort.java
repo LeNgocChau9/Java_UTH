@@ -84,4 +84,18 @@ public interface DocumentServicePort {
      * Lấy nhật ký lịch sử thay đổi (Audit trail) của tài liệu bao gồm các sự kiện tạo, gửi duyệt, nhận xét của Staff và quyết định của Manager.
      */
     List<DocumentAuditLogResponse> getDocumentAuditLogs(Long docId);
+
+    /**
+     * Xuất bản tài liệu lên GitHub bằng GitHub Contents API.
+     * Tạo hoặc cập nhật file Markdown tại đường dẫn targetPath của tài liệu trong repository.
+     * Ghi nhận commit hash và link commit vào bảng document_versions.
+     *
+     * @param docId          ID tài liệu cần xuất bản
+     * @param request        Request chứa GitHub token và commit message tùy chọn
+     * @param actorId        ID người thực hiện (Manager)
+     * @return Kết quả xuất bản gồm commit hash, URL và metadata
+     */
+    PublishToGitHubResponse publishToGitHub(Long docId, PublishToGitHubRequest request, Long actorId);
 }
+
+

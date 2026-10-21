@@ -5,6 +5,7 @@ import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "document_versions")
@@ -44,4 +45,13 @@ public class DocumentVersionEntity {
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;
+
+    @Column(name = "commit_hash", length = 256)
+    private String commitHash;
+
+    @Column(name = "commit_url", length = 1024)
+    private String commitUrl;
+
+    @Column(name = "published_at")
+    private LocalDateTime publishedAt;
 }
