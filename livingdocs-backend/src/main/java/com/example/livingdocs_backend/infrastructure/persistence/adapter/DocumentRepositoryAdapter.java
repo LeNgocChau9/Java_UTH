@@ -62,6 +62,14 @@ public class DocumentRepositoryAdapter implements DocumentRepositoryPort {
     }
 
     @Override
+    public List<Document> findByStatus(com.example.livingdocs_backend.domain.model.DocumentStatus status) {
+        return springDataDocumentRepository.findByStatus(status)
+                .stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    @Override
     public boolean existsById(Long docId) {
         return springDataDocumentRepository.existsById(docId);
     }
