@@ -27,6 +27,8 @@ import com.example.livingdocs_backend.application.service.RepositoryServiceImpl;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.CommitEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.PullRequestEntity;
+import com.example.livingdocs_backend.application.port.AuditServicePort;
+import com.example.livingdocs_backend.domain.model.AuditAction;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataCommitRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository;
@@ -40,6 +42,7 @@ class RepositoryServiceTest {
         private SpringDataCommitRepository commitRepository;
         private SpringDataGitHubConnectionRepository gitHubConnectionRepository;
         private GitHubClientPort gitHubClient;
+        private AuditServicePort auditServicePort;
 
         private RepositoryServiceImpl repositoryService;
 
@@ -50,14 +53,17 @@ class RepositoryServiceTest {
                 commitRepository = mock(SpringDataCommitRepository.class);
                 gitHubConnectionRepository = mock(SpringDataGitHubConnectionRepository.class);
                 gitHubClient = mock(GitHubClientPort.class);
+                auditServicePort = mock(AuditServicePort.class);
 
                 repositoryService = new RepositoryServiceImpl(
                                 repositoryRepository,
                                 pullRequestRepository,
                                 commitRepository,
                                 gitHubConnectionRepository,
-                                gitHubClient);
+                                gitHubClient,
+                                auditServicePort);
         }
+
 
         @Test
         @DisplayName("Thêm Repo: Lưu repo vào database và trả về RepoResponse")
@@ -155,4 +161,107 @@ class RepositoryServiceTest {
                 verify(repositoryRepository).save(repo);
                 assertNotNull(repo.getLastSyncedAt());
         }
+
+        @Test
+        @DisplayName("Kiểm tra Token: Token hợp lệ cập nhật status CONNECTED")
+        void testVerifyConnectionToken_validToken() {
+                Long connId = 100L;
+                GitHubConnectionEntity conn = GitHubConnectionEntity.builder()
+                                .connectionId(connId)
+                                .workspaceId(1L)
+                                .userId(10L)
+                                .githubUsername("valid_dev")
+                                .accessTokenEncrypted("ghp_valid_secret")
+                                .status("CONNECTED")
+                                .build();
+
+                when(gitHubConnectionRepository.findById(connId)).thenReturn(Optional.of(conn));
+                when(gitHubClient.validateToken("ghp_valid_secret")).thenReturn(
+                                com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
+                                                .valid(true)
+                                                .status("CONNECTED")
+                                                .githubUsername("valid_dev")
+                                                .scopes("repo, read:user")
+                                                .message("OK")
+                                                .build());
+
+                var result = repositoryService.verifyConnectionToken(connId, 10L);
+
+                assertNotNull(result);
+                assertTrue(result.isValid());
+                assertEquals("CONNECTED", result.getStatus());
+                assertNull(result.getWarningMessage());
+
+                verify(gitHubConnectionRepository).save(conn);
+                verifyNoInteractions(auditServicePort);
+        }
+
+        @Test
+        @DisplayName("Kiểm tra Token: Token bị thu hồi (REVOKED) cập nhật status và ghi nhận AuditLog cảnh báo")
+        void testVerifyConnectionToken_revokedToken() {
+                Long connId = 101L;
+                GitHubConnectionEntity conn = GitHubConnectionEntity.builder()
+                                .connectionId(connId)
+                                .workspaceId(1L)
+                                .userId(10L)
+                                .githubUsername("revoked_dev")
+                                .accessTokenEncrypted("ghp_revoked_token")
+                                .status("CONNECTED")
+                                .build();
+
+                when(gitHubConnectionRepository.findById(connId)).thenReturn(Optional.of(conn));
+                when(gitHubClient.validateToken("ghp_revoked_token")).thenReturn(
+                                com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
+                                                .valid(false)
+                                                .status("REVOKED")
+                                                .message("Token đã bị revoke bởi người dùng")
+                                                .build());
+
+                var result = repositoryService.verifyConnectionToken(connId, 10L);
+
+                assertNotNull(result);
+                assertFalse(result.isValid());
+                assertEquals("REVOKED", result.getStatus());
+                assertNotNull(result.getWarningMessage());
+                assertTrue(result.getWarningMessage().contains("CẢNH BÁO"));
+
+                verify(gitHubConnectionRepository).save(conn);
+                verify(auditServicePort).recordSecurityAction(eq(10L), eq(AuditAction.GITHUB_TOKEN_REVOKED),
+                                eq("GITHUB_CONNECTION"), eq("101"), anyString());
+        }
+
+        @Test
+        @DisplayName("Kiểm tra Token: Token hết hạn (EXPIRED) cập nhật status và ghi nhận AuditLog cảnh báo")
+        void testVerifyConnectionToken_expiredToken() {
+                Long connId = 102L;
+                GitHubConnectionEntity conn = GitHubConnectionEntity.builder()
+                                .connectionId(connId)
+                                .workspaceId(1L)
+                                .userId(10L)
+                                .githubUsername("expired_dev")
+                                .accessTokenEncrypted("ghp_expired_token")
+                                .tokenExpiresAt(Instant.now().minusSeconds(3600)) // Hết hạn 1 tiếng trước
+                                .status("CONNECTED")
+                                .build();
+
+                when(gitHubConnectionRepository.findById(connId)).thenReturn(Optional.of(conn));
+                when(gitHubClient.validateToken("ghp_expired_token")).thenReturn(
+                                com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
+                                                .valid(false)
+                                                .status("EXPIRED")
+                                                .message("Token expired")
+                                                .build());
+
+                var result = repositoryService.verifyConnectionToken(connId, 10L);
+
+                assertNotNull(result);
+                assertFalse(result.isValid());
+                assertEquals("EXPIRED", result.getStatus());
+                assertTrue(result.getWarningMessage().contains("đã hết hạn"));
+
+                verify(gitHubConnectionRepository).save(conn);
+                verify(auditServicePort).recordSecurityAction(eq(10L), eq(AuditAction.GITHUB_TOKEN_EXPIRED),
+                                eq("GITHUB_CONNECTION"), eq("102"), anyString());
+        }
 }
+

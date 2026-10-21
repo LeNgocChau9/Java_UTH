@@ -77,5 +77,26 @@ public class RepositoryController {
     public ResponseEntity<List<com.example.livingdocs_backend.infrastructure.persistence.entity.CommitEntity>> getCommits(@PathVariable("id") Long id) {
         return ResponseEntity.ok(repositoryService.getRepoCommits(id));
     }
+
+    @PostMapping("/connections/{connectionId}/verify")
+    @Operation(summary = "Kiểm tra tính hợp lệ của GitHub Access Token và bắn cảnh báo nếu hết hạn/bị revoke")
+    public ResponseEntity<com.example.livingdocs_backend.application.dto.github.GitHubConnectionStatusResponse> verifyConnection(
+            @PathVariable("connectionId") Long connectionId,
+            @AuthenticationPrincipal UserPrincipal userPrincipal
+    ) {
+        Long userId = userPrincipal != null ? userPrincipal.getUserId() : 1L;
+        return ResponseEntity.ok(repositoryService.verifyConnectionToken(connectionId, userId));
+    }
+
+    @PostMapping("/connections/verify-all")
+    @Operation(summary = "Quét kiểm tra toàn bộ kết nối GitHub Token trong workspace và bắn cảnh báo")
+    public ResponseEntity<List<com.example.livingdocs_backend.application.dto.github.GitHubConnectionStatusResponse>> verifyAllConnections(
+            @RequestParam(value = "workspaceId", required = false) Long workspaceId,
+            @AuthenticationPrincipal UserPrincipal userPrincipal
+    ) {
+        Long userId = userPrincipal != null ? userPrincipal.getUserId() : 1L;
+        return ResponseEntity.ok(repositoryService.verifyWorkspaceConnections(workspaceId, userId));
+    }
 }
+
 

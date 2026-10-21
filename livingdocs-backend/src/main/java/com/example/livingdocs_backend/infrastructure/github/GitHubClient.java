@@ -373,6 +373,92 @@ public class GitHubClient implements GitHubClientPort {
     }
 
     /**
+     * Kiểm tra tính hợp lệ của access token kết nối GitHub.
+     * Gọi GET /user để xác thực token.
+     * Xử lý trường hợp 401 Unauthorized (token revoked/invalid) hoặc hết hạn.
+     */
+    @Override
+    public com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult validateToken(String token) {
+        if (!StringUtils.hasText(token) || "DUMMY_TOKEN".equalsIgnoreCase(token.trim())) {
+            return com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
+                    .valid(false)
+                    .status("REVOKED")
+                    .message("Token GitHub rỗng hoặc là token mẫu (DUMMY_TOKEN)")
+                    .build();
+        }
+
+        try {
+            var responseEntity = restClient.get()
+                    .uri("/user")
+                    .header(HttpHeaders.USER_AGENT, "LivingDocs-GitHubClient/1.0")
+                    .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token.trim())
+                    .accept(MediaType.APPLICATION_JSON)
+                    .retrieve()
+                    .toEntity(GitUserResponse.class);
+
+            GitUserResponse user = responseEntity.getBody();
+            HttpHeaders headers = responseEntity.getHeaders();
+            String scopes = headers.getFirst("X-OAuth-Scopes");
+
+            // Kiểm tra thời gian hết hạn nếu có trong header
+            Instant expiresAt = null;
+            String expiresHeader = headers.getFirst("github-authentication-token-expiration");
+            if (StringUtils.hasText(expiresHeader)) {
+                try {
+                    // Header có định dạng UTC date string hoặc timestamp
+                    expiresAt = Instant.parse(expiresHeader);
+                } catch (Exception ignored) {}
+            }
+
+            String username = user != null ? user.login() : "unknown";
+            return com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
+                    .valid(true)
+                    .status("CONNECTED")
+                    .githubUsername(username)
+                    .scopes(scopes)
+                    .expiresAt(expiresAt)
+                    .message("Token GitHub hợp lệ và đang kết nối ổn định.")
+                    .build();
+
+        } catch (RestClientResponseException ex) {
+            int statusCode = ex.getStatusCode().value();
+            String body = ex.getResponseBodyAsString();
+            log.warn("GitHub validateToken trả về HTTP {}: {}", statusCode, body);
+
+            if (statusCode == 401) {
+                // Token bị thu hồi (revoked), bad credentials hoặc token sai
+                return com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
+                        .valid(false)
+                        .status("REVOKED")
+                        .message("Token GitHub đã bị thu hồi (Revoked) hoặc không hợp lệ: " + body)
+                        .build();
+            } else if (statusCode == 403 && body != null && body.toLowerCase().contains("expired")) {
+                // Token đã hết hạn
+                return com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
+                        .valid(false)
+                        .status("EXPIRED")
+                        .message("Token GitHub đã hết hạn: " + body)
+                        .build();
+            } else {
+                return com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
+                        .valid(false)
+                        .status("REVOKED")
+                        .message("Lỗi xác thực GitHub Token (HTTP " + statusCode + "): " + body)
+                        .build();
+            }
+        } catch (Exception ex) {
+            log.error("Lỗi khi kiểm tra GitHub token: {}", ex.getMessage());
+            return com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
+                    .valid(false)
+                    .status("REVOKED")
+                    .message("Không thể kết nối đến GitHub API để xác thực token: " + ex.getMessage())
+                    .build();
+        }
+    }
+
+
+    /**
      * Tạo RestClient request với Header Authentication và GitHub API Version tiêu chuẩn.
      */
     private RestClient.RequestHeadersSpec<?> executeWithAuth(String token, String uri, Object... uriVariables) {
@@ -590,6 +676,17 @@ public class GitHubClient implements GitHubClientPort {
             String path,
             @JsonProperty("html_url") String htmlUrl
     ) {}
+
+    // Response khi GET /user để kiểm tra token
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record GitUserResponse(
+            Long id,
+            String login,
+            String name,
+            String email,
+            @JsonProperty("avatar_url") String avatarUrl
+    ) {}
 }
+
 
 
