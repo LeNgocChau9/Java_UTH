@@ -303,4 +303,87 @@ class GitHubClientTest {
             assertEquals(404, ex.getStatusCode());
         }
     }
+
+    @Nested
+    @DisplayName("5. Kiểm tra tính hợp lệ của GitHub Token (validateToken)")
+    class ValidateTokenTests {
+
+        @Test
+        @DisplayName("Hợp lệ: Token chính xác, trả về CONNECTED và thông tin user")
+        void shouldReturnConnectedWhenTokenIsValid() {
+            HttpHeaders headers = new HttpHeaders();
+            headers.add("X-OAuth-Scopes", "repo, read:user");
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            mockServer.expect(requestTo("https://api.github.com/user"))
+                    .andExpect(method(HttpMethod.GET))
+                    .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer " + sampleToken))
+                    .andRespond(withSuccess("""
+                            {
+                              "id": 99999,
+                              "login": "octocat",
+                              "name": "The Octocat"
+                            }
+                            """, MediaType.APPLICATION_JSON).headers(headers));
+
+            var result = gitHubClient.validateToken(sampleToken);
+
+            assertNotNull(result);
+            assertTrue(result.isValid());
+            assertEquals("CONNECTED", result.getStatus());
+            assertEquals("octocat", result.getGithubUsername());
+            assertEquals("repo, read:user", result.getScopes());
+
+            mockServer.verify();
+        }
+
+        @Test
+        @DisplayName("Bị thu hồi (REVOKED): Token 401 Bad credentials")
+        void shouldReturnRevokedWhenTokenIsUnauthorized401() {
+            mockServer.expect(requestTo("https://api.github.com/user"))
+                    .andExpect(method(HttpMethod.GET))
+                    .andRespond(withStatus(HttpStatus.UNAUTHORIZED)
+                            .body("{\"message\": \"Bad credentials\"}"));
+
+            var result = gitHubClient.validateToken(sampleToken);
+
+            assertNotNull(result);
+            assertFalse(result.isValid());
+            assertEquals("REVOKED", result.getStatus());
+            assertTrue(result.getMessage().contains("Revoked") || result.getMessage().contains("không hợp lệ"));
+
+            mockServer.verify();
+        }
+
+        @Test
+        @DisplayName("Hết hạn (EXPIRED): Token 403 Expired")
+        void shouldReturnExpiredWhenTokenHasExpired() {
+            mockServer.expect(requestTo("https://api.github.com/user"))
+                    .andExpect(method(HttpMethod.GET))
+                    .andRespond(withStatus(HttpStatus.FORBIDDEN)
+                            .body("{\"message\": \"Resource not accessible, token has expired\"}"));
+
+            var result = gitHubClient.validateToken(sampleToken);
+
+            assertNotNull(result);
+            assertFalse(result.isValid());
+            assertEquals("EXPIRED", result.getStatus());
+            assertTrue(result.getMessage().contains("hết hạn"));
+
+            mockServer.verify();
+        }
+
+        @Test
+        @DisplayName("Token rỗng hoặc DUMMY_TOKEN: Trả về REVOKED ngay không cần gọi GitHub")
+        void shouldReturnRevokedForBlankOrDummyToken() {
+            var emptyResult = gitHubClient.validateToken("");
+            assertFalse(emptyResult.isValid());
+            assertEquals("REVOKED", emptyResult.getStatus());
+
+            var dummyResult = gitHubClient.validateToken("DUMMY_TOKEN");
+            assertFalse(dummyResult.isValid());
+            assertEquals("REVOKED", dummyResult.getStatus());
+        }
+    }
 }
+

@@ -101,6 +101,15 @@ public interface GitHubClientPort {
      * @return SHA chuỗi băm của file hiện tại hoặc null nếu file chưa tồn tại
      */
     String getCurrentFileSha(String token, String owner, String repo, String filePath);
+
+    /**
+     * Kiểm tra tính hợp lệ của GitHub token kết nối (gọi GET /user).
+     *
+     * @param token GitHub Personal Access Token hoặc OAuth Access Token
+     * @return Kết quả kiểm tra (hợp lệ hay bị revoked/expired kèm thông báo)
+     */
+    com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult validateToken(String token);
 }
+
 
 

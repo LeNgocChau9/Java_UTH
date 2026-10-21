@@ -17,5 +17,8 @@ public interface AuditServicePort {
 
     void recordDocumentAction(Long actorId, Long documentId, AuditAction action, String detail);
 
+    void recordSecurityAction(Long actorId, AuditAction action, String resourceType, String resourceId, String detail);
+
     List<AuditLog> getAuditLogsForResource(String resourceType, String resourceId);
 }
+

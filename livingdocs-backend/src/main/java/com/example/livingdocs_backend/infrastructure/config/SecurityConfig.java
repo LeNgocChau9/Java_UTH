@@ -62,6 +62,7 @@ public class SecurityConfig {
                     "/api/reviews/**",
                     "/api/collections/**",
                     "/api/repositories/**",
+                    "/api/repos/**",
                     "/api/webhooks/**"
                 ).permitAll()
                 .requestMatchers("/api/me").authenticated()
