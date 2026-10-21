@@ -37,4 +37,22 @@ public class AuditLogRepositoryAdapter implements AuditLogRepositoryPort {
                 .createdAt(saved.getCreatedAt())
                 .build();
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public java.util.List<AuditLog> findByResourceTypeAndResourceId(String resourceType, String resourceId) {
+        return springDataAuditLogRepository.findByResourceTypeAndResourceIdOrderByCreatedAtDesc(resourceType, resourceId)
+                .stream()
+                .map(saved -> AuditLog.builder()
+                        .logId(saved.getLogId())
+                        .actorId(saved.getActorId())
+                        .action(saved.getAction())
+                        .resourceType(saved.getResourceType())
+                        .resourceId(saved.getResourceId())
+                        .detail(saved.getDetail())
+                        .ipAddress(saved.getIpAddress())
+                        .createdAt(saved.getCreatedAt())
+                        .build())
+                .toList();
+    }
 }

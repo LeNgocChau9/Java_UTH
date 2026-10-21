@@ -45,7 +45,7 @@ class DocumentStateMachineTest {
         }
 
         @Test
-        @DisplayName("UNDER_REVIEW_MANAGER chuyển sang PUBLISHED (hoặc APPROVED) hoặc REJECTED (Duyệt cấp 2)")
+        @DisplayName("UNDER_REVIEW_MANAGER chuyển sang PUBLISHED, APPROVED, REJECTED hoặc trả lại UNDER_REVIEW_STAFF (Duyệt cấp 2)")
         void shouldAllowTransitionsFromUnderReviewManager() {
             // Quản lý phê duyệt trực tiếp xuất bản (theo đúng mô tả Task tuần 3)
             assertTrue(DocumentStateMachine.isValidTransition(DocumentStatus.UNDER_REVIEW_MANAGER, DocumentStatus.PUBLISHED));
@@ -61,6 +61,11 @@ class DocumentStateMachineTest {
             assertTrue(DocumentStateMachine.isValidTransition(DocumentStatus.UNDER_REVIEW_MANAGER, DocumentStatus.REJECTED));
             assertEquals(DocumentStatus.REJECTED,
                     DocumentStateMachine.transition(DocumentStatus.UNDER_REVIEW_MANAGER, DocumentStatus.REJECTED));
+
+            // Quản lý trả lại cho Staff xem xét lại
+            assertTrue(DocumentStateMachine.isValidTransition(DocumentStatus.UNDER_REVIEW_MANAGER, DocumentStatus.UNDER_REVIEW_STAFF));
+            assertEquals(DocumentStatus.UNDER_REVIEW_STAFF,
+                    DocumentStateMachine.transition(DocumentStatus.UNDER_REVIEW_MANAGER, DocumentStatus.UNDER_REVIEW_STAFF));
         }
 
         @Test
@@ -104,7 +109,6 @@ class DocumentStateMachineTest {
                 "UNDER_REVIEW_STAFF, APPROVED",
                 "UNDER_REVIEW_STAFF, DRAFT",
                 "UNDER_REVIEW_MANAGER, DRAFT",
-                "UNDER_REVIEW_MANAGER, UNDER_REVIEW_STAFF",
                 "APPROVED, DRAFT",
                 "APPROVED, UNDER_REVIEW_STAFF",
                 "APPROVED, UNDER_REVIEW_MANAGER",
@@ -141,10 +145,11 @@ class DocumentStateMachineTest {
             assertTrue(fromStaff.contains(DocumentStatus.REJECTED));
 
             Set<DocumentStatus> fromManager = DocumentStateMachine.getNextAllowedStatuses(DocumentStatus.UNDER_REVIEW_MANAGER);
-            assertEquals(3, fromManager.size());
+            assertEquals(4, fromManager.size());
             assertTrue(fromManager.contains(DocumentStatus.PUBLISHED));
             assertTrue(fromManager.contains(DocumentStatus.APPROVED));
             assertTrue(fromManager.contains(DocumentStatus.REJECTED));
+            assertTrue(fromManager.contains(DocumentStatus.UNDER_REVIEW_STAFF));
 
             Set<DocumentStatus> fromApproved = DocumentStateMachine.getNextAllowedStatuses(DocumentStatus.APPROVED);
             assertEquals(1, fromApproved.size());
@@ -233,6 +238,13 @@ class DocumentStateMachineTest {
             DocumentStatus rejectedStatus = DocumentStateMachine.transition(
                     DocumentStatus.UNDER_REVIEW_MANAGER, DocumentStatus.REJECTED, role);
             assertEquals(DocumentStatus.REJECTED, rejectedStatus);
+
+            // Manager trả lại cho Staff xem xét lại sang UNDER_REVIEW_STAFF
+            assertTrue(DocumentStateMachine.isAllowedRole(
+                    DocumentStatus.UNDER_REVIEW_MANAGER, DocumentStatus.UNDER_REVIEW_STAFF, role));
+            DocumentStatus returnStaffStatus = DocumentStateMachine.transition(
+                    DocumentStatus.UNDER_REVIEW_MANAGER, DocumentStatus.UNDER_REVIEW_STAFF, role);
+            assertEquals(DocumentStatus.UNDER_REVIEW_STAFF, returnStaffStatus);
         }
 
         @ParameterizedTest(name = "Vai trò bị chặn duyệt cấp 2: {0}")

@@ -58,4 +58,18 @@ public interface GitHubClientPort {
      * @return Danh sách commit
      */
     List<GitHubCommitDto> listCommits(String token, String owner, String repo, String sha, int limit);
+
+    /**
+     * Tạo hoặc cập nhật file trong GitHub repository (Tạo commit lên branch chỉ định).
+     *
+     * @param token         Access token của GitHub
+     * @param owner         Chủ sở hữu repo
+     * @param repo          Tên repo
+     * @param filePath      Đường dẫn file trong repository (vd: docs/architecture.md)
+     * @param content       Nội dung file (plain text, hàm sẽ tự base64 encode)
+     * @param commitMessage Thông điệp commit
+     * @param branch        Tên branch cần push (vd: main)
+     * @return Commit SHA nếu thành công
+     */
+    String createOrUpdateFile(String token, String owner, String repo, String filePath, String content, String commitMessage, String branch);
 }

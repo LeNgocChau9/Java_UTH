@@ -77,7 +77,7 @@ public class DocumentController {
     }
 
     @PostMapping("/{docId}/manager-review")
-    @Operation(summary = "Manager phê duyệt tài liệu (Duyệt cấp 2)", description = "Chỉ Manager mới có quyền duyệt cấp 2 để chuyển tài liệu từ UNDER_REVIEW_MANAGER sang PUBLISHED hoặc REJECTED.")
+    @Operation(summary = "Manager phê duyệt tài liệu (Duyệt cấp 2)", description = "Chỉ Manager mới có quyền duyệt cấp 2: Phê duyệt xuất bản (PUBLISHED + push GitHub commit), Trả lại Staff (UNDER_REVIEW_STAFF) hoặc Từ chối (REJECTED).")
     public ResponseEntity<DocumentResponse> processManagerReview(
             @PathVariable Long docId,
             @RequestBody(required = false) ManagerReviewDecisionRequest request,
@@ -87,6 +87,12 @@ public class DocumentController {
         String actorRole = extractRole(userPrincipal);
         DocumentResponse response = documentServicePort.processManagerReview(docId, request, actorId, actorRole);
         return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/{docId}/audit-trail")
+    @Operation(summary = "Xem nhật ký lịch sử thay đổi (Audit trail)", description = "Lấy toàn bộ lịch sử các hành động thay đổi, gửi duyệt, nhận xét của Staff và phê duyệt của Manager đối với tài liệu.")
+    public ResponseEntity<List<DocumentAuditLogResponse>> getDocumentAuditTrail(@PathVariable Long docId) {
+        return ResponseEntity.ok(documentServicePort.getDocumentAuditLogs(docId));
     }
 
     @GetMapping("/{docId}")

@@ -85,3 +85,14 @@ export interface RollbackRequestPayload {
   actorRole?: string;
 }
 
+export interface DocumentAuditLogItem {
+  logId: number;
+  actorId: number | null;
+  action: string;
+  resourceType: string;
+  resourceId: string;
+  detail?: string | null;
+  ipAddress?: string | null;
+  createdAt: string;
+}
+

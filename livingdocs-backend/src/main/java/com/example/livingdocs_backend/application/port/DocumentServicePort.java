@@ -73,9 +73,15 @@ public interface DocumentServicePort {
     /**
      * Xử lý phê duyệt hoặc từ chối tài liệu bởi Manager (Duyệt cấp 2).
      * Chỉ người có vai trò MANAGER mới có quyền thực hiện.
-     * - APPROVE: Chuyển sang PUBLISHED (hoặc APPROVED)
+     * - APPROVE / PUBLISH: Chuyển sang PUBLISHED và kích hoạt đẩy commit lên GitHub
+     * - RETURN_STAFF: Trả lại cho Staff xem xét lại (UNDER_REVIEW_STAFF)
      * - REJECT: Chuyển sang REJECTED kèm lý do/nhận xét gửi lại cho tác giả.
      */
     DocumentResponse processManagerReview(Long docId, ManagerReviewDecisionRequest request, Long actorId);
     DocumentResponse processManagerReview(Long docId, ManagerReviewDecisionRequest request, Long actorId, String actorRole);
+
+    /**
+     * Lấy nhật ký lịch sử thay đổi (Audit trail) của tài liệu bao gồm các sự kiện tạo, gửi duyệt, nhận xét của Staff và quyết định của Manager.
+     */
+    List<DocumentAuditLogResponse> getDocumentAuditLogs(Long docId);
 }
