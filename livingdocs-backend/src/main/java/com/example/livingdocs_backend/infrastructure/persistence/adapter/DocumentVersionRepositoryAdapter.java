@@ -69,6 +69,9 @@ public class DocumentVersionRepositoryAdapter implements DocumentVersionReposito
                 .hash(domain.getHash())
                 .prevHash(domain.getPrevHash())
                 .createdAt(domain.getCreatedAt())
+                .commitHash(domain.getCommitHash())
+                .commitUrl(domain.getCommitUrl())
+                .publishedAt(domain.getPublishedAt())
                 .build();
     }
 
@@ -83,6 +86,9 @@ public class DocumentVersionRepositoryAdapter implements DocumentVersionReposito
                 .hash(entity.getHash())
                 .prevHash(entity.getPrevHash())
                 .createdAt(entity.getCreatedAt())
+                .commitHash(entity.getCommitHash())
+                .commitUrl(entity.getCommitUrl())
+                .publishedAt(entity.getPublishedAt())
                 .build();
     }
 }

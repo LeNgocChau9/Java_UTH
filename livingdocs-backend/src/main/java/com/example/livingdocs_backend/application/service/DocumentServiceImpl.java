@@ -1,24 +1,7 @@
 package com.example.livingdocs_backend.application.service;
 
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.stream.Collectors;
-
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
-
-import com.example.livingdocs_backend.application.dto.CreateDocumentRequest;
-import com.example.livingdocs_backend.application.dto.DocumentAuditLogResponse;
-import com.example.livingdocs_backend.application.dto.DocumentDetailResponse;
-import com.example.livingdocs_backend.application.dto.DocumentResponse;
-import com.example.livingdocs_backend.application.dto.DocumentVersionResponse;
-import com.example.livingdocs_backend.application.dto.IntegrityCheckResponse;
-import com.example.livingdocs_backend.application.dto.ManagerReviewDecisionRequest;
-import com.example.livingdocs_backend.application.dto.RollbackResponse;
-import com.example.livingdocs_backend.application.dto.StaffReviewDecisionRequest;
-import com.example.livingdocs_backend.application.dto.UpdateDocumentRequest;
+import com.example.livingdocs_backend.application.dto.*;
+import com.example.livingdocs_backend.application.dto.github.GitHubPublishResultDto;
 import com.example.livingdocs_backend.application.port.AuditServicePort;
 import com.example.livingdocs_backend.application.port.DocumentServicePort;
 import com.example.livingdocs_backend.application.port.GitHubClientPort;
@@ -36,9 +19,17 @@ import com.example.livingdocs_backend.domain.util.HashUtils;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
-
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -51,6 +42,7 @@ public class DocumentServiceImpl implements DocumentServicePort {
     private final SpringDataRepositoryRepository repositoryRepository;
     private final SpringDataGitHubConnectionRepository gitHubConnectionRepository;
     private final GitHubClientPort gitHubClient;
+
 
     @Override
     @Transactional
@@ -587,6 +579,108 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 .build();
     }
 
+    @Override
+    @Transactional
+    public PublishToGitHubResponse publishToGitHub(Long docId, PublishToGitHubRequest request, Long actorId) {
+        // 1. Kiểm tra tài liệu tồn tại
+        Document document = documentRepositoryPort.findById(docId)
+                .orElseThrow(() -> new DocumentNotFoundException(docId));
+
+        // 2. Chuyển trạng thái sang PUBLISHED tuân thủ máy trạng thái (DocumentStateMachine)
+        // Yêu cầu tài liệu phải ở trạng thái APPROVED
+        DocumentStatus currentStatus = document.getStatus() != null ? document.getStatus() : DocumentStatus.DRAFT;
+        DocumentStatus nextStatus = DocumentStateMachine.transition(currentStatus, DocumentStatus.PUBLISHED);
+
+        // 3. Lấy thông tin phiên bản mới nhất cần xuất bản
+        DocumentVersion latestVersion = documentVersionRepositoryPort.findLatestByDocId(docId)
+                .orElseThrow(() -> new DocumentVersionNotFoundException(docId, document.getCurrentVersion()));
+
+        // 4. Lấy thông tin repository để xác định owner, repo, default_branch
+        RepositoryEntity repository = repositoryRepository.findById(document.getRepoId())
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy thông tin repository với repoId: " + document.getRepoId()));
+
+        String repoFullName = repository.getRepoFullName();
+        if (!StringUtils.hasText(repoFullName) || !repoFullName.contains("/")) {
+            throw new IllegalArgumentException("Định dạng tên repository không hợp lệ: " + repoFullName);
+        }
+        String[] parts = repoFullName.split("/", 2);
+        String owner = parts[0].trim();
+        String repo = parts[1].trim();
+
+        // 5. Xác định đường dẫn file Markdown (targetPath)
+        String targetPath = document.getTargetPath();
+        if (!StringUtils.hasText(targetPath)) {
+            // Mặc định: docs/api/{Title-slug}.md
+            String sanitizedTitle = document.getTitle() != null
+                    ? document.getTitle().replaceAll("[^a-zA-Z0-9_.-]", "_")
+                    : "document";
+            targetPath = "docs/api/" + sanitizedTitle + ".md";
+        }
+        // Chuẩn hóa bỏ dấu / ở đầu nếu có
+        if (targetPath.startsWith("/")) {
+            targetPath = targetPath.substring(1);
+        }
+
+        // 6. Commit message
+        String commitMessage = (request != null && StringUtils.hasText(request.getCommitMessage()))
+                ? request.getCommitMessage().trim()
+                : "docs: publish " + document.getTitle() + " (v" + latestVersion.getVersionNum() + ")";
+
+        // 7. Token người dùng: Nếu request có token thì dùng token trong request, nếu không lấy token đã lưu trong repository connection
+        String token = request != null ? request.getGithubToken() : null;
+        if (!StringUtils.hasText(token)) {
+            token = resolveGitHubToken(repository);
+        }
+        if (!StringUtils.hasText(token)) {
+            throw new IllegalArgumentException("GitHub token không được để trống khi xuất bản");
+        }
+
+        // 8. Lấy SHA của file hiện tại trên GitHub (nếu file đã tồn tại thì cần SHA để update)
+        String currentSha = gitHubClient.getCurrentFileSha(token, owner, repo, targetPath);
+
+        // 9. Gọi GitHub Contents API (PUT /repos/{owner}/{repo}/contents/{path})
+        GitHubPublishResultDto publishResult = gitHubClient.putFileContent(
+                token,
+                owner,
+                repo,
+                targetPath,
+                latestVersion.getContent() != null ? latestVersion.getContent() : "",
+                commitMessage,
+                currentSha
+        );
+
+        LocalDateTime publishedAt = LocalDateTime.now();
+
+        // 10. Ghi nhận commit hash, commit link và publishedAt vào bảng document_versions
+        latestVersion.setCommitHash(publishResult.getCommitSha());
+        latestVersion.setCommitUrl(publishResult.getCommitUrl());
+        latestVersion.setPublishedAt(publishedAt);
+        documentVersionRepositoryPort.save(latestVersion);
+
+        // 11. Cập nhật trạng thái Document sang PUBLISHED
+        document.setStatus(nextStatus);
+        document.setTargetPath(targetPath);
+        document.setUpdatedAt(Instant.now());
+        documentRepositoryPort.save(document);
+
+        // 12. Ghi nhận audit log
+        auditServicePort.recordDocumentApproval(actorId, docId);
+
+        log.info("Manager (actor: {}) đã xuất bản thành công tài liệu ID: {} lên GitHub {}/{} tại '{}' | Commit: {}",
+                actorId, docId, owner, repo, targetPath, publishResult.getCommitSha());
+
+        return PublishToGitHubResponse.builder()
+                .docId(docId)
+                .title(document.getTitle())
+                .githubPath(targetPath)
+                .commitHash(publishResult.getCommitSha())
+                .commitUrl(publishResult.getCommitUrl())
+                .publishedVersion(latestVersion.getVersionNum())
+                .publishedAt(publishedAt)
+                .message("Tài liệu đã được xuất bản thành công lên GitHub.")
+                .build();
+    }
+
     private ActorRole resolveActorRole(String requestRole, String tokenRole) {
         if (requestRole != null && !requestRole.isBlank()) {
             return ActorRole.fromString(requestRole);
@@ -721,3 +815,4 @@ public class DocumentServiceImpl implements DocumentServicePort {
         return new String[] { parts[0].trim(), parts[1].trim() };
     }
 }
+

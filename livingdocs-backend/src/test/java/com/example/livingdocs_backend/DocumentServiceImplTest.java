@@ -35,15 +35,33 @@ import com.example.livingdocs_backend.domain.model.DocumentVersion;
 import com.example.livingdocs_backend.domain.repository.DocumentRepositoryPort;
 import com.example.livingdocs_backend.domain.repository.DocumentVersionRepositoryPort;
 import com.example.livingdocs_backend.domain.util.HashUtils;
+import com.example.livingdocs_backend.application.dto.PublishToGitHubRequest;
+import com.example.livingdocs_backend.application.dto.PublishToGitHubResponse;
+import com.example.livingdocs_backend.application.dto.github.GitHubPublishResultDto;
+import com.example.livingdocs_backend.application.port.GitHubClientPort;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
 class DocumentServiceImplTest {
 
         private DocumentRepositoryPort documentRepositoryPort;
         private DocumentVersionRepositoryPort documentVersionRepositoryPort;
         private AuditServicePort auditServicePort;
-        private com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository repositoryRepository;
-        private com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository gitHubConnectionRepository;
-        private com.example.livingdocs_backend.application.port.GitHubClientPort gitHubClient;
+        private SpringDataRepositoryRepository repositoryRepository;
+        private SpringDataGitHubConnectionRepository gitHubConnectionRepository;
+        private GitHubClientPort gitHubClient;
         private DocumentServiceImpl documentService;
 
         @BeforeEach
@@ -51,11 +69,9 @@ class DocumentServiceImplTest {
                 documentRepositoryPort = mock(DocumentRepositoryPort.class);
                 documentVersionRepositoryPort = mock(DocumentVersionRepositoryPort.class);
                 auditServicePort = mock(AuditServicePort.class);
-                repositoryRepository = mock(
-                                com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository.class);
-                gitHubConnectionRepository = mock(
-                                com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository.class);
-                gitHubClient = mock(com.example.livingdocs_backend.application.port.GitHubClientPort.class);
+                repositoryRepository = mock(SpringDataRepositoryRepository.class);
+                gitHubConnectionRepository = mock(SpringDataGitHubConnectionRepository.class);
+                gitHubClient = mock(GitHubClientPort.class);
                 documentService = new DocumentServiceImpl(
                                 documentRepositoryPort,
                                 documentVersionRepositoryPort,
@@ -64,6 +80,7 @@ class DocumentServiceImplTest {
                                 gitHubConnectionRepository,
                                 gitHubClient);
         }
+
 
         @Test
         void testCreateDocument_generatesVersion1WithGenesisHash() {
@@ -523,4 +540,126 @@ class DocumentServiceImplTest {
                 assertThrows(IllegalArgumentException.class,
                                 () -> documentService.rollbackToVersion(200L, null, null, 1L, "DEV"));
         }
+
+        @Test
+        void testPublishToGitHub_successfulPublication() {
+                Long docId = 50L;
+                Long repoId = 12L;
+                String token = "ghp_mock_token_12345";
+                String owner = "my-org";
+                String repo = "my-repo";
+                String filePath = "docs/api/UserService.md";
+
+                Document doc = Document.builder()
+                                .docId(docId)
+                                .repoId(repoId)
+                                .title("User Service API")
+                                .targetPath(filePath)
+                                .status(DocumentStatus.APPROVED)
+                                .currentVersion(2)
+                                .build();
+
+                DocumentVersion latestVersion = DocumentVersion.builder()
+                                .versionId(102L)
+                                .docId(docId)
+                                .versionNum(2)
+                                .content("# User Service Documentation\nDetails about user api.")
+                                .build();
+
+                RepositoryEntity repository = RepositoryEntity.builder()
+                                .repositoryId(repoId)
+                                .repoName(repo)
+                                .repoFullName(owner + "/" + repo)
+                                .defaultBranch("main")
+                                .build();
+
+                when(documentRepositoryPort.findById(docId)).thenReturn(Optional.of(doc));
+                when(documentVersionRepositoryPort.findLatestByDocId(docId)).thenReturn(Optional.of(latestVersion));
+                when(repositoryRepository.findById(repoId)).thenReturn(Optional.of(repository));
+                when(gitHubClient.getCurrentFileSha(token, owner, repo, filePath)).thenReturn("old_file_sha_123");
+                when(gitHubClient.putFileContent(eq(token), eq(owner), eq(repo), eq(filePath),
+                                anyString(), anyString(), eq("old_file_sha_123")))
+                                .thenReturn(GitHubPublishResultDto.builder()
+                                                .commitSha("commit_hash_abc123456")
+                                                .commitUrl("https://github.com/my-org/my-repo/commit/commit_hash_abc123456")
+                                                .filePath(filePath)
+                                                .build());
+
+                PublishToGitHubRequest request = new PublishToGitHubRequest();
+                request.setGithubToken(token);
+                request.setCommitMessage("docs: update User Service docs");
+
+                PublishToGitHubResponse response = documentService.publishToGitHub(docId, request, 999L);
+
+                assertNotNull(response);
+                assertEquals(docId, response.getDocId());
+                assertEquals("commit_hash_abc123456", response.getCommitHash());
+                assertEquals("https://github.com/my-org/my-repo/commit/commit_hash_abc123456", response.getCommitUrl());
+                assertEquals(filePath, response.getGithubPath());
+                assertEquals(2, response.getPublishedVersion());
+
+                // Xác minh trạng thái Document được cập nhật sang PUBLISHED
+                ArgumentCaptor<Document> docCaptor = ArgumentCaptor.forClass(Document.class);
+                verify(documentRepositoryPort).save(docCaptor.capture());
+                assertEquals(DocumentStatus.PUBLISHED, docCaptor.getValue().getStatus());
+
+                // Xác minh bảng document_versions được cập nhật commit_hash và commit_url
+                ArgumentCaptor<DocumentVersion> versionCaptor = ArgumentCaptor.forClass(DocumentVersion.class);
+                verify(documentVersionRepositoryPort).save(versionCaptor.capture());
+                DocumentVersion updatedVersion = versionCaptor.getValue();
+                assertEquals("commit_hash_abc123456", updatedVersion.getCommitHash());
+                assertEquals("https://github.com/my-org/my-repo/commit/commit_hash_abc123456", updatedVersion.getCommitUrl());
+                assertNotNull(updatedVersion.getPublishedAt());
+
+                // Xác minh audit log được ghi nhận
+                verify(auditServicePort).recordDocumentApproval(999L, docId);
+        }
+
+        @Test
+        void testPublishToGitHub_invalidStatus_throwsException() {
+                Long docId = 51L;
+                Document doc = Document.builder()
+                                .docId(docId)
+                                .repoId(12L)
+                                .status(DocumentStatus.DRAFT) // Chưa được duyệt (phải là APPROVED)
+                                .currentVersion(1)
+                                .build();
+
+                when(documentRepositoryPort.findById(docId)).thenReturn(Optional.of(doc));
+
+                PublishToGitHubRequest request = new PublishToGitHubRequest();
+                request.setGithubToken("ghp_valid_token");
+
+                assertThrows(com.example.livingdocs_backend.domain.exception.InvalidDocumentStatusTransitionException.class,
+                                () -> documentService.publishToGitHub(docId, request, 999L));
+        }
+
+        @Test
+        void testPublishToGitHub_emptyToken_throwsException() {
+                Long docId = 52L;
+                Document doc = Document.builder()
+                                .docId(docId)
+                                .repoId(12L)
+                                .status(DocumentStatus.APPROVED)
+                                .currentVersion(1)
+                                .build();
+
+                DocumentVersion version = DocumentVersion.builder().versionId(1L).docId(docId).versionNum(1).build();
+                RepositoryEntity repository = RepositoryEntity.builder()
+                                .repositoryId(12L)
+                                .repoFullName("owner/repo")
+                                .build();
+
+                when(documentRepositoryPort.findById(docId)).thenReturn(Optional.of(doc));
+                when(documentVersionRepositoryPort.findLatestByDocId(docId)).thenReturn(Optional.of(version));
+                when(repositoryRepository.findById(12L)).thenReturn(Optional.of(repository));
+
+                PublishToGitHubRequest request = new PublishToGitHubRequest();
+                request.setGithubToken("");
+
+                assertThrows(IllegalArgumentException.class,
+                                () -> documentService.publishToGitHub(docId, request, 999L));
+        }
+
 }
+
