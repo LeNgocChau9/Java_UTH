@@ -26,6 +26,7 @@ class AuthServiceAuditTest {
     private AuditServicePort auditServicePort;
     private PasswordEncoder passwordEncoder;
     private JwtTokenProvider jwtTokenProvider;
+    private com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository gitHubConnectionRepository;
     private AuthServiceImpl authService;
 
     @BeforeEach
@@ -34,8 +35,9 @@ class AuthServiceAuditTest {
         auditServicePort = mock(AuditServicePort.class);
         passwordEncoder = mock(PasswordEncoder.class);
         jwtTokenProvider = mock(JwtTokenProvider.class);
+        gitHubConnectionRepository = mock(com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository.class);
         authService = new AuthServiceImpl(
-                userRepositoryPort, auditServicePort, passwordEncoder, jwtTokenProvider);
+                userRepositoryPort, auditServicePort, passwordEncoder, jwtTokenProvider, gitHubConnectionRepository);
     }
 
     @Test
