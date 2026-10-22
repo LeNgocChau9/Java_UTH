@@ -189,6 +189,7 @@ public class AuthServiceImpl implements AuthServicePort {
     }
 
     @Override
+    @org.springframework.transaction.annotation.Transactional
     public UserProfileResponse updateProfile(String email, com.example.livingdocs_backend.application.dto.UpdateProfileRequest request) {
         User user = userRepositoryPort.findByEmail(email.toLowerCase().trim())
                 .orElseThrow(() -> new AuthenticationException("Không tìm thấy thông tin người dùng"));
