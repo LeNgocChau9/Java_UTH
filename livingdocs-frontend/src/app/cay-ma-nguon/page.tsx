@@ -623,7 +623,7 @@ export default function SourceTreePage() {
               </h1>
             </div>
             <p className="mt-1 text-sm text-[#475569]" style={{ color: "#475569" }}>
-              Khám phá cấu trúc mã nguồn Java, trực quan hóa Class, Method, Signature và Javadoc được bóc tách từ Tree-sitter.
+              Khám phá cấu trúc mã nguồn dự án, trực quan hóa Class, Function, Method và tài liệu được bóc tách từ Tree-sitter AST.
             </p>
           </div>
 
@@ -657,11 +657,11 @@ export default function SourceTreePage() {
               <div className="flex items-center gap-2">
                 <FolderOpen size={16} className="text-slate-500" />
                 <h2 className="text-sm font-semibold text-slate-800 ">
-                  Cây thư mục (demo-samples)
+                  Cây thư mục mã nguồn
                 </h2>
               </div>
               <span className="rounded bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600  ">
-                5 file Java
+                File mã nguồn
               </span>
             </div>
 
@@ -673,7 +673,7 @@ export default function SourceTreePage() {
               <div className="flex items-start gap-1.5">
                 <Sparkles size={14} className="mt-0.5 shrink-0 text-emerald-600" />
                 <div>
-                  <span className="font-semibold">Mẹo:</span> Click vào file Java bất kỳ để xem toàn bộ danh sách Class, Constructor và Method đã phân tích cú pháp AST.
+                  <span className="font-semibold">Mẹo:</span> Click vào file mã nguồn bất kỳ để xem toàn bộ danh sách Class, Hàm và Phương thức đã phân tích cú pháp AST.
                 </div>
               </div>
             </div>
