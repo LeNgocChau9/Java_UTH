@@ -18,5 +18,6 @@ public class UserProfileResponse {
     private String avatarUrl;
     private String status;
     private java.util.Set<String> roles;
+    private String githubUsername;
     private Instant createdAt;
 }

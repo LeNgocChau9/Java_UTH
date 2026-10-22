@@ -30,6 +30,23 @@ export function saveSession(data: AuthResponse) {
   saveProfile(data.user);
 }
 
+export async function refreshSession(): Promise<AuthResponse> {
+  const { data } = await apiClient.post<AuthResponse>("/api/auth/refresh");
+  saveSession(data);
+  return data;
+}
+
+export async function updateCurrentUserProfile(payload: {
+  fullName?: string;
+  avatarUrl?: string;
+  newPassword?: string;
+  oldPassword?: string;
+}): Promise<UserProfile> {
+  const { data } = await apiClient.put<UserProfile>("/api/me", payload);
+  saveProfile(data);
+  return data;
+}
+
 export function clearSession() {
   clearAuthStorage();
 }

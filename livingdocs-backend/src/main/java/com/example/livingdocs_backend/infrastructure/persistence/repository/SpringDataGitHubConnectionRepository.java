@@ -11,5 +11,7 @@ public interface SpringDataGitHubConnectionRepository extends JpaRepository<GitH
 
     Optional<GitHubConnectionEntity> findByWorkspaceIdAndUserId(Long workspaceId, Long userId);
 
+    Optional<GitHubConnectionEntity> findFirstByUserIdOrderByCreatedAtDesc(Long userId);
+
     Optional<GitHubConnectionEntity> findFirstByWorkspaceIdOrderByCreatedAtDesc(Long workspaceId);
 }

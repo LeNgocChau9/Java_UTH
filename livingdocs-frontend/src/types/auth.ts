@@ -5,6 +5,7 @@ export type UserProfile = {
   avatarUrl: string | null;
   status: string;
   roles: string[];
+  githubUsername?: string | null;
   createdAt: string;
 };
 

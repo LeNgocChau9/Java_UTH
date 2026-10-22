@@ -24,6 +24,7 @@ public class AuthServiceImpl implements AuthServicePort {
     private final AuditServicePort auditServicePort;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
+    private final com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository gitHubConnectionRepository;
 
     @Override
     public AuthResponse register(RegisterRequest request) {
@@ -150,6 +151,36 @@ public class AuthServiceImpl implements AuthServicePort {
     }
 
     @Override
+    public AuthResponse refreshToken(String token) {
+        if (token == null || token.isBlank()) {
+            throw new AuthenticationException("Token không hợp lệ để gia hạn phiên");
+        }
+        String cleanToken = token.startsWith("Bearer ") ? token.substring(7) : token;
+        String email;
+        try {
+            email = jwtTokenProvider.getEmailFromToken(cleanToken);
+        } catch (Exception ex) {
+            throw new AuthenticationException("Phiên đăng nhập đã quá hạn hoặc không hợp lệ. Vui lòng đăng nhập lại.");
+        }
+
+        User user = userRepositoryPort.findByEmail(email.toLowerCase().trim())
+                .orElseThrow(() -> new AuthenticationException("Không tìm thấy thông tin người dùng"));
+
+        java.util.List<String> roles = user.getRoles() != null
+                ? user.getRoles().stream().map(Enum::name).toList()
+                : java.util.List.of("ROLE_DEVELOPER");
+
+        String newToken = jwtTokenProvider.generateToken(user.getUserId(), user.getEmail(), roles);
+
+        return AuthResponse.builder()
+                .token(newToken)
+                .tokenType("Bearer")
+                .expiresIn(jwtTokenProvider.getExpirationSeconds())
+                .user(toProfileResponse(user))
+                .build();
+    }
+
+    @Override
     public UserProfileResponse getCurrentUserProfile(String email) {
         User user = userRepositoryPort.findByEmail(email.toLowerCase().trim())
                 .orElseThrow(() -> new AuthenticationException("Không tìm thấy thông tin người dùng"));
@@ -157,10 +188,48 @@ public class AuthServiceImpl implements AuthServicePort {
         return toProfileResponse(user);
     }
 
+    @Override
+    public UserProfileResponse updateProfile(String email, com.example.livingdocs_backend.application.dto.UpdateProfileRequest request) {
+        User user = userRepositoryPort.findByEmail(email.toLowerCase().trim())
+                .orElseThrow(() -> new AuthenticationException("Không tìm thấy thông tin người dùng"));
+
+        // 1. Cập nhật họ tên nếu có
+        if (request.getFullName() != null && !request.getFullName().isBlank()) {
+            user.setFullName(request.getFullName().trim());
+        }
+
+        // 2. Cập nhật avatar nếu có
+        if (request.getAvatarUrl() != null) {
+            user.setAvatarUrl(request.getAvatarUrl().trim());
+        }
+
+        // 3. Đổi mật khẩu nếu có yêu cầu
+        if (request.getNewPassword() != null && !request.getNewPassword().isBlank()) {
+            // Kiểm tra mật khẩu cũ nếu tài khoản có mật khẩu
+            if (user.getPasswordHash() != null && !user.getPasswordHash().isBlank()) {
+                if (request.getOldPassword() == null || !passwordEncoder.matches(request.getOldPassword(), user.getPasswordHash())) {
+                    throw new AuthenticationException("Mật khẩu hiện tại không chính xác");
+                }
+            }
+            user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        }
+
+        User updatedUser = userRepositoryPort.save(user);
+        return toProfileResponse(updatedUser);
+    }
+
     private UserProfileResponse toProfileResponse(User user) {
         java.util.Set<String> roleStrings = user.getRoles() != null
                 ? user.getRoles().stream().map(Enum::name).collect(java.util.stream.Collectors.toSet())
                 : java.util.Collections.singleton("ROLE_DEVELOPER");
+
+        String githubUsername = null;
+        try {
+            githubUsername = gitHubConnectionRepository.findFirstByUserIdOrderByCreatedAtDesc(user.getUserId())
+                    .map(com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity::getGithubUsername)
+                    .orElse(null);
+        } catch (Exception ignored) {
+        }
 
         return UserProfileResponse.builder()
                 .userId(user.getUserId())
@@ -169,6 +238,7 @@ public class AuthServiceImpl implements AuthServicePort {
                 .avatarUrl(user.getAvatarUrl())
                 .status(user.getStatus())
                 .roles(roleStrings)
+                .githubUsername(githubUsername)
                 .createdAt(user.getCreatedAt())
                 .build();
     }

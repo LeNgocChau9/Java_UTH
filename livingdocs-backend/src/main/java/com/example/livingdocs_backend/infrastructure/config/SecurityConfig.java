@@ -54,13 +54,16 @@ public class SecurityConfig {
                     "/api/health",
                     "/api/auth/register",
                     "/api/auth/login",
+                    "/api/auth/refresh",
                     "/api/auth/github",
                     "/api/auth/github/callback",
-                     "/api/jobs/**",
+                    "/api/jobs/**",
                     "/api/templates/**",
                     "/api/documents/**",
                     "/api/collections/**",
+                    "/api/repos/**",
                     "/api/repositories/**",
+                    "/api/v1/code-entities/**",
                     "/api/webhooks/**"
                 ).permitAll()
                 .requestMatchers("/api/me").authenticated()
