@@ -354,7 +354,7 @@ private ${className} targetService;
                 {/* Templates Selector from doc_templates */}
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 500, color: "#475569", display: "block", marginBottom: 8 }}>
-                    Chọn mẫu tài liệu (doc_templates) *
+                    Chọn mẫu tài liệu *
                   </label>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                     {templates.length > 0 ? (
@@ -404,11 +404,11 @@ private ${className} targetService;
                   </div>
                 </div>
 
-                {/* Select .java source file */}
+                {/* Chọn file mã nguồn */}
                 <div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                     <label style={{ fontSize: 12, fontWeight: 500, color: "#475569" }}>
-                      Chọn file mã nguồn .java (từ code_entities đã quét) *
+                      Chọn file mã nguồn cần tạo tài liệu *
                     </label>
                     {loadingEntities ? (
                       <span style={{ fontSize: 11, color: "#0f766e", display: "flex", alignItems: "center", gap: 4 }}>
@@ -416,7 +416,7 @@ private ${className} targetService;
                       </span>
                     ) : (
                       <span style={{ fontSize: 11, color: "#64748b" }}>
-                        {availableFiles.length} file .java sẵn sàng
+                        {availableFiles.length} file sẵn sàng
                       </span>
                     )}
                   </div>
@@ -439,7 +439,7 @@ private ${className} targetService;
                         className="ld-input"
                         value={scope}
                         onChange={(e) => setScope(e.target.value)}
-                        placeholder="Hoặc nhập đường dẫn file .java tùy chỉnh..."
+                        placeholder="Hoặc nhập đường dẫn file tùy chỉnh..."
                       />
                     </div>
                   ) : (
@@ -447,7 +447,7 @@ private ${className} targetService;
                       className="ld-input"
                       value={scope}
                       onChange={(e) => setScope(e.target.value)}
-                      placeholder="vd: src/main/java/com/example/MyService.java"
+                      placeholder="vd: src/services/OrderService.ts hoặc src/main/java/MyService.java"
                       required
                     />
                   )}
@@ -723,7 +723,7 @@ private ${className} targetService;
             <div style={{ padding: "12px 16px", borderBottom: "1px solid #dfe7e4", background: "#f8faf9" }}>
               <p style={{ fontSize: 13, fontWeight: 600, color: "#0f766e", margin: 0, display: "flex", alignItems: "center", gap: 6 }}>
                 <FileCode2 size={15} />
-                Thực thể mã nguồn (code_entities)
+                Thực thể mã nguồn đã quét
               </p>
             </div>
             <div style={{ padding: 14, maxHeight: 260, overflowY: "auto" }}>
@@ -756,7 +756,7 @@ private ${className} targetService;
                 </div>
               ) : (
                 <p style={{ fontSize: 12, color: "#64748b", margin: 0 }}>
-                  Chưa có entity nào. Hãy bấm Quét repository tại mục Kho lưu trữ.
+                  Chưa có thực thể nào. Hãy bấm Quét repository tại mục Kho lưu trữ.
                 </p>
               )}
             </div>
@@ -766,17 +766,17 @@ private ${className} targetService;
           <div className="ld-card" style={{ padding: 0, overflow: "hidden", border: "1px solid #dfe7e4" }}>
             <div style={{ padding: "12px 16px", borderBottom: "1px solid #dfe7e4", background: "#f8faf9" }}>
               <p style={{ fontSize: 13, fontWeight: 600, color: "#0f766e", margin: 0 }}>
-                Quy trình xử lý tài liệu
+                Quy trình xử lý
               </p>
             </div>
-            <div style={{ padding: 16 }}>
+            <div style={{ padding: "14px 16px" }}>
               {[
-                { n: 1, title: "Chọn Repo & File Java", text: "Trích xuất thực thể AST từ bảng code_entities" },
-                { n: 2, title: "Tạo tài liệu bằng AI", text: "AI kết hợp Gemini & template để sinh Markdown" },
-                { n: 3, title: "Xem trước & Xác thực", text: "Kiểm tra bằng chứng class, method và commit" },
-                { n: 4, title: "Gửi duyệt Staff", text: "Chuyển trạng thái sang UNDER_REVIEW_STAFF" },
+                { n: 1, title: "Chọn kho lưu trữ & file mã nguồn" },
+                { n: 2, title: "Tạo tài liệu bằng AI" },
+                { n: 3, title: "Xem trước & Xác thực nội dung" },
+                { n: 4, title: "Gửi phê duyệt" },
               ].map((s) => (
-                <div key={s.n} style={{ display: "flex", gap: 10, marginBottom: s.n < 4 ? 14 : 0 }}>
+                <div key={s.n} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: s.n < 4 ? 12 : 0 }}>
                   <div
                     style={{
                       width: 22,
@@ -794,14 +794,9 @@ private ${className} targetService;
                   >
                     {s.n}
                   </div>
-                  <div>
-                    <p style={{ fontSize: 12, fontWeight: 600, color: "#0f172a", margin: 0 }}>
-                      {s.title}
-                    </p>
-                    <p style={{ fontSize: 11, color: "#64748b", margin: "2px 0 0", lineHeight: 1.4 }}>
-                      {s.text}
-                    </p>
-                  </div>
+                  <p style={{ fontSize: 13, fontWeight: 500, color: "#0f172a", margin: 0 }}>
+                    {s.title}
+                  </p>
                 </div>
               ))}
             </div>

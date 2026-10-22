@@ -59,10 +59,6 @@ const NAV: NavItem[] = [
     label: "Kho lưu trữ",
     icon: <Archive size={16} />,
     roles: ["DEVELOPER"],
-    children: [
-      { href: "/kho-luu-tru", label: "Tất cả tài liệu" },
-      { href: "/kho-luu-tru/theo-du-an", label: "Theo dự án" },
-    ],
   },
   {
     href: "/tai-lieu-cua-toi",

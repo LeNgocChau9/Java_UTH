@@ -12,5 +12,7 @@ public interface SpringDataPullRequestRepository extends JpaRepository<PullReque
 
     List<PullRequestEntity> findByRepositoryId(Long repositoryId);
 
+    List<PullRequestEntity> findByRepositoryIdOrderByGithubCreatedAtDesc(Long repositoryId);
+
     Optional<PullRequestEntity> findByRepositoryIdAndPrNumber(Long repositoryId, Integer prNumber);
 }

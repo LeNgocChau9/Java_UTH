@@ -559,7 +559,7 @@ export default function SourceTreePage() {
                   type="button"
                   onClick={() => toggleFolder(node.fullPath)}
                   style={{ paddingLeft: `${depth * 14 + 8}px` }}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs font-medium text-slate-700 transition hover:bg-slate-100  :bg-slate-800"
                 >
                   <span className="text-slate-400">
                     {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -588,8 +588,8 @@ export default function SourceTreePage() {
               style={{ paddingLeft: `${depth * 14 + 24}px` }}
               className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-xs transition ${
                 isSelected
-                  ? "bg-emerald-50 font-semibold text-emerald-800 border-l-2 border-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300"
-                  : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+                  ? "bg-emerald-50 font-semibold text-emerald-800 border-l-2 border-emerald-600  "
+                  : "text-slate-600 hover:bg-slate-100  :bg-slate-800"
               }`}
             >
               <div className="flex items-center gap-2 truncate">
@@ -597,7 +597,7 @@ export default function SourceTreePage() {
                 <span className="truncate">{node.name}</span>
               </div>
               {node.entityCount !== undefined && node.entityCount > 0 && (
-                <span className="rounded-full bg-slate-200 px-1.5 py-0.2 text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                <span className="rounded-full bg-slate-200 px-1.5 py-0.2 text-[10px] text-slate-600  ">
                   {node.entityCount}
                 </span>
               )}
@@ -612,18 +612,18 @@ export default function SourceTreePage() {
     <AppShell>
       <div className="space-y-6 p-4 sm:p-6 lg:p-8">
         {/* Header trang */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 pb-5 dark:border-slate-800">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 pb-5 ">
           <div>
             <div className="flex items-center gap-2">
-              <span className="rounded-md bg-emerald-100 p-1.5 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
+              <span className="rounded-md bg-emerald-100 p-1.5 text-emerald-700">
                 <Code size={20} />
               </span>
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+              <h1 className="text-2xl font-bold tracking-tight text-[#0f172a]" style={{ color: "#0f172a" }}>
                 Cây mã nguồn & AST Inspector
               </h1>
             </div>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Khám phá cấu trúc mã nguồn Java, trực quan hóa Class, Method, Signature và Javadoc được bóc tách từ Tree-sitter.
+            <p className="mt-1 text-sm text-[#475569]" style={{ color: "#475569" }}>
+              Khám phá cấu trúc mã nguồn dự án, trực quan hóa Class, Function, Method và tài liệu được bóc tách từ Tree-sitter AST.
             </p>
           </div>
 
@@ -638,7 +638,7 @@ export default function SourceTreePage() {
                 );
                 if (r) setSelectedRepo(r);
               }}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 shadow-sm focus:border-emerald-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 shadow-sm focus:border-emerald-500 focus:outline-none   "
             >
               {repos.map((r) => (
                 <option key={r.repositoryId} value={r.repositoryId}>
@@ -652,16 +652,16 @@ export default function SourceTreePage() {
         {/* Nội dung 2 cột: Cột trái Cây thư mục - Cột phải Danh sách Entities */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
           {/* CỘT TRÁI: Cây thư mục mã nguồn (4 cols) */}
-          <div className="lg:col-span-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-2.5 dark:border-slate-800">
+          <div className="lg:col-span-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm  ">
+            <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-2.5 ">
               <div className="flex items-center gap-2">
                 <FolderOpen size={16} className="text-slate-500" />
-                <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                  Cây thư mục (demo-samples)
+                <h2 className="text-sm font-semibold text-slate-800 ">
+                  Cây thư mục mã nguồn
                 </h2>
               </div>
-              <span className="rounded bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-400">
-                5 file Java
+              <span className="rounded bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600  ">
+                File mã nguồn
               </span>
             </div>
 
@@ -669,11 +669,11 @@ export default function SourceTreePage() {
               {renderTree(treeData)}
             </div>
 
-            <div className="mt-4 rounded-lg bg-emerald-50/70 p-3 text-xs text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300 border border-emerald-100 dark:border-emerald-900/50">
+            <div className="mt-4 rounded-lg bg-emerald-50/70 p-3 text-xs text-emerald-800   border border-emerald-100 ">
               <div className="flex items-start gap-1.5">
                 <Sparkles size={14} className="mt-0.5 shrink-0 text-emerald-600" />
                 <div>
-                  <span className="font-semibold">Mẹo:</span> Click vào file Java bất kỳ để xem toàn bộ danh sách Class, Constructor và Method đã phân tích cú pháp AST.
+                  <span className="font-semibold">Mẹo:</span> Click vào file mã nguồn bất kỳ để xem toàn bộ danh sách Class, Hàm và Phương thức đã phân tích cú pháp AST.
                 </div>
               </div>
             </div>
@@ -682,17 +682,17 @@ export default function SourceTreePage() {
           {/* CỘT PHẢI: Chi tiết AST của file được chọn (8 cols) */}
           <div className="lg:col-span-8 space-y-4">
             {/* Thanh thông tin file + Bộ lọc */}
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm  ">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="flex items-center gap-2">
                     <FileCode size={18} className="text-emerald-600" />
-                    <span className="text-sm font-bold text-slate-900 dark:text-slate-100 break-all">
+                    <span className="text-sm font-bold text-slate-900  break-all">
                       {selectedFile}
                     </span>
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
-                    <span>Tổng số: <strong className="text-slate-700 dark:text-slate-300">{stats.total} phần tử</strong></span>
+                  <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-500 ">
+                    <span>Tổng số: <strong className="text-slate-700 ">{stats.total} phần tử</strong></span>
                     <span>•</span>
                     <span>Class: <strong className="text-emerald-600">{stats.classes}</strong></span>
                     <span>•</span>
@@ -711,7 +711,7 @@ export default function SourceTreePage() {
                     <select
                       value={filterType}
                       onChange={(e) => setFilterType(e.target.value)}
-                      className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                      className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none   "
                     >
                       <option value="ALL">Tất cả loại</option>
                       <option value="CLASS">Chỉ Class</option>
@@ -731,7 +731,7 @@ export default function SourceTreePage() {
                       placeholder="Tìm method, class..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-36 sm:w-44 rounded-lg border border-slate-300 bg-white pl-8 pr-2.5 py-1.5 text-xs text-slate-800 placeholder-slate-400 shadow-sm focus:border-emerald-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                      className="w-36 sm:w-44 rounded-lg border border-slate-300 bg-white pl-8 pr-2.5 py-1.5 text-xs text-slate-800 placeholder-slate-400 shadow-sm focus:border-emerald-500 focus:outline-none   "
                     />
                   </div>
                 </div>
@@ -740,16 +740,16 @@ export default function SourceTreePage() {
 
             {/* Danh sách các Entities bóc tách */}
             {loading ? (
-              <div className="flex h-64 items-center justify-center rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+              <div className="flex h-64 items-center justify-center rounded-xl border border-slate-200 bg-white  ">
                 <div className="flex items-center gap-2 text-sm text-slate-500">
                   <RefreshCw size={16} className="animate-spin text-emerald-600" />
                   Đang tải phần tử mã nguồn từ AST...
                 </div>
               </div>
             ) : filteredEntities.length === 0 ? (
-              <div className="flex h-64 flex-col items-center justify-center rounded-xl border border-slate-200 bg-white p-6 text-center dark:border-slate-800 dark:bg-slate-900">
-                <Box size={36} className="text-slate-300 dark:text-slate-600 mb-2" />
-                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+              <div className="flex h-64 flex-col items-center justify-center rounded-xl border border-slate-200 bg-white p-6 text-center  ">
+                <Box size={36} className="text-slate-300  mb-2" />
+                <p className="text-sm font-medium text-slate-700 ">
                   Không tìm thấy phần tử mã nào
                 </p>
                 <p className="text-xs text-slate-400 mt-1">
@@ -766,12 +766,12 @@ export default function SourceTreePage() {
                   return (
                     <div
                       key={idx}
-                      className={`group rounded-xl border bg-white p-4.5 shadow-sm transition-all hover:shadow-md dark:bg-slate-900 ${
+                      className={`group rounded-xl border bg-white p-4.5 shadow-sm transition-all hover:shadow-md  ${
                         isClass
-                          ? "border-emerald-200 hover:border-emerald-400 dark:border-emerald-900/50"
+                          ? "border-emerald-200 hover:border-emerald-400 "
                           : isCtor
-                          ? "border-amber-200 hover:border-amber-400 dark:border-amber-900/50"
-                          : "border-slate-200 hover:border-blue-400 dark:border-slate-800"
+                          ? "border-amber-200 hover:border-amber-400 "
+                          : "border-slate-200 hover:border-blue-400 "
                       }`}
                     >
                       {/* Dòng tiêu đề entity */}
@@ -782,23 +782,23 @@ export default function SourceTreePage() {
                             <span
                               className={`rounded px-2 py-0.5 text-[11px] font-semibold tracking-wider ${
                                 isClass
-                                  ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                                  ? "bg-emerald-100 text-emerald-800  "
                                   : isMethod
-                                  ? "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300"
-                                  : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                                  ? "bg-blue-100 text-blue-800  "
+                                  : "bg-amber-100 text-amber-800  "
                               }`}
                             >
                               {item.entityType}
                             </span>
 
                             {/* Entity Name */}
-                            <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                            <h3 className="text-sm font-bold text-slate-900 ">
                               {item.methodName || item.className}
                             </h3>
 
                             {/* Return Type Badge */}
                             {item.returnType && (
-                              <span className="rounded bg-slate-100 px-2 py-0.5 font-mono text-[11px] text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                              <span className="rounded bg-slate-100 px-2 py-0.5 font-mono text-[11px] text-slate-700  ">
                                 ➔ {item.returnType}
                               </span>
                             )}
@@ -807,8 +807,8 @@ export default function SourceTreePage() {
                             <span
                               className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
                                 item.docStatus === "DOCUMENTED"
-                                  ? "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300"
-                                  : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                                  ? "bg-purple-100 text-purple-700  "
+                                  : "bg-slate-100 text-slate-500  "
                               }`}
                             >
                               {item.docStatus === "DOCUMENTED" ? (
@@ -843,7 +843,7 @@ export default function SourceTreePage() {
 
                         {/* Vị trí dòng mã */}
                         <div className="shrink-0 text-right">
-                          <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 text-[11px] font-mono text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                          <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 text-[11px] font-mono text-slate-600  ">
                             <Hash size={12} />
                             Dòng {item.startLine} ➔ {item.endLine}
                           </span>
@@ -852,15 +852,15 @@ export default function SourceTreePage() {
 
                       {/* Chi tiết Parameters nếu có */}
                       {item.parameters && (
-                        <div className="mt-3 border-t border-slate-100 pt-2 dark:border-slate-800/80">
-                          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                        <div className="mt-3 border-t border-slate-100 pt-2 ">
+                          <span className="text-[11px] font-medium text-slate-500 ">
                             Tham số ({item.parameters.split(",").length}):
                           </span>
                           <div className="mt-1 flex flex-wrap gap-1.5">
                             {item.parameters.split(",").map((p, pIdx) => (
                               <span
                                 key={pIdx}
-                                className="rounded bg-slate-100 px-2 py-0.5 font-mono text-[11px] text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                                className="rounded bg-slate-100 px-2 py-0.5 font-mono text-[11px] text-slate-700  "
                               >
                                 {p.trim()}
                               </span>
@@ -871,12 +871,12 @@ export default function SourceTreePage() {
 
                       {/* Javadoc / Tài liệu trích xuất từ mã nguồn */}
                       {item.javadoc && (
-                        <div className="mt-3 rounded-lg border border-purple-100 bg-purple-50/50 p-2.5 text-xs text-purple-900 dark:border-purple-900/40 dark:bg-purple-950/20 dark:text-purple-300">
-                          <div className="flex items-center gap-1 text-[11px] font-semibold text-purple-700 dark:text-purple-400 mb-1">
+                        <div className="mt-3 rounded-lg border border-purple-100 bg-purple-50/50 p-2.5 text-xs text-purple-900   ">
+                          <div className="flex items-center gap-1 text-[11px] font-semibold text-purple-700  mb-1">
                             <BookOpen size={12} />
                             Javadoc trích xuất:
                           </div>
-                          <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-slate-700 dark:text-slate-300">
+                          <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-slate-700 ">
                             {item.javadoc}
                           </pre>
                         </div>

@@ -1,3 +1,5 @@
+package com.example.livingdocs_backend.application.service;
+
 import com.example.livingdocs_backend.application.dto.github.*;
 import com.example.livingdocs_backend.application.port.AuditServicePort;
 import com.example.livingdocs_backend.application.port.GitHubClientPort;
@@ -138,13 +140,13 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
     @Override
     @Transactional(readOnly = true)
     public List<PullRequestEntity> getRepoPullRequests(Long repositoryId) {
-        return pullRequestRepository.findByRepositoryId(repositoryId);
+        return pullRequestRepository.findByRepositoryIdOrderByGithubCreatedAtDesc(repositoryId);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<CommitEntity> getRepoCommits(Long repositoryId) {
-        return commitRepository.findByRepositoryId(repositoryId);
+        return commitRepository.findByRepositoryIdOrderByCommittedAtDesc(repositoryId);
     }
 
 
@@ -189,7 +191,7 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
     }
 
     private int syncCommits(RepositoryEntity repo, String token, String owner, String repoName) {
-        List<GitHubCommitDto> commits = gitHubClient.listCommits(token, owner, repoName, repo.getDefaultBranch(), 50);
+        List<GitHubCommitDto> commits = gitHubClient.listCommits(token, owner, repoName, repo.getDefaultBranch(), 100);
 
         int count = 0;
         for (GitHubCommitDto commitDto : commits) {
@@ -239,23 +241,37 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
             return explicitToken.trim();
         }
 
-        // Tìm từ connection đã liên kết
+        // 1. Ưu tiên tìm token từ kết nối GitHub của chính user hiện tại đang thao tác
+        if (currentUserId != null) {
+            Optional<GitHubConnectionEntity> userConn = gitHubConnectionRepository
+                    .findByWorkspaceIdAndUserId(repo.getWorkspaceId(), currentUserId);
+            if (userConn.isPresent() && StringUtils.hasText(userConn.get().getAccessTokenEncrypted())
+                    && !"DUMMY_TOKEN".equals(userConn.get().getAccessTokenEncrypted())
+                    && !userConn.get().getAccessTokenEncrypted().startsWith("enc:v1:")) {
+                return userConn.get().getAccessTokenEncrypted();
+            }
+        }
+
+        // 2. Tìm từ connection đã liên kết với repository
         if (repo.getConnectionId() != null) {
             Optional<GitHubConnectionEntity> conn = gitHubConnectionRepository.findById(repo.getConnectionId());
             if (conn.isPresent() && StringUtils.hasText(conn.get().getAccessTokenEncrypted())
-                    && !"DUMMY_TOKEN".equals(conn.get().getAccessTokenEncrypted())) {
+                    && !"DUMMY_TOKEN".equals(conn.get().getAccessTokenEncrypted())
+                    && !conn.get().getAccessTokenEncrypted().startsWith("enc:v1:")) {
                 return conn.get().getAccessTokenEncrypted();
             }
         }
 
-        // Tìm connection của workspace
+        // 3. Tìm connection mới nhất của workspace
         Optional<GitHubConnectionEntity> wsConn = gitHubConnectionRepository
                 .findFirstByWorkspaceIdOrderByCreatedAtDesc(repo.getWorkspaceId());
         if (wsConn.isPresent() && StringUtils.hasText(wsConn.get().getAccessTokenEncrypted())
-                && !"DUMMY_TOKEN".equals(wsConn.get().getAccessTokenEncrypted())) {
+                && !"DUMMY_TOKEN".equals(wsConn.get().getAccessTokenEncrypted())
+                && !wsConn.get().getAccessTokenEncrypted().startsWith("enc:v1:")) {
             return wsConn.get().getAccessTokenEncrypted();
         }
 
+        // 4. Nếu chuỗi có tiền tố enc:v1: cũ (do mock data trước đây), trả về null để gọi API công khai hoặc báo lỗi xác thực
         return null;
     }
 
