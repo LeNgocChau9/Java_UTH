@@ -12,5 +12,7 @@ public interface SpringDataCommitRepository extends JpaRepository<CommitEntity, 
 
     List<CommitEntity> findByRepositoryId(Long repositoryId);
 
+    List<CommitEntity> findByRepositoryIdOrderByCommittedAtDesc(Long repositoryId);
+
     Optional<CommitEntity> findByRepositoryIdAndCommitHash(Long repositoryId, String commitHash);
 }

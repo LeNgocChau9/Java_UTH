@@ -140,13 +140,13 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
     @Override
     @Transactional(readOnly = true)
     public List<PullRequestEntity> getRepoPullRequests(Long repositoryId) {
-        return pullRequestRepository.findByRepositoryId(repositoryId);
+        return pullRequestRepository.findByRepositoryIdOrderByGithubCreatedAtDesc(repositoryId);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<CommitEntity> getRepoCommits(Long repositoryId) {
-        return commitRepository.findByRepositoryId(repositoryId);
+        return commitRepository.findByRepositoryIdOrderByCommittedAtDesc(repositoryId);
     }
 
 
@@ -191,7 +191,7 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
     }
 
     private int syncCommits(RepositoryEntity repo, String token, String owner, String repoName) {
-        List<GitHubCommitDto> commits = gitHubClient.listCommits(token, owner, repoName, repo.getDefaultBranch(), 50);
+        List<GitHubCommitDto> commits = gitHubClient.listCommits(token, owner, repoName, repo.getDefaultBranch(), 100);
 
         int count = 0;
         for (GitHubCommitDto commitDto : commits) {
