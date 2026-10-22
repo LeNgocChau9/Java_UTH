@@ -1,3 +1,5 @@
+package com.example.livingdocs_backend.application.service;
+
 import com.example.livingdocs_backend.application.dto.github.*;
 import com.example.livingdocs_backend.application.port.AuditServicePort;
 import com.example.livingdocs_backend.application.port.GitHubClientPort;
