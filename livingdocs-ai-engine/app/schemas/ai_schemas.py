@@ -18,6 +18,7 @@ class CodeEntityItem(BaseModel):
     end_line: int = Field(..., description="Dòng kết thúc trong file mã nguồn")
     doc_status: str = Field(default="UNDOCUMENTED", description="Trạng thái tài liệu: DOCUMENTED, UNDOCUMENTED, DRIFTED")
     javadoc: Optional[str] = Field(default=None, description="Tài liệu Javadoc bóc tách từ mã nguồn nếu có")
+    annotations: Optional[List[str]] = Field(default=[], description="Danh sách các annotation của class hoặc method (vd: @RestController, @GetMapping)")
 
 
 class AstExtractResponse(BaseModel):

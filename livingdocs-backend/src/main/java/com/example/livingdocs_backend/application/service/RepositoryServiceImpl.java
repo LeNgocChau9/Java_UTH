@@ -1,9 +1,9 @@
-package com.example.livingdocs_backend.application.service;
-
 import com.example.livingdocs_backend.application.dto.github.*;
+import com.example.livingdocs_backend.application.port.AuditServicePort;
 import com.example.livingdocs_backend.application.port.GitHubClientPort;
 import com.example.livingdocs_backend.application.port.RepositoryServicePort;
 import com.example.livingdocs_backend.domain.exception.GitHubApiException;
+import com.example.livingdocs_backend.domain.model.AuditAction;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.CommitEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.PullRequestEntity;
@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -32,6 +33,8 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
     private final SpringDataCommitRepository commitRepository;
     private final SpringDataGitHubConnectionRepository gitHubConnectionRepository;
     private final GitHubClientPort gitHubClient;
+    private final AuditServicePort auditServicePort;
+
 
     private static final Long DEFAULT_WORKSPACE_ID = 1L;
 
@@ -269,6 +272,100 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
         return new String[]{parts[0].trim(), parts[1].trim()};
     }
 
+    @Override
+    @Transactional
+    public GitHubConnectionStatusResponse verifyConnectionToken(Long connectionId, Long currentUserId) {
+        GitHubConnectionEntity connection = gitHubConnectionRepository.findById(connectionId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy kết nối GitHub với ID: " + connectionId));
+
+        return doVerifyAndProcessConnection(connection, currentUserId);
+    }
+
+    @Override
+    @Transactional
+    public List<GitHubConnectionStatusResponse> verifyWorkspaceConnections(Long workspaceId, Long currentUserId) {
+        List<GitHubConnectionEntity> connections;
+        if (workspaceId != null) {
+            connections = gitHubConnectionRepository.findByWorkspaceId(workspaceId);
+        } else {
+            connections = gitHubConnectionRepository.findAll();
+        }
+
+        List<GitHubConnectionStatusResponse> results = new ArrayList<>();
+        for (GitHubConnectionEntity conn : connections) {
+            results.add(doVerifyAndProcessConnection(conn, currentUserId));
+        }
+        return results;
+    }
+
+    private GitHubConnectionStatusResponse doVerifyAndProcessConnection(GitHubConnectionEntity connection, Long currentUserId) {
+        String token = connection.getAccessTokenEncrypted();
+        Instant now = Instant.now();
+
+        // 1. Kiểm tra ngày hết hạn cục bộ nếu có
+        boolean locallyExpired = connection.getTokenExpiresAt() != null && connection.getTokenExpiresAt().isBefore(now);
+
+        // 2. Gọi GitHub REST API qua GitHubClient để kiểm tra tính hợp lệ thực tế
+        GitHubTokenValidationResult valResult = gitHubClient.validateToken(token);
+
+        String previousStatus = connection.getStatus();
+        String newStatus;
+        String warningMessage = null;
+
+        if (locallyExpired || "EXPIRED".equalsIgnoreCase(valResult.getStatus())) {
+            newStatus = "EXPIRED";
+            warningMessage = "CẢNH BÁO: Access Token GitHub cho tài khoản @" + connection.getGithubUsername()
+                    + " đã hết hạn. Vui lòng kết nối lại tài khoản GitHub để không làm gián đoạn tự động hóa tài liệu.";
+        } else if (!valResult.isValid() || "REVOKED".equalsIgnoreCase(valResult.getStatus())) {
+            newStatus = "REVOKED";
+            warningMessage = "CẢNH BÁO: Access Token GitHub cho tài khoản @" + connection.getGithubUsername()
+                    + " không hợp lệ hoặc đã bị thu hồi (Revoked). Vui lòng cấp lại token mới.";
+        } else {
+            newStatus = "CONNECTED";
+        }
+
+        // 3. Cập nhật trạng thái trong database
+        connection.setStatus(newStatus);
+        if (valResult.getExpiresAt() != null) {
+            connection.setTokenExpiresAt(valResult.getExpiresAt());
+        }
+        if (StringUtils.hasText(valResult.getScopes())) {
+            connection.setTokenScope(valResult.getScopes());
+        }
+        connection.setUpdatedAt(now);
+        gitHubConnectionRepository.save(connection);
+
+        // 4. Nếu trạng thái token bị lỗi (hết hạn hoặc revoked), bắn cảnh báo tới người dùng và ghi nhật ký kiểm toán
+        if (!"CONNECTED".equals(newStatus)) {
+            AuditAction auditAction = "EXPIRED".equals(newStatus)
+                    ? AuditAction.GITHUB_TOKEN_EXPIRED
+                    : AuditAction.GITHUB_TOKEN_REVOKED;
+
+            Long actorId = currentUserId != null ? currentUserId : connection.getUserId();
+            String detail = String.format("Token GitHub của user @%s (connectionId=%d, workspaceId=%d) không còn hợp lệ: %s. Trạng thái chuyển từ %s -> %s",
+                    connection.getGithubUsername(), connection.getConnectionId(), connection.getWorkspaceId(),
+                    warningMessage, previousStatus, newStatus);
+
+            auditServicePort.recordSecurityAction(actorId, auditAction, "GITHUB_CONNECTION",
+                    connection.getConnectionId().toString(), detail);
+
+            log.warn("[SECURITY ALERT] {}", detail);
+        }
+
+        return GitHubConnectionStatusResponse.builder()
+                .connectionId(connection.getConnectionId())
+                .workspaceId(connection.getWorkspaceId())
+                .userId(connection.getUserId())
+                .githubUsername(connection.getGithubUsername())
+                .status(newStatus)
+                .valid("CONNECTED".equals(newStatus))
+                .tokenScope(connection.getTokenScope())
+                .tokenExpiresAt(connection.getTokenExpiresAt())
+                .lastCheckedAt(now)
+                .warningMessage(warningMessage)
+                .build();
+    }
+
     private RepoResponse mapToRepoResponse(RepositoryEntity entity) {
         return RepoResponse.builder()
                 .repositoryId(entity.getRepositoryId())
@@ -287,3 +384,4 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
                 .build();
     }
 }
+

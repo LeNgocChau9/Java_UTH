@@ -11,4 +11,5 @@ public interface SpringDataDocumentRepository extends JpaRepository<DocumentEnti
     List<DocumentEntity> findByRepoId(Long repoId);
     List<DocumentEntity> findByCollectionId(Long collectionId);
     List<DocumentEntity> findByRepoIdAndCollectionId(Long repoId, Long collectionId);
+    List<DocumentEntity> findByStatus(com.example.livingdocs_backend.domain.model.DocumentStatus status);
 }

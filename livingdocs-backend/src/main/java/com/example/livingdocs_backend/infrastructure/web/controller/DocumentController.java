@@ -176,6 +176,18 @@ public class DocumentController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/{docId}/publish-to-github")
+    @Operation(summary = "Xuất bản tài liệu lên GitHub", description = "Khi Manager duyệt xuất bản, gọi GitHub Contents API (PUT /repos/{owner}/{repo}/contents/{path}) với token người dùng, tự động tạo commit chứa file Markdown vào repo và lưu commit hash, link commit vào bảng document_versions.")
+    public ResponseEntity<PublishToGitHubResponse> publishToGitHub(
+            @PathVariable Long docId,
+            @Valid @RequestBody PublishToGitHubRequest request,
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+
+        Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
+        PublishToGitHubResponse response = documentServicePort.publishToGitHub(docId, request, actorId);
+        return ResponseEntity.ok(response);
+    }
+
     private String extractRole(UserPrincipal userPrincipal) {
         if (userPrincipal == null || userPrincipal.getAuthorities() == null || userPrincipal.getAuthorities().isEmpty()) {
             return "DEV";
@@ -184,3 +196,4 @@ public class DocumentController {
         return auth.startsWith("ROLE_") ? auth.substring(5) : auth;
     }
 }
+

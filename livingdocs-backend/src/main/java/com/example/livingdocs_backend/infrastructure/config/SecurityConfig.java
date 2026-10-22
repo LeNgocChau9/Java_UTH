@@ -60,6 +60,7 @@ public class SecurityConfig {
                     "/api/jobs/**",
                     "/api/templates/**",
                     "/api/documents/**",
+                    "/api/reviews/**",
                     "/api/collections/**",
                     "/api/repos/**",
                     "/api/repositories/**",

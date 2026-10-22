@@ -49,5 +49,19 @@ public interface RepositoryServicePort {
      * Lấy danh sách Commits đã lưu trong database của repository.
      */
     List<com.example.livingdocs_backend.infrastructure.persistence.entity.CommitEntity> getRepoCommits(Long repositoryId);
+
+    /**
+     * Kiểm tra tính hợp lệ của GitHub token kết nối chỉ định.
+     * Cập nhật trạng thái trong github_connections (EXPIRED, REVOKED, CONNECTED)
+     * và bắn cảnh báo tới người dùng (ghi AuditLog & trả về thông điệp cảnh báo).
+     */
+    com.example.livingdocs_backend.application.dto.github.GitHubConnectionStatusResponse verifyConnectionToken(Long connectionId, Long currentUserId);
+
+    /**
+     * Kiểm tra toàn bộ token kết nối GitHub trong một workspace hoặc toàn hệ thống.
+     * Tự động phát hiện và cảnh báo các token bị thu hồi hoặc hết hạn.
+     */
+    List<com.example.livingdocs_backend.application.dto.github.GitHubConnectionStatusResponse> verifyWorkspaceConnections(Long workspaceId, Long currentUserId);
 }
+
 

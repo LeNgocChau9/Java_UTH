@@ -2,6 +2,7 @@ package com.example.livingdocs_backend.application.port;
 
 import com.example.livingdocs_backend.application.dto.github.GitHubCommitDto;
 import com.example.livingdocs_backend.application.dto.github.GitHubFileDto;
+import com.example.livingdocs_backend.application.dto.github.GitHubPublishResultDto;
 import com.example.livingdocs_backend.application.dto.github.GitHubPullRequestDto;
 
 import java.util.List;
@@ -72,4 +73,43 @@ public interface GitHubClientPort {
      * @return Commit SHA nếu thành công
      */
     String createOrUpdateFile(String token, String owner, String repo, String filePath, String content, String commitMessage, String branch);
+
+    /**
+     * Tạo hoặc cập nhật một file trong GitHub repository bằng GitHub Contents API.
+     * Tương ứng với: PUT /repos/{owner}/{repo}/contents/{path}
+     *
+     * @param token         Personal Access Token hoặc OAuth Token có quyền ghi repo
+     * @param owner         Chủ sở hữu repo (username hoặc tổ chức)
+     * @param repo          Tên repo
+     * @param filePath      Đường dẫn file trong repo (vd: docs/api/UserService.md)
+     * @param content       Nội dung file dạng plain text (sẽ được Base64 hóa trước khi gửi)
+     * @param commitMessage Commit message
+     * @param currentSha    SHA của file hiện tại trên repo (null nếu là file mới)
+     * @return Kết quả publish gồm commit SHA và HTML URL
+     */
+    GitHubPublishResultDto putFileContent(String token, String owner, String repo,
+                                          String filePath, String content,
+                                          String commitMessage, String currentSha);
+
+    /**
+     * Lấy SHA hiện tại của một file trong repo (null nếu file chưa tồn tại).
+     *
+     * @param token    Personal Access Token hoặc OAuth Token
+     * @param owner    Chủ sở hữu repo
+     * @param repo     Tên repo
+     * @param filePath Đường dẫn file trong repo
+     * @return SHA chuỗi băm của file hiện tại hoặc null nếu file chưa tồn tại
+     */
+    String getCurrentFileSha(String token, String owner, String repo, String filePath);
+
+    /**
+     * Kiểm tra tính hợp lệ của GitHub token kết nối (gọi GET /user).
+     *
+     * @param token GitHub Personal Access Token hoặc OAuth Access Token
+     * @return Kết quả kiểm tra (hợp lệ hay bị revoked/expired kèm thông báo)
+     */
+    com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult validateToken(String token);
 }
+
+
+

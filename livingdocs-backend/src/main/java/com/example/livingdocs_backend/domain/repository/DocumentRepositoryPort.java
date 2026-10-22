@@ -12,6 +12,7 @@ public interface DocumentRepositoryPort {
     List<Document> findByRepoId(Long repoId);
     List<Document> findByCollectionId(Long collectionId);
     List<Document> findByRepoIdAndCollectionId(Long repoId, Long collectionId);
+    List<Document> findByStatus(com.example.livingdocs_backend.domain.model.DocumentStatus status);
     boolean existsById(Long docId);
     void deleteById(Long docId);
 }

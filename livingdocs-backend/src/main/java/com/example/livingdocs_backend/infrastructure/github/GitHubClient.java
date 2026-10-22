@@ -2,6 +2,7 @@ package com.example.livingdocs_backend.infrastructure.github;
 
 import com.example.livingdocs_backend.application.dto.github.GitHubCommitDto;
 import com.example.livingdocs_backend.application.dto.github.GitHubFileDto;
+import com.example.livingdocs_backend.application.dto.github.GitHubPublishResultDto;
 import com.example.livingdocs_backend.application.dto.github.GitHubPullRequestDto;
 import com.example.livingdocs_backend.application.port.GitHubClientPort;
 import com.example.livingdocs_backend.domain.exception.GitHubApiException;
@@ -11,6 +12,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -20,8 +22,11 @@ import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.time.Instant;
+import java.util.Base64;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Triển khai gọi GitHub REST API v3 sử dụng RestClient của Spring Framework 6 / Spring Boot 3.
@@ -268,6 +273,192 @@ public class GitHubClient implements GitHubClientPort {
     }
 
     /**
+     * Tạo hoặc cập nhật một file trong GitHub repository bằng Contents API.
+     * PUT /repos/{owner}/{repo}/contents/{path}
+     * <p>
+     * Quy trình:
+     * 1. Kiểm tra file có tồn tại không (GET Contents API) để lấy SHA hiện tại.
+     * 2. Mã hóa nội dung thành Base64 (GitHub yêu cầu).
+     * 3. Gửi PUT request kèm SHA nếu cập nhật, không cần SHA nếu tạo mới.
+     */
+    @Override
+    public GitHubPublishResultDto putFileContent(String token, String owner, String repo,
+                                                 String filePath, String content,
+                                                 String commitMessage, String currentSha) {
+
+        String uri = "/repos/{owner}/{repo}/contents/{path}";
+
+        // 1. Mã hóa nội dung thành Base64 (GitHub Contents API yêu cầu)
+        String base64Content = Base64.getEncoder().encodeToString(
+                content != null ? content.getBytes(java.nio.charset.StandardCharsets.UTF_8)
+                               : new byte[0]
+        );
+
+        // 2. Xây dựng request body
+        Map<String, Object> body = new HashMap<>();
+        body.put("message", commitMessage);
+        body.put("content", base64Content);
+
+        // Nếu file đã tồn tại phải cung cấp sha của file hiện tại
+        if (StringUtils.hasText(currentSha)) {
+            body.put("sha", currentSha);
+        }
+
+        try {
+            // 3. Gửi PUT request tới GitHub Contents API
+            GitContentsResponse response = restClient.method(HttpMethod.PUT)
+                    .uri(uri, owner, repo, filePath)
+                    .header(HttpHeaders.USER_AGENT, "LivingDocs-GitHubClient/1.0")
+                    .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token.trim())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .body(GitContentsResponse.class);
+
+            if (response == null || response.commit() == null) {
+                throw new GitHubApiException("GitHub Contents API không trả về thông tin commit cho file: " + filePath, 500);
+            }
+
+            String sha = response.commit().sha();
+            String htmlUrl = response.commit().htmlUrl();
+
+            log.info("Đã xuất bản file '{}' lên {}/{} | Commit SHA: {}", filePath, owner, repo, sha);
+
+            return GitHubPublishResultDto.builder()
+                    .commitSha(sha)
+                    .commitUrl(htmlUrl)
+                    .filePath(filePath)
+                    .build();
+
+        } catch (RestClientResponseException ex) {
+            handleErrorResponse(ex, "putFileContent (" + owner + "/" + repo + "/" + filePath + ")");
+            return null; // handleErrorResponse always throws, this line is unreachable
+        } catch (GitHubApiException | GitHubRateLimitException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            log.error("Lỗi khi xuất bản file '{}' lên {}/{}: {}", filePath, owner, repo, ex.getMessage(), ex);
+            throw new GitHubApiException("Lỗi khi xuất bản tài liệu lên GitHub: " + ex.getMessage(), 500, ex);
+        }
+    }
+
+    /**
+     * Lấy SHA hiện tại của một file trong repo (null nếu file chưa tồn tại).
+     * Gọi GET /repos/{owner}/{repo}/contents/{path} trước khi PUT để update.
+     */
+    public String getCurrentFileSha(String token, String owner, String repo, String filePath) {
+        String uri = "/repos/{owner}/{repo}/contents/{path}";
+        try {
+            GitSingleFileResponse resp = restClient.get()
+                    .uri(uri, owner, repo, filePath)
+                    .header(HttpHeaders.USER_AGENT, "LivingDocs-GitHubClient/1.0")
+                    .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token.trim())
+                    .accept(MediaType.APPLICATION_JSON)
+                    .retrieve()
+                    .body(GitSingleFileResponse.class);
+            return resp != null ? resp.sha() : null;
+        } catch (RestClientResponseException ex) {
+            // 404 = file chưa tồn tại, OK để tạo mới
+            if (ex.getStatusCode().value() == 404) {
+                log.debug("File '{}' chưa tồn tại trên {}/{}, sẽ tạo mới.", filePath, owner, repo);
+                return null;
+            }
+            handleErrorResponse(ex, "getCurrentFileSha (" + filePath + ")");
+            return null;
+        } catch (Exception ex) {
+            log.warn("Không thể kiểm tra SHA file '{}': {}", filePath, ex.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Kiểm tra tính hợp lệ của access token kết nối GitHub.
+     * Gọi GET /user để xác thực token.
+     * Xử lý trường hợp 401 Unauthorized (token revoked/invalid) hoặc hết hạn.
+     */
+    @Override
+    public com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult validateToken(String token) {
+        if (!StringUtils.hasText(token) || "DUMMY_TOKEN".equalsIgnoreCase(token.trim())) {
+            return com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
+                    .valid(false)
+                    .status("REVOKED")
+                    .message("Token GitHub rỗng hoặc là token mẫu (DUMMY_TOKEN)")
+                    .build();
+        }
+
+        try {
+            var responseEntity = restClient.get()
+                    .uri("/user")
+                    .header(HttpHeaders.USER_AGENT, "LivingDocs-GitHubClient/1.0")
+                    .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token.trim())
+                    .accept(MediaType.APPLICATION_JSON)
+                    .retrieve()
+                    .toEntity(GitUserResponse.class);
+
+            GitUserResponse user = responseEntity.getBody();
+            HttpHeaders headers = responseEntity.getHeaders();
+            String scopes = headers.getFirst("X-OAuth-Scopes");
+
+            // Kiểm tra thời gian hết hạn nếu có trong header
+            Instant expiresAt = null;
+            String expiresHeader = headers.getFirst("github-authentication-token-expiration");
+            if (StringUtils.hasText(expiresHeader)) {
+                try {
+                    // Header có định dạng UTC date string hoặc timestamp
+                    expiresAt = Instant.parse(expiresHeader);
+                } catch (Exception ignored) {}
+            }
+
+            String username = user != null ? user.login() : "unknown";
+            return com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
+                    .valid(true)
+                    .status("CONNECTED")
+                    .githubUsername(username)
+                    .scopes(scopes)
+                    .expiresAt(expiresAt)
+                    .message("Token GitHub hợp lệ và đang kết nối ổn định.")
+                    .build();
+
+        } catch (RestClientResponseException ex) {
+            int statusCode = ex.getStatusCode().value();
+            String body = ex.getResponseBodyAsString();
+            log.warn("GitHub validateToken trả về HTTP {}: {}", statusCode, body);
+
+            if (statusCode == 401) {
+                // Token bị thu hồi (revoked), bad credentials hoặc token sai
+                return com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
+                        .valid(false)
+                        .status("REVOKED")
+                        .message("Token GitHub đã bị thu hồi (Revoked) hoặc không hợp lệ: " + body)
+                        .build();
+            } else if (statusCode == 403 && body != null && body.toLowerCase().contains("expired")) {
+                // Token đã hết hạn
+                return com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
+                        .valid(false)
+                        .status("EXPIRED")
+                        .message("Token GitHub đã hết hạn: " + body)
+                        .build();
+            } else {
+                return com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
+                        .valid(false)
+                        .status("REVOKED")
+                        .message("Lỗi xác thực GitHub Token (HTTP " + statusCode + "): " + body)
+                        .build();
+            }
+        } catch (Exception ex) {
+            log.error("Lỗi khi kiểm tra GitHub token: {}", ex.getMessage());
+            return com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
+                    .valid(false)
+                    .status("REVOKED")
+                    .message("Không thể kết nối đến GitHub API để xác thực token: " + ex.getMessage())
+                    .build();
+        }
+    }
+
+
+    /**
      * Tạo RestClient request với Header Authentication và GitHub API Version tiêu chuẩn.
      */
     private RestClient.RequestHeadersSpec<?> executeWithAuth(String token, String uri, Object... uriVariables) {
@@ -453,4 +644,49 @@ public class GitHubClient implements GitHubClientPort {
             @JsonProperty("html_url") String htmlUrl,
             String message
     ) {}
+
+    // --- Response records cho GitHub Contents API (PUT /repos/.../contents/...) ---
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record GitContentsResponse(
+            GitContentsFile content,
+            GitContentsCommit commit
+    ) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record GitContentsFile(
+            String name,
+            String path,
+            String sha,
+            @JsonProperty("html_url") String htmlUrl
+    ) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record GitContentsCommit(
+            String sha,
+            String message,
+            @JsonProperty("html_url") String htmlUrl
+    ) {}
+
+    // Response khi GET một file đơn lẻ để lấy SHA hiện tại
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record GitSingleFileResponse(
+            String sha,
+            String name,
+            String path,
+            @JsonProperty("html_url") String htmlUrl
+    ) {}
+
+    // Response khi GET /user để kiểm tra token
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record GitUserResponse(
+            Long id,
+            String login,
+            String name,
+            String email,
+            @JsonProperty("avatar_url") String avatarUrl
+    ) {}
 }
+
+
+

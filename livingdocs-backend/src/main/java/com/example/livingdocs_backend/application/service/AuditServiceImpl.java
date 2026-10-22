@@ -43,6 +43,11 @@ public class AuditServiceImpl implements AuditServicePort {
     }
 
     @Override
+    public void recordSecurityAction(Long actorId, AuditAction action, String resourceType, String resourceId, String detail) {
+        record(actorId, action, resourceType, resourceId, detail);
+    }
+
+    @Override
     public java.util.List<AuditLog> getAuditLogsForResource(String resourceType, String resourceId) {
         return auditLogRepositoryPort.findByResourceTypeAndResourceId(resourceType, resourceId);
     }

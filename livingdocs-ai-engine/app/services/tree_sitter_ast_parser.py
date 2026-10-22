@@ -1,11 +1,12 @@
 """
 tree_sitter_ast_parser.py
 Module bóc tách cấu trúc mã nguồn Java bằng Tree-sitter (chính thức).
-Trích xuất: Package, Class, Annotations, Methods, Constructors, Params, Return Type, Javadoc, Start/End Line.
-TV4 — LivingDocs AI Engine — Tuần 2
+Nâng cấp: Bóc tách chính xác toàn diện Annotation (@RestController, @Service, @GetMapping, @PathVariable...),
+Javadoc/Docstring, Class, Method, Constructor, Parameter types và Return types.
+TV4 — LivingDocs AI Engine — Tuần 3 (Task #82)
 """
 
-from typing import Any, Optional
+from typing import Any, Optional, List
 import tree_sitter
 import tree_sitter_java
 
@@ -15,7 +16,7 @@ _PARSER = tree_sitter.Parser(_JAVA_LANGUAGE)
 
 
 def _clean_javadoc(raw_comment: str) -> str:
-    """Chuẩn hóa nội dung Javadoc, loại bỏ các ký tự /**, *, */ bao quanh."""
+    """Chuẩn hóa nội dung Javadoc / Docstring, loại bỏ các ký tự /**, *, */ bao quanh."""
     lines = raw_comment.splitlines()
     cleaned_lines = []
     for line in lines:
@@ -26,13 +27,15 @@ def _clean_javadoc(raw_comment: str) -> str:
             s = s[2:].strip()
         elif s.startswith("*"):
             s = s[1:].strip()
+        elif s.startswith("//"):
+            s = s[2:].strip()
         if s:
             cleaned_lines.append(s)
     return "\n".join(cleaned_lines)
 
 
 def _extract_prev_javadoc(parent_node, target_node, source_bytes: bytes) -> Optional[str]:
-    """Tìm block_comment (Javadoc) ngay trước node đích nếu có."""
+    """Tìm block_comment hoặc line_comment (Javadoc/docstring) ngay trước node đích nếu có."""
     prev_comment = None
     for child in parent_node.children:
         if child == target_node:
@@ -41,6 +44,9 @@ def _extract_prev_javadoc(parent_node, target_node, source_bytes: bytes) -> Opti
             text = source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace")
             if text.startswith("/**"):
                 prev_comment = text
+        elif child.type == "line_comment":
+            text = source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace")
+            prev_comment = text
         elif child.type not in (";", ","):
             # Nếu gặp node khác (không phải dấu phân cách) thì reset
             prev_comment = None
@@ -50,20 +56,30 @@ def _extract_prev_javadoc(parent_node, target_node, source_bytes: bytes) -> Opti
     return None
 
 
-def _extract_annotations(modifiers_node, source_bytes: bytes) -> list[str]:
-    """Bóc tách toàn bộ annotations từ node modifiers."""
+def _extract_annotations(modifiers_node, source_bytes: bytes) -> List[str]:
+    """
+    Bóc tách toàn bộ annotations từ node modifiers.
+    Hỗ trợ cả marker_annotation (@RestController, @Service) và annotation có tham số (@GetMapping("/orders")).
+    """
     annotations = []
     if not modifiers_node:
         return annotations
+
     for child in modifiers_node.children:
         if child.type in ("marker_annotation", "annotation"):
             ann_text = source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace")
-            annotations.append(ann_text.strip())
+            # Chuẩn hóa khoảng trắng dư thừa
+            ann_clean = " ".join(ann_text.split())
+            if ann_clean:
+                annotations.append(ann_clean)
     return annotations
 
 
-def _extract_parameters(params_node, source_bytes: bytes) -> list[dict[str, str]]:
-    """Bóc tách danh sách tham số (tên biến, kiểu dữ liệu) từ node formal_parameters."""
+def _extract_parameters(params_node, source_bytes: bytes) -> List[dict[str, Any]]:
+    """
+    Bóc tách danh sách tham số (tên biến, kiểu dữ liệu, các annotations của tham số)
+    từ node formal_parameters.
+    """
     params = []
     if not params_node:
         return params
@@ -72,17 +88,23 @@ def _extract_parameters(params_node, source_bytes: bytes) -> list[dict[str, str]
         if child.type in ("formal_parameter", "spread_parameter"):
             type_text = ""
             name_text = ""
+            param_annotations = []
+
             for sub in child.children:
-                if sub.type == "identifier":
-                    name_text = source_bytes[sub.start_byte:sub.end_byte].decode("utf-8", errors="replace")
-                elif sub.type not in ("modifiers", "variable_declarator_id"):
-                    # Các node kiểu dữ liệu: type_identifier, generic_type, integral_type, array_type...
-                    type_text = source_bytes[sub.start_byte:sub.end_byte].decode("utf-8", errors="replace")
+                if sub.type == "modifiers":
+                    # Các annotation gắn với param: @PathVariable("id"), @RequestBody, @Valid
+                    param_annotations = _extract_annotations(sub, source_bytes)
+                elif sub.type == "identifier":
+                    name_text = source_bytes[sub.start_byte:sub.end_byte].decode("utf-8", errors="replace").strip()
+                elif sub.type not in ("variable_declarator_id", ","):
+                    # Các node kiểu dữ liệu: type_identifier, generic_type, integral_type, array_type, boolean_type, floating_point_type...
+                    type_text = source_bytes[sub.start_byte:sub.end_byte].decode("utf-8", errors="replace").strip()
 
             if name_text:
                 params.append({
-                    "name": name_text.strip(),
-                    "type": type_text.strip() if type_text else "Object"
+                    "name": name_text,
+                    "type": type_text if type_text else "Object",
+                    "annotations": param_annotations,
                 })
     return params
 
@@ -122,7 +144,7 @@ def parse_java_with_treesitter(file_path: str, source_code: str) -> dict[str, An
                     result["package_name"] = source_bytes[sub.start_byte:sub.end_byte].decode("utf-8", errors="replace").strip()
             break
 
-    # 2. Tìm Class / Interface / Enum declaration chính trong root
+    # 2. Tìm Class / Interface / Enum / Record declaration chính trong root
     class_node = None
     for child in root.children:
         if child.type in ("class_declaration", "interface_declaration", "enum_declaration", "record_declaration"):
@@ -147,7 +169,7 @@ def parse_java_with_treesitter(file_path: str, source_code: str) -> dict[str, An
     # Lấy Javadoc của class (tìm block_comment đứng trước class_node ở root)
     result["javadoc"] = _extract_prev_javadoc(root, class_node, source_bytes)
 
-    # Lấy tên Class, Modifiers, Annotations
+    # Lấy tên Class, Modifiers, Annotations của class
     modifiers_node = None
     class_body_node = None
     for child in class_node.children:
@@ -185,11 +207,17 @@ def parse_java_with_treesitter(file_path: str, source_code: str) -> dict[str, An
                 elif sub.type == "formal_parameters":
                     params_node = sub
                 elif sub.type not in ("block", ";") and not method_name:
-                    # Type return (type_identifier, generic_type, integral_type, void_type...)
+                    # Type return (type_identifier, generic_type, integral_type, void_type, boolean_type...)
                     return_type = source_bytes[sub.start_byte:sub.end_byte].decode("utf-8", errors="replace").strip()
 
             params = _extract_parameters(params_node, source_bytes)
-            params_str = ", ".join([f"{p['type']} {p['name']}" for p in params])
+            # Xây dựng chuỗi tham số đầy đủ gồm cả annotation nếu có
+            params_str_parts = []
+            for p in params:
+                p_ann_str = f"{' '.join(p['annotations'])} " if p.get("annotations") else ""
+                params_str_parts.append(f"{p_ann_str}{p['type']} {p['name']}")
+            params_str = ", ".join(params_str_parts)
+
             annotations = _extract_annotations(m_modifiers_node, source_bytes)
             javadoc = _extract_prev_javadoc(class_body_node, child, source_bytes)
 
@@ -199,7 +227,8 @@ def parse_java_with_treesitter(file_path: str, source_code: str) -> dict[str, An
                 if mods:
                     mod_prefix = " ".join(mods)
 
-            signature = f"{mod_prefix} {return_type} {method_name}({params_str})"
+            ann_prefix = f"{' '.join(annotations)} " if annotations else ""
+            signature = f"{ann_prefix}{mod_prefix} {return_type} {method_name}({params_str})"
 
             methods.append({
                 "entity_type": "METHOD",
@@ -231,7 +260,12 @@ def parse_java_with_treesitter(file_path: str, source_code: str) -> dict[str, An
                     params_node = sub
 
             params = _extract_parameters(params_node, source_bytes)
-            params_str = ", ".join([f"{p['type']} {p['name']}" for p in params])
+            params_str_parts = []
+            for p in params:
+                p_ann_str = f"{' '.join(p['annotations'])} " if p.get("annotations") else ""
+                params_str_parts.append(f"{p_ann_str}{p['type']} {p['name']}")
+            params_str = ", ".join(params_str_parts)
+
             annotations = _extract_annotations(c_modifiers_node, source_bytes)
             javadoc = _extract_prev_javadoc(class_body_node, child, source_bytes)
 
@@ -241,7 +275,8 @@ def parse_java_with_treesitter(file_path: str, source_code: str) -> dict[str, An
                 if mods:
                     mod_prefix = " ".join(mods)
 
-            signature = f"{mod_prefix} {ctor_name}({params_str})"
+            ann_prefix = f"{' '.join(annotations)} " if annotations else ""
+            signature = f"{ann_prefix}{mod_prefix} {ctor_name}({params_str})"
 
             methods.append({
                 "entity_type": "CONSTRUCTOR",
