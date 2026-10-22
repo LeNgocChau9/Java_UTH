@@ -222,6 +222,7 @@ private ${className} targetService;
           content: generatedMarkdown,
           actorRole: "AI",
           triggerType: "AI_GENERATION",
+          templateId: Number(templateId),
         }
       );
 

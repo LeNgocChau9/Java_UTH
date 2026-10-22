@@ -1,6 +1,7 @@
 package com.example.livingdocs_backend;
 
 import com.example.livingdocs_backend.application.dto.DocTemplateResponse;
+import com.example.livingdocs_backend.application.dto.TemplateValidationResult;
 import com.example.livingdocs_backend.application.dto.TemplateVersionResponse;
 import com.example.livingdocs_backend.application.service.DocTemplateService;
 import com.example.livingdocs_backend.infrastructure.web.controller.DocTemplateController;
@@ -132,6 +133,25 @@ class DocTemplateControllerTest {
 
         mockMvc.perform(delete("/api/templates/1/versions/4"))
                 .andExpect(status().isNoContent());
+    }
+
+    @Test
+    @DisplayName("POST /api/templates/{id}/validate trả cờ cảnh báo")
+    void validateMarkdown() throws Exception {
+        when(docTemplateService.validate(eq(1L), any())).thenReturn(TemplateValidationResult.builder()
+                .templateId(1L)
+                .valid(false)
+                .warning(true)
+                .missingHeadings(java.util.List.of("## Endpoints"))
+                .warnings(java.util.List.of("Thiếu đề mục bắt buộc: ## Endpoints"))
+                .build());
+
+        mockMvc.perform(post("/api/templates/1/validate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"markdown\":\"# Overview\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.warning").value(true))
+                .andExpect(jsonPath("$.missingHeadings[0]").value("## Endpoints"));
     }
 
     @Test

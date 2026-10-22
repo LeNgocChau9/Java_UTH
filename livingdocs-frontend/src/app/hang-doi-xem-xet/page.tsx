@@ -405,6 +405,21 @@ export default function HangDoiXemXetStaffPage() {
                             >
                               Chờ Staff duyệt
                             </span>
+                            {doc.structureWarning && (
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  background: "#fef2f2",
+                                  color: "#991b1b",
+                                  border: "1px solid #fecaca",
+                                  padding: "2px 8px",
+                                  borderRadius: 4,
+                                }}
+                              >
+                                Thiếu đề mục bắt buộc
+                              </span>
+                            )}
                             <span style={{ fontSize: 11, color: "#64748b", background: "#f1f5f9", padding: "2px 6px", borderRadius: 4 }}>
                               v{doc.currentVersion}
                             </span>
@@ -484,6 +499,22 @@ export default function HangDoiXemXetStaffPage() {
               </span>
             </div>
           </div>
+
+          {selectedDocDetail?.structureWarning && (
+            <div
+              style={{
+                padding: "12px 16px",
+                borderRadius: 6,
+                background: "#fef2f2",
+                border: "1px solid #fecaca",
+                color: "#991b1b",
+                fontSize: 13,
+              }}
+            >
+              <strong>Cảnh báo cấu trúc template.</strong> Tài liệu AI thiếu đề mục bắt buộc:{" "}
+              {(selectedDocDetail.missingHeadings || []).join(", ") || "xem chi tiết template"}.
+            </div>
+          )}
 
           {loadingDetail ? (
             <div className="ld-card" style={{ padding: "60px 0", textAlign: "center", color: "#64748b" }}>

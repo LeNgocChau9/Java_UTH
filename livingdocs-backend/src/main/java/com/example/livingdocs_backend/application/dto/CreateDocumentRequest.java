@@ -37,4 +37,7 @@ public class CreateDocumentRequest {
 
     @Schema(description = "Loại kích hoạt tạo phiên bản", example = "MANUAL_CREATE")
     private String triggerType;
+
+    @Schema(description = "Template dùng để kiểm tra cấu trúc khi Staff xem xét", example = "1")
+    private Long templateId;
 }

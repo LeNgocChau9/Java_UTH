@@ -36,6 +36,7 @@ public class ReviewServiceImpl implements ReviewServicePort {
     private final ReviewRepositoryPort reviewRepositoryPort;
     private final SpringDataRepositoryRepository repositoryRepository;
     private final AuditServicePort auditServicePort;
+    private final TemplateStructureCheck templateStructureCheck;
 
     @Override
     @Transactional(readOnly = true)
@@ -296,6 +297,9 @@ public class ReviewServiceImpl implements ReviewServicePort {
         ReviewQueueItemResponse.AuthorInfo authorInfo = resolveAuthor(firstVersion);
         DocumentVersionResponse latestVersionDto = latestVersion != null ? toVersionResponse(latestVersion) : null;
         String latestContent = latestVersion != null ? latestVersion.getContent() : "";
+        TemplateValidationResult structure = templateStructureCheck == null
+                ? TemplateValidationResult.passed(doc.getTemplateId())
+                : templateStructureCheck.check(doc.getTemplateId(), latestContent);
 
         return ReviewQueueItemResponse.builder()
                 .id(doc.getDocId())
@@ -320,6 +324,8 @@ public class ReviewServiceImpl implements ReviewServicePort {
                 .staffComment(staffReview != null ? staffReview.getGeneralComment() : null)
                 .staffReviewer(staffReview != null ? staffReview.getReviewer() : null)
                 .staffReviewedAt(staffReview != null ? staffReview.getCreatedAt() : null)
+                .structureWarning(structure.isWarning())
+                .missingHeadings(structure.getMissingHeadings())
                 .build();
     }
 

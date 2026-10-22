@@ -4,6 +4,8 @@ import com.example.livingdocs_backend.application.dto.DocTemplateRequest;
 import com.example.livingdocs_backend.application.dto.DocTemplateResponse;
 import com.example.livingdocs_backend.application.dto.TemplatePreviewRequest;
 import com.example.livingdocs_backend.application.dto.TemplatePreviewResponse;
+import com.example.livingdocs_backend.application.dto.TemplateValidateRequest;
+import com.example.livingdocs_backend.application.dto.TemplateValidationResult;
 import com.example.livingdocs_backend.application.dto.TemplateVersionRequest;
 import com.example.livingdocs_backend.application.dto.TemplateVersionResponse;
 import com.example.livingdocs_backend.application.service.DocTemplateService;
@@ -55,6 +57,14 @@ public class DocTemplateController {
     public ResponseEntity<DocTemplateResponse> update(@PathVariable Long id,
                                                       @Valid @RequestBody DocTemplateRequest request) {
         return ResponseEntity.ok(docTemplateService.update(id, request));
+    }
+
+    @PostMapping("/{id}/validate")
+    @Operation(summary = "Kiểm tra Markdown với cấu trúc template",
+            description = "Đối chiếu đề mục. Nếu thiếu mục bắt buộc thì warning=true để Staff thấy khi xem xét.")
+    public ResponseEntity<TemplateValidationResult> validate(@PathVariable Long id,
+                                                             @Valid @RequestBody TemplateValidateRequest request) {
+        return ResponseEntity.ok(docTemplateService.validate(id, request.getMarkdown()));
     }
 
     @PostMapping("/{id}/preview")

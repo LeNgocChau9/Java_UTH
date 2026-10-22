@@ -27,6 +27,7 @@ import com.example.livingdocs_backend.application.dto.IntegrityCheckResponse;
 import com.example.livingdocs_backend.application.dto.UpdateDocumentRequest;
 import com.example.livingdocs_backend.application.port.AuditServicePort;
 import com.example.livingdocs_backend.application.service.DocumentServiceImpl;
+import com.example.livingdocs_backend.application.service.TemplateStructureCheck;
 import com.example.livingdocs_backend.domain.exception.DocumentNotFoundException;
 import com.example.livingdocs_backend.domain.model.ActorRole;
 import com.example.livingdocs_backend.domain.model.Document;
@@ -78,7 +79,8 @@ class DocumentServiceImplTest {
                                 auditServicePort,
                                 repositoryRepository,
                                 gitHubConnectionRepository,
-                                gitHubClient);
+                                gitHubClient,
+                                mock(TemplateStructureCheck.class));
         }
 
 

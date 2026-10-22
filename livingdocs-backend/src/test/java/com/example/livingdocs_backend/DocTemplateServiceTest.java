@@ -6,6 +6,7 @@ import com.example.livingdocs_backend.application.dto.TemplateVersionRequest;
 import com.example.livingdocs_backend.application.dto.TemplateVersionResponse;
 import com.example.livingdocs_backend.application.service.DocTemplateService;
 import com.example.livingdocs_backend.application.service.TemplateMarkdownRenderer;
+import com.example.livingdocs_backend.application.service.TemplateStructureCheck;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocTemplate;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentTemplateVersion;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.DocTemplateRepository;
@@ -47,6 +48,9 @@ class DocTemplateServiceTest {
 
     @Mock
     private TemplateMarkdownRenderer templateMarkdownRenderer;
+
+    @Mock
+    private TemplateStructureCheck templateStructureCheck;
 
     @Spy
     private ObjectMapper objectMapper = new ObjectMapper();

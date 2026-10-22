@@ -4,6 +4,7 @@ import com.example.livingdocs_backend.application.dto.DocTemplateRequest;
 import com.example.livingdocs_backend.application.dto.DocTemplateResponse;
 import com.example.livingdocs_backend.application.dto.TemplatePreviewRequest;
 import com.example.livingdocs_backend.application.dto.TemplatePreviewResponse;
+import com.example.livingdocs_backend.application.dto.TemplateValidationResult;
 import com.example.livingdocs_backend.application.dto.TemplateVersionRequest;
 import com.example.livingdocs_backend.application.dto.TemplateVersionResponse;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocTemplate;
@@ -27,6 +28,7 @@ public class DocTemplateService {
     private final DocTemplateRepository docTemplateRepository;
     private final DocumentTemplateVersionRepository versionRepository;
     private final TemplateMarkdownRenderer templateMarkdownRenderer;
+    private final TemplateStructureCheck templateStructureCheck;
     private final ObjectMapper objectMapper;
 
     @Transactional(readOnly = true)
@@ -137,6 +139,12 @@ public class DocTemplateService {
         findOrThrow(templateId);
         DocumentTemplateVersion version = findVersionOrThrow(templateId, versionId);
         versionRepository.delete(version);
+    }
+
+    @Transactional(readOnly = true)
+    public TemplateValidationResult validate(Long id, String markdown) {
+        findOrThrow(id);
+        return templateStructureCheck.check(id, markdown);
     }
 
     @Transactional(readOnly = true)

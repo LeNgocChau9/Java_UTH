@@ -17,6 +17,7 @@ public class Document {
     private Long repoId;
     private String title;
     private String targetPath;
+    private Long templateId;
     @Builder.Default
     private DocumentStatus status = DocumentStatus.DRAFT;
     @Builder.Default

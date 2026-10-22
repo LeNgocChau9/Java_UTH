@@ -42,6 +42,7 @@ public class DocumentServiceImpl implements DocumentServicePort {
     private final SpringDataRepositoryRepository repositoryRepository;
     private final SpringDataGitHubConnectionRepository gitHubConnectionRepository;
     private final GitHubClientPort gitHubClient;
+    private final TemplateStructureCheck templateStructureCheck;
 
 
     @Override
@@ -58,6 +59,7 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 .collectionId(request.getCollectionId())
                 .title(request.getTitle())
                 .targetPath(request.getTargetPath())
+                .templateId(request.getTemplateId())
                 .status(DocumentStatus.DRAFT)
                 .currentVersion(1)
                 .createdAt(Instant.now())
@@ -210,6 +212,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 .versionHistory(history)
                 .createdAt(document.getCreatedAt())
                 .updatedAt(document.getUpdatedAt())
+                .templateId(document.getTemplateId())
+                .structureWarning(structureWarning(document, latestVersion))
+                .missingHeadings(missingHeadings(document, latestVersion))
                 .build();
     }
 
@@ -703,7 +708,26 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 .latestVersion(version != null ? toVersionResponse(version) : null)
                 .createdAt(doc.getCreatedAt())
                 .updatedAt(doc.getUpdatedAt())
+                .templateId(doc.getTemplateId())
+                .structureWarning(structureWarning(doc, version))
+                .missingHeadings(missingHeadings(doc, version))
                 .build();
+    }
+
+    private boolean structureWarning(Document doc, DocumentVersion version) {
+        if (doc.getTemplateId() == null || templateStructureCheck == null) {
+            return false;
+        }
+        String content = version != null ? version.getContent() : "";
+        return templateStructureCheck.check(doc.getTemplateId(), content).isWarning();
+    }
+
+    private java.util.List<String> missingHeadings(Document doc, DocumentVersion version) {
+        if (doc.getTemplateId() == null || templateStructureCheck == null) {
+            return java.util.List.of();
+        }
+        String content = version != null ? version.getContent() : "";
+        return templateStructureCheck.check(doc.getTemplateId(), content).getMissingHeadings();
     }
 
     private DocumentVersionResponse toVersionResponse(DocumentVersion v) {

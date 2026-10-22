@@ -29,6 +29,9 @@ export interface DocumentItem {
   latestVersion?: DocumentVersionItem | null;
   createdAt: string;
   updatedAt: string;
+  templateId?: number | null;
+  structureWarning?: boolean;
+  missingHeadings?: string[];
 }
 
 export interface DocumentDetail extends DocumentItem {
@@ -52,6 +55,7 @@ export interface CreateDocumentPayload {
   content: string;
   actorRole?: string;
   triggerType?: string;
+  templateId?: number;
 }
 
 export interface UpdateDocumentPayload {

@@ -85,6 +85,12 @@ public class ReviewQueueItemResponse {
     @Schema(description = "Thời điểm Staff hoàn tất duyệt cấp 1")
     private Instant staffReviewedAt;
 
+    @Schema(description = "true khi tài liệu AI thiếu đề mục bắt buộc của template")
+    private Boolean structureWarning;
+
+    @Schema(description = "Đề mục bắt buộc còn thiếu, Staff cần xem trước khi duyệt")
+    private java.util.List<String> missingHeadings;
+
     @Data
     @Builder
     @NoArgsConstructor

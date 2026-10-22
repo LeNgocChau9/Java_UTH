@@ -34,6 +34,9 @@ public class DocumentEntity {
     @Column(name = "target_path", length = 500)
     private String targetPath;
 
+    @Column(name = "template_id")
+    private Long templateId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", length = 50)
     @Builder.Default

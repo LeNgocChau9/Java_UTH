@@ -44,4 +44,13 @@ public class DocumentResponse {
 
     @Schema(description = "Thời điểm cập nhật mới nhất")
     private Instant updatedAt;
+
+    @Schema(description = "Template đã dùng khi sinh tài liệu", example = "1")
+    private Long templateId;
+
+    @Schema(description = "true khi Markdown thiếu đề mục bắt buộc của template")
+    private Boolean structureWarning;
+
+    @Schema(description = "Các đề mục bắt buộc còn thiếu")
+    private java.util.List<String> missingHeadings;
 }

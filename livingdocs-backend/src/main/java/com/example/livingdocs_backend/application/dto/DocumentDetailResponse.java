@@ -48,4 +48,13 @@ public class DocumentDetailResponse {
 
     @Schema(description = "Thời điểm cập nhật mới nhất")
     private Instant updatedAt;
+
+    @Schema(description = "Template đã dùng khi sinh tài liệu")
+    private Long templateId;
+
+    @Schema(description = "true khi Markdown thiếu đề mục bắt buộc")
+    private Boolean structureWarning;
+
+    @Schema(description = "Các đề mục bắt buộc còn thiếu")
+    private List<String> missingHeadings;
 }
