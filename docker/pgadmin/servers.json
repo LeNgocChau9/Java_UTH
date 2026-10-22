@@ -1,0 +1,13 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "LivingDocs",
+      "Group": "Servers",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "livingdocs",
+      "Username": "LivingDocs",
+      "SSLMode": "prefer"
+    }
+  }
+}
