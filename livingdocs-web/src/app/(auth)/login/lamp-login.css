@@ -1,0 +1,911 @@
+/* Theme Spectrums for Lamp Login */
+.lamp-login-container {
+  --lamp-accent: #ffab3d;
+  --lamp-glow: #ffe194;
+  --lamp-secondary: #d48b28;
+  --beam-color: rgba(255, 185, 75, 0.22);
+  --beam-start: rgba(255, 220, 130, 0.45);
+  --beam-mid: rgba(255, 195, 90, 0.22);
+  --beam-far: rgba(255, 175, 60, 0.08);
+  --lamp-focus-glow: rgba(255, 171, 61, 0.18);
+
+  --bg-dark: #0c0e12;
+  --bg-illuminated: #161920;
+  --card-bg: rgba(18, 22, 28, 0.78);
+  --card-border: rgba(255, 255, 255, 0.12);
+  --input-bg: rgba(255, 255, 255, 0.05);
+  --input-border: rgba(255, 255, 255, 0.12);
+  --text-primary: #f0f3f8;
+  --text-muted: #8b95a5;
+  --text-dim: #545c6b;
+
+  width: 100%;
+  min-height: 100vh;
+  background-color: var(--bg-dark);
+  color: var(--text-primary);
+  overflow-x: hidden;
+  position: relative;
+  transition: background-color 0.8s ease;
+  user-select: none;
+}
+
+.lamp-login-container[data-color="amber"] {
+  --lamp-accent: #ffab3d;
+  --lamp-glow: #ffe194;
+  --lamp-secondary: #d48b28;
+  --beam-color: rgba(255, 185, 75, 0.22);
+  --beam-start: rgba(255, 220, 130, 0.45);
+  --beam-mid: rgba(255, 195, 90, 0.22);
+  --beam-far: rgba(255, 175, 60, 0.08);
+  --lamp-focus-glow: rgba(255, 171, 61, 0.18);
+}
+
+.lamp-login-container[data-color="cyan"] {
+  --lamp-accent: #00f0ff;
+  --lamp-glow: #a6f9ff;
+  --lamp-secondary: #009eb0;
+  --beam-color: rgba(0, 240, 255, 0.2);
+  --beam-start: rgba(160, 245, 255, 0.45);
+  --beam-mid: rgba(0, 220, 255, 0.22);
+  --beam-far: rgba(0, 180, 220, 0.08);
+  --lamp-focus-glow: rgba(0, 240, 255, 0.18);
+}
+
+.lamp-login-container[data-color="rose"] {
+  --lamp-accent: #ff3385;
+  --lamp-glow: #ffa3c7;
+  --lamp-secondary: #ba1656;
+  --beam-color: rgba(255, 51, 133, 0.2);
+  --beam-start: rgba(255, 160, 205, 0.45);
+  --beam-mid: rgba(255, 70, 150, 0.22);
+  --beam-far: rgba(255, 30, 110, 0.08);
+  --lamp-focus-glow: rgba(255, 51, 133, 0.18);
+}
+
+.lamp-login-container[data-color="mint"] {
+  --lamp-accent: #00e676;
+  --lamp-glow: #b9f6ca;
+  --lamp-secondary: #00964b;
+  --beam-color: rgba(0, 230, 118, 0.2);
+  --beam-start: rgba(180, 255, 215, 0.45);
+  --beam-mid: rgba(0, 225, 115, 0.22);
+  --beam-far: rgba(0, 170, 85, 0.08);
+  --lamp-focus-glow: rgba(0, 230, 118, 0.18);
+}
+
+.lamp-login-container[data-color="moonlight"] {
+  --lamp-accent: #d8e5ff;
+  --lamp-glow: #ffffff;
+  --lamp-secondary: #7b9cd4;
+  --beam-color: rgba(200, 220, 255, 0.22);
+  --beam-start: rgba(255, 255, 255, 0.45);
+  --beam-mid: rgba(210, 230, 255, 0.22);
+  --beam-far: rgba(170, 200, 245, 0.08);
+  --lamp-focus-glow: rgba(216, 229, 255, 0.2);
+}
+
+.lamp-login-container[data-on="true"] {
+  background-color: var(--bg-illuminated);
+}
+
+/* Ambient Radial Glow on Room Wall */
+.lamp-login-container .ambient-glow {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 38% 38%, var(--beam-color), transparent 65%);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 1;
+  transition: opacity 0.8s ease, background 0.5s ease;
+}
+
+.lamp-login-container[data-on="true"] .ambient-glow {
+  opacity: 0.85;
+}
+
+/* Dust Particles Canvas */
+.lamp-login-container #dustCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Controls */
+.lamp-login-container .quick-controls {
+  position: absolute;
+  top: 24px;
+  right: 28px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.lamp-login-container .back-home-link {
+  position: absolute;
+  top: 24px;
+  left: 28px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8b95a5;
+  font-size: 0.82rem;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  padding: 8px 16px;
+  border-radius: 30px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: all 0.25s ease;
+  text-decoration: none;
+}
+
+.lamp-login-container .back-home-link:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.lamp-login-container .color-palette {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  padding: 6px 12px;
+  border-radius: 30px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.lamp-login-container .color-dot-btn {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--dot-color);
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  outline: none;
+}
+
+.lamp-login-container .color-dot-btn:hover {
+  transform: scale(1.22);
+  box-shadow: 0 0 10px var(--dot-color);
+}
+
+.lamp-login-container .color-dot-btn.active {
+  transform: scale(1.2);
+  border-color: #fff;
+  box-shadow: 0 0 12px var(--dot-color);
+}
+
+.lamp-login-container .sound-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  backdrop-filter: blur(10px);
+}
+
+.lamp-login-container .sound-toggle:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  transform: scale(1.05);
+}
+
+.lamp-login-container .sound-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.lamp-login-container .hidden {
+  display: none !important;
+}
+
+/* Scene Layout */
+.lamp-login-container .scene-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  position: relative;
+  z-index: 10;
+  max-width: 1160px;
+  margin: 0 auto;
+  gap: 2rem;
+}
+
+/* Lamp Stage */
+.lamp-login-container .lamp-stage {
+  flex: 1 1 420px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+}
+
+.lamp-login-container .lamp-wrapper {
+  position: relative;
+  width: 400px;
+  height: 520px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.lamp-login-container .lamp-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 15px 35px rgba(0, 0, 0, 0.6));
+  transition: filter 500ms ease, transform 500ms cubic-bezier(.2, .7, .2, 1);
+  transform-origin: 54% 44%;
+}
+
+.lamp-login-container .lamp-wrapper:hover .lamp-svg {
+  filter: drop-shadow(0 18px 38px rgba(0, 0, 0, 0.55));
+}
+
+.lamp-login-container .lamp-shade-body {
+  transition: filter 500ms ease;
+}
+
+.lamp-login-container[data-on="true"] .lamp-shade-body {
+  filter: drop-shadow(0 0 12px var(--lamp-accent));
+}
+
+.lamp-login-container .shade-enamel-highlight,
+.lamp-login-container .reflector-detail {
+  pointer-events: none;
+}
+
+.lamp-login-container .reflector-detail {
+  opacity: .7;
+  transition: opacity 400ms ease;
+}
+
+.lamp-login-container[data-on="true"] .reflector-detail {
+  opacity: .95;
+}
+
+/* Volumetric Light Beam (Inside SVG) */
+.lamp-login-container .svg-light-beam {
+  opacity: 0;
+  visibility: hidden;
+  mix-blend-mode: screen;
+  pointer-events: none;
+  transition: opacity 0.4s ease, visibility 0.4s ease;
+}
+
+.lamp-login-container[data-on="true"] .svg-light-beam {
+  opacity: 1;
+  visibility: visible;
+  animation: beam-bloom 1.4s ease-out both;
+}
+
+@keyframes beam-bloom {
+  from { opacity: .15; }
+  to { opacity: 1; }
+}
+
+/* Shade Reflector States */
+.lamp-login-container .shade-reflector-off {
+  opacity: 1;
+}
+
+.lamp-login-container .shade-reflector-on {
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+
+.lamp-login-container[data-on="true"] .shade-reflector-on {
+  opacity: 1;
+}
+
+/* Bulb Glow */
+.lamp-login-container .bulb-glow-core {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.lamp-login-container[data-on="true"] .bulb-glow-core {
+  opacity: 0.95;
+  animation: bulb-flicker-in 650ms ease-out both;
+}
+
+@keyframes bulb-flicker-in {
+  0% { opacity: 0; }
+  22% { opacity: .55; }
+  34% { opacity: .28; }
+  48% { opacity: .9; }
+  62% { opacity: .72; }
+  100% { opacity: .95; }
+}
+
+.lamp-login-container .bulb-filament {
+  stroke: #555;
+  transition: stroke 0.3s ease, filter 0.3s ease;
+}
+
+.lamp-login-container[data-on="true"] .bulb-filament {
+  stroke: #fff;
+  filter: drop-shadow(0 0 6px var(--lamp-accent));
+}
+
+/* Elastic String & Bead Handle */
+.lamp-login-container .elastic-cord-path {
+  transition: stroke 0.3s ease;
+}
+
+.lamp-login-container[data-on="true"] .elastic-cord-path {
+  stroke: var(--lamp-glow);
+  filter: drop-shadow(0 0 4px var(--lamp-accent));
+}
+
+.lamp-login-container .cord-bead-group {
+  cursor: grab;
+  touch-action: none;
+}
+
+.lamp-login-container .cord-bead-group:active {
+  cursor: grabbing;
+}
+
+.lamp-login-container .bead-aura {
+  transition: opacity 0.3s ease;
+}
+
+.lamp-login-container[data-on="true"] .bead-aura {
+  opacity: 0.35;
+  animation: pulseAura 2.2s infinite ease-in-out;
+}
+
+@keyframes pulseAura {
+  0%, 100% { transform: scale(1); opacity: 0.25; }
+  50% { transform: scale(1.3); opacity: 0.5; }
+}
+
+/* Pull Tooltip */
+.lamp-login-container .cord-tooltip {
+  position: absolute;
+  top: 360px;
+  left: 175px;
+  background: rgba(16, 19, 25, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  animation: floatTooltip 2.2s infinite ease-in-out;
+  transition: opacity 0.4s ease, transform 0.4s ease;
+  white-space: nowrap;
+}
+
+.lamp-login-container[data-on="true"] .cord-tooltip {
+  opacity: 0;
+  transform: translateY(-8px);
+  pointer-events: none;
+}
+
+.lamp-login-container .tooltip-arrow {
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 10px;
+  height: 10px;
+  background: rgba(16, 19, 25, 0.88);
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+@keyframes floatTooltip {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+/* Form Stage */
+.lamp-login-container .form-stage {
+  flex: 1 1 420px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  min-height: 520px;
+}
+
+/* Login Card */
+.lamp-login-container .login-card {
+  display: none;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  width: 100%;
+  max-width: 420px;
+  background: var(--card-bg);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid var(--card-border);
+  border-radius: 26px;
+  padding: 2.2rem 2rem;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5);
+  position: relative;
+  overflow: hidden;
+  transform: translateY(24px) scale(0.96);
+  z-index: 10;
+}
+
+.lamp-login-container[data-on="true"] .login-card {
+  display: block;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+  box-shadow:
+    -20px 0 60px -15px var(--beam-color),
+    0 30px 65px rgba(0, 0, 0, 0.55),
+    inset 0 1px 2px rgba(255, 255, 255, 0.2);
+}
+
+.lamp-login-container[data-on="false"] .login-card {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+.lamp-login-container[data-on="false"] .svg-light-beam {
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+.lamp-login-container[data-on="false"] .ambient-glow {
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+.lamp-login-container[data-on="false"] .shade-reflector-on {
+  opacity: 0 !important;
+}
+
+.lamp-login-container[data-on="false"] .bulb-glow-core {
+  opacity: 0 !important;
+}
+
+.lamp-login-container[data-on="false"] .bulb-filament {
+  stroke: #555 !important;
+  filter: none !important;
+}
+
+/* Card Header */
+.lamp-login-container .card-header {
+  margin-bottom: 1.5rem;
+}
+
+.lamp-login-container .card-title {
+  font-size: 1.65rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: #fff;
+  margin-bottom: 0.3rem;
+}
+
+.lamp-login-container .card-subtitle {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+/* Tabs */
+.lamp-login-container .auth-tabs {
+  position: relative;
+  display: flex;
+  background: rgba(0, 0, 0, 0.32);
+  padding: 4px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 1.4rem;
+}
+
+.lamp-login-container .auth-tab {
+  flex: 1;
+  background: transparent;
+  border: none;
+  padding: 8px 0;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  z-index: 2;
+  transition: color 0.3s ease;
+  text-align: center;
+}
+
+.lamp-login-container .auth-tab.active {
+  color: #fff;
+}
+
+.lamp-login-container .tab-slider {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc(50% - 4px);
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 1;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.lamp-login-container .auth-tabs[data-active="register"] .tab-slider {
+  transform: translateX(100%);
+}
+
+/* Form Groups */
+.lamp-login-container .form-group {
+  margin-bottom: 1.15rem;
+}
+
+.lamp-login-container .form-group label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 0.4rem;
+}
+
+.lamp-login-container .label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.4rem;
+}
+
+.lamp-login-container .label-row label {
+  margin-bottom: 0;
+}
+
+.lamp-login-container .forgot-link {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--lamp-accent);
+  text-decoration: none;
+  transition: opacity 0.2s ease;
+}
+
+.lamp-login-container .forgot-link:hover {
+  text-decoration: underline;
+  opacity: 0.85;
+}
+
+.lamp-login-container .input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 13px;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.lamp-login-container .input-wrapper:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.lamp-login-container .input-wrapper:focus-within {
+  border-color: var(--lamp-accent);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 3px var(--lamp-focus-glow);
+}
+
+.lamp-login-container .field-icon {
+  width: 17px;
+  height: 17px;
+  color: var(--text-dim);
+  margin-left: 14px;
+  flex-shrink: 0;
+  transition: color 0.3s ease;
+}
+
+.lamp-login-container .input-wrapper:focus-within .field-icon {
+  color: var(--lamp-accent);
+}
+
+.lamp-login-container .input-wrapper input {
+  width: 100%;
+  padding: 11px 13px;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: inherit;
+  font-size: 0.88rem;
+  color: #fff;
+  border-radius: 13px;
+}
+
+.lamp-login-container .input-wrapper input::placeholder {
+  color: var(--text-dim);
+}
+
+.lamp-login-container .eye-toggle {
+  background: transparent;
+  border: none;
+  padding: 0 13px;
+  color: var(--text-dim);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  outline: none;
+  transition: color 0.2s ease;
+}
+
+.lamp-login-container .eye-toggle:hover {
+  color: #fff;
+}
+
+.lamp-login-container .eye-icon {
+  width: 17px;
+  height: 17px;
+}
+
+/* Options */
+.lamp-login-container .options-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.3rem;
+}
+
+.lamp-login-container .custom-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.lamp-login-container .custom-checkbox input {
+  display: none;
+}
+
+.lamp-login-container .checkbox-box {
+  width: 17px;
+  height: 17px;
+  border-radius: 5px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.lamp-login-container .custom-checkbox input:checked + .checkbox-box {
+  background: var(--lamp-accent);
+  border-color: var(--lamp-accent);
+}
+
+.lamp-login-container .checkbox-box svg {
+  width: 12px;
+  height: 12px;
+  stroke: #000;
+  stroke-width: 3.5;
+  opacity: 0;
+  transform: scale(0.6);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.lamp-login-container .custom-checkbox input:checked + .checkbox-box svg {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.lamp-login-container .checkbox-label {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+/* Submit Button */
+.lamp-login-container .submit-btn {
+  width: 100%;
+  padding: 12px;
+  border-radius: 13px;
+  border: none;
+  background: var(--lamp-accent);
+  color: #0b0e14;
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 18px var(--lamp-focus-glow);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  outline: none;
+}
+
+.lamp-login-container .submit-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px var(--lamp-focus-glow);
+  filter: brightness(1.08);
+}
+
+.lamp-login-container .submit-btn:active {
+  transform: translateY(0);
+}
+
+.lamp-login-container .btn-glow-layer {
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  transform: skewX(-20deg);
+  transition: left 0.75s ease;
+}
+
+.lamp-login-container .submit-btn:hover .btn-glow-layer {
+  left: 150%;
+}
+
+.lamp-login-container .btn-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.lamp-login-container .btn-arrow {
+  width: 17px;
+  height: 17px;
+  transition: transform 0.3s ease;
+}
+
+.lamp-login-container .submit-btn:hover .btn-arrow {
+  transform: translateX(4px);
+}
+
+.lamp-login-container .btn-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2.5px solid rgba(0, 0, 0, 0.25);
+  border-top-color: #000;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.lamp-login-container .btn-success-icon {
+  width: 20px;
+  height: 20px;
+  color: #000;
+}
+
+/* Divider & Socials */
+.lamp-login-container .auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 1.4rem 0 1rem 0;
+}
+
+.lamp-login-container .divider-line {
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.lamp-login-container .divider-text {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.lamp-login-container .social-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 1rem;
+}
+
+.lamp-login-container .social-btn {
+  flex: 1;
+  height: 40px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.lamp-login-container .social-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.lamp-login-container .social-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+/* Form Error Message */
+.lamp-login-container .auth-error-box {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 0.78rem;
+  margin-bottom: 1rem;
+}
+
+/* Responsive */
+@media (max-width: 960px) {
+  .lamp-login-container .scene-container {
+    flex-direction: column;
+    padding-top: 80px;
+    gap: 1.5rem;
+  }
+
+  .lamp-login-container .lamp-stage {
+    flex: 0 0 auto;
+    height: 320px;
+  }
+
+  .lamp-login-container .lamp-wrapper {
+    width: 320px;
+    height: 360px;
+    transform: scale(0.85);
+  }
+
+  .lamp-login-container .form-stage {
+    width: 100%;
+    min-height: auto;
+  }
+
+  .lamp-login-container .login-card {
+    max-width: 100%;
+    padding: 1.8rem 1.5rem;
+  }
+}
