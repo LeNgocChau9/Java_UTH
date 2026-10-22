@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
@@ -27,9 +27,15 @@ import {
   Menu,
   X,
   User,
+  ShieldAlert,
+  KeyRound,
+  RefreshCw,
+  UserCog,
+  Check,
 } from "lucide-react";
 import { useSession } from "@/hooks/useSession";
 import { useRouter } from "next/navigation";
+import { refreshSession, updateCurrentUserProfile } from "@/services/authService";
 
 type AppRole = "DEVELOPER" | "STAFF" | "MANAGER" | "TECH_LEAD" | "ADMIN";
 
@@ -230,9 +236,88 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [notifOpen, setNotifOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
+  // Modal cảnh báo hết phiên & gia hạn quyền
+  const [showSessionModal, setShowSessionModal] = useState(false);
+  const [extendingSession, setExtendingSession] = useState(false);
+  const [extendError, setExtendError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onSessionExpired = () => {
+      setShowSessionModal(true);
+      setExtendError(null);
+    };
+    window.addEventListener("livingdocs:session_expired", onSessionExpired);
+    return () => {
+      window.removeEventListener("livingdocs:session_expired", onSessionExpired);
+    };
+  }, []);
+
+  const handleExtendSession = async () => {
+    try {
+      setExtendingSession(true);
+      setExtendError(null);
+      await refreshSession();
+      setShowSessionModal(false);
+      // Reload nhẹ dữ liệu hoặc trang để tiếp tục làm việc với token mới
+      window.location.reload();
+    } catch {
+      setExtendError("Không thể gia hạn tự động. Vui lòng đăng nhập lại.");
+    } finally {
+      setExtendingSession(false);
+    }
+  };
+
+  // Modal đổi thông tin cá nhân & mật khẩu
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [profileFullName, setProfileFullName] = useState("");
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState("");
+  const [profileOldPassword, setProfileOldPassword] = useState("");
+  const [profileNewPassword, setProfileNewPassword] = useState("");
+  const [updatingProfile, setUpdatingProfile] = useState(false);
+  const [profileSuccessMsg, setProfileSuccessMsg] = useState<string | null>(null);
+  const [profileErrorMsg, setProfileErrorMsg] = useState<string | null>(null);
+
+  const openProfileModal = () => {
+    setProfileFullName(user?.fullName || "");
+    setProfileAvatarUrl(user?.avatarUrl || "");
+    setProfileOldPassword("");
+    setProfileNewPassword("");
+    setProfileSuccessMsg(null);
+    setProfileErrorMsg(null);
+    setShowProfileModal(true);
+    setUserMenuOpen(false);
+  };
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setUpdatingProfile(true);
+      setProfileErrorMsg(null);
+      setProfileSuccessMsg(null);
+
+      await updateCurrentUserProfile({
+        fullName: profileFullName.trim() || undefined,
+        avatarUrl: profileAvatarUrl.trim() || undefined,
+        oldPassword: profileOldPassword || undefined,
+        newPassword: profileNewPassword || undefined,
+      });
+
+      setProfileSuccessMsg("Đã cập nhật thông tin thành công!");
+      setTimeout(() => {
+        setShowProfileModal(false);
+        window.location.reload();
+      }, 900);
+    } catch (err: any) {
+      setProfileErrorMsg(err.response?.data?.message || "Cập nhật thất bại. Vui lòng kiểm tra lại mật khẩu cũ!");
+    } finally {
+      setUpdatingProfile(false);
+    }
+  };
+
   const handleLogout = useCallback(() => {
     clearSession();
     setUserMenuOpen(false);
+    setShowSessionModal(false);
     router.push("/login");
   }, [clearSession, router]);
 
@@ -372,23 +457,37 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             }}
             className="hover:bg-white transition-colors border border-transparent hover:border-[#e2e8f0]"
           >
-            <div
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: "50%",
-                background: "#ecfdf5",
-                border: "1px solid #a7f3d0",
-                display: "grid",
-                placeItems: "center",
-                fontSize: 12,
-                fontWeight: 700,
-                color: "#059669",
-                flexShrink: 0,
-              }}
-            >
-              {initials}
-            </div>
+            {user?.avatarUrl ? (
+              <img
+                src={user.avatarUrl}
+                alt="Avatar"
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: "50%",
+                  objectFit: "cover",
+                  flexShrink: 0,
+                }}
+              />
+            ) : (
+              <div
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: "50%",
+                  background: "#ecfdf5",
+                  border: "1px solid #a7f3d0",
+                  display: "grid",
+                  placeItems: "center",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: "#059669",
+                  flexShrink: 0,
+                }}
+              >
+                {initials}
+              </div>
+            )}
             <div style={{ minWidth: 0, flex: 1 }}>
               <p
                 style={{
@@ -600,21 +699,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       cursor: "pointer",
                     }}
                   >
-                    <div
-                      style={{
-                        width: 28,
-                        height: 28,
-                        borderRadius: "50%",
-                        background: "#087f5b",
-                        display: "grid",
-                        placeItems: "center",
-                        fontSize: 11,
-                        fontWeight: 700,
-                        color: "#ffffff",
-                      }}
-                    >
-                      {initials}
-                    </div>
+                    {user?.avatarUrl ? (
+                      <img
+                        src={user.avatarUrl}
+                        alt="Avatar"
+                        style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: "50%",
+                          objectFit: "cover",
+                        }}
+                      />
+                    ) : (
+                      <div
+                        style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: "50%",
+                          background: "#087f5b",
+                          display: "grid",
+                          placeItems: "center",
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: "#ffffff",
+                        }}
+                      >
+                        {initials}
+                      </div>
+                    )}
                     <span className="text-[13px] font-semibold text-[#0f172a] hidden sm:inline">
                       {user?.fullName?.split(" ").slice(-1)[0] || "Tài khoản"}
                     </span>
@@ -643,8 +755,63 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         <p style={{ fontSize: 12, color: "#64748b", margin: "2px 0 0" }}>
                           {user?.email}
                         </p>
+
+                        {/* Thông tin liên kết GitHub */}
+                        <div
+                          style={{
+                            marginTop: 10,
+                            padding: "8px 10px",
+                            borderRadius: 6,
+                            background: "#f8fafc",
+                            border: "1px solid #e2e8f0",
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                            <span style={{ fontSize: 11, fontWeight: 600, color: "#475569" }}>
+                              Tài khoản GitHub
+                            </span>
+                            {user?.githubUsername ? (
+                              <span style={{ fontSize: 11, fontWeight: 600, color: "#047857" }}>
+                                @{user.githubUsername}
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: 11, color: "#94a3b8" }}>Chưa liên kết</span>
+                            )}
+                          </div>
+                          <a
+                            href="/api/auth/github?redirect=/dashboard"
+                            className="ld-btn ld-btn-secondary w-full"
+                            style={{
+                              fontSize: 11,
+                              padding: "4px 8px",
+                              height: 26,
+                              justifyContent: "center",
+                              marginTop: 4,
+                            }}
+                          >
+                            <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+                              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
+                            </svg>
+                            {user?.githubUsername ? "Đổi tài khoản GitHub" : "Liên kết GitHub"}
+                          </a>
+                        </div>
                       </div>
-                      <div style={{ padding: 6 }}>
+                      <div style={{ padding: 6, display: "flex", flexDirection: "column", gap: 2 }}>
+                        <button
+                          type="button"
+                          onClick={openProfileModal}
+                          className="ld-btn ld-btn-ghost w-full"
+                          style={{
+                            justifyContent: "flex-start",
+                            gap: 8,
+                            paddingLeft: 10,
+                            fontSize: 13,
+                            color: "#334155",
+                          }}
+                        >
+                          <UserCog size={14} className="text-[#059669]" />
+                          Cài đặt tài khoản
+                        </button>
                         <button
                           type="button"
                           onClick={handleLogout}
@@ -690,6 +857,309 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+
+      {/* ═══ MODAL CẢNH BÁO HẾT PHIÊN & GIA HẠN QUYỀN ═══ */}
+      {showSessionModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15, 23, 42, 0.65)",
+            backdropFilter: "blur(4px)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            className="ld-card"
+            style={{
+              maxWidth: 440,
+              width: "100%",
+              padding: 24,
+              borderRadius: 16,
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+              border: "1px solid #bbf7d0",
+              background: "#ffffff",
+              animation: "fadeIn 0.2s ease-out",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 12,
+                  background: "#fef3c7",
+                  color: "#d97706",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <ShieldAlert size={24} />
+              </div>
+              <div>
+                <h3 style={{ fontSize: 17, fontWeight: 700, color: "#0f172a", margin: 0 }}>
+                  Phiên làm việc đã hết hạn
+                </h3>
+                <p style={{ fontSize: 12, color: "#64748b", margin: "2px 0 0" }}>
+                  Bảo mật tài khoản LivingDocs
+                </p>
+              </div>
+            </div>
+
+            <p style={{ fontSize: 14, color: "#334155", lineHeight: 1.6, marginBottom: 20 }}>
+              Phiên đăng nhập của bạn vừa hết hiệu lực bảo mật. Bạn có muốn <strong>kéo dài phiên làm việc và cấp thêm quyền</strong> để tiếp tục thao tác mà không bị mất dữ liệu không?
+            </p>
+
+            {extendError && (
+              <div
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: 8,
+                  background: "#fef2f2",
+                  color: "#b91c1c",
+                  fontSize: 12,
+                  marginBottom: 16,
+                }}
+              >
+                {extendError}
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="ld-btn ld-btn-secondary"
+                style={{ fontSize: 13, padding: "8px 16px" }}
+              >
+                <LogOut size={14} />
+                Đăng xuất
+              </button>
+              <button
+                type="button"
+                onClick={handleExtendSession}
+                disabled={extendingSession}
+                className="ld-btn ld-btn-primary"
+                style={{ fontSize: 13, padding: "8px 18px", gap: 6 }}
+              >
+                {extendingSession ? (
+                  <>
+                    <RefreshCw size={14} className="animate-spin" />
+                    Đang gia hạn...
+                  </>
+                ) : (
+                  <>
+                    <KeyRound size={14} />
+                    Gia hạn phiên & Cấp quyền
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ MODAL ĐỔI THÔNG TIN CÁ NHÂN & MẬT KHẨU ═══ */}
+      {showProfileModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15, 23, 42, 0.65)",
+            backdropFilter: "blur(4px)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            className="ld-card"
+            style={{
+              maxWidth: 480,
+              width: "100%",
+              padding: 24,
+              borderRadius: 16,
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+              border: "1px solid #e2e8f0",
+              background: "#ffffff",
+              animation: "fadeIn 0.2s ease-out",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: 10,
+                    background: "#ecfdf5",
+                    color: "#059669",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <UserCog size={20} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: 16, fontWeight: 700, color: "#0f172a", margin: 0 }}>
+                    Cập nhật tài khoản
+                  </h3>
+                  <p style={{ fontSize: 12, color: "#64748b", margin: "2px 0 0" }}>
+                    Thay đổi tên, ảnh đại diện và mật khẩu cá nhân
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowProfileModal(false)}
+                className="ld-btn ld-btn-ghost"
+                style={{ padding: 4 }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {profileSuccessMsg && (
+              <div
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: 8,
+                  background: "#f0fdf4",
+                  color: "#166534",
+                  border: "1px solid #bbf7d0",
+                  fontSize: 13,
+                  marginBottom: 14,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <Check size={16} />
+                {profileSuccessMsg}
+              </div>
+            )}
+
+            {profileErrorMsg && (
+              <div
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: 8,
+                  background: "#fef2f2",
+                  color: "#b91c1c",
+                  border: "1px solid #fecaca",
+                  fontSize: 13,
+                  marginBottom: 14,
+                }}
+              >
+                {profileErrorMsg}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveProfile} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 4 }}>
+                  Họ và tên
+                </label>
+                <input
+                  type="text"
+                  value={profileFullName}
+                  onChange={(e) => setProfileFullName(e.target.value)}
+                  placeholder="Nhập họ và tên của bạn"
+                  className="ld-input w-full"
+                  required
+                />
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 4 }}>
+                  URL Ảnh đại diện (Avatar)
+                </label>
+                <input
+                  type="url"
+                  value={profileAvatarUrl}
+                  onChange={(e) => setProfileAvatarUrl(e.target.value)}
+                  placeholder="https://example.com/avatar.png"
+                  className="ld-input w-full"
+                />
+                <span style={{ fontSize: 11, color: "#94a3b8", marginTop: 2, display: "block" }}>
+                  Dán đường dẫn ảnh trực tiếp (PNG, JPG, WebP)
+                </span>
+              </div>
+
+              <div style={{ borderTop: "1px dashed #e2e8f0", paddingTop: 12, marginTop: 4 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", display: "block", marginBottom: 8 }}>
+                  Đổi mật khẩu (Bỏ trống nếu không muốn đổi)
+                </span>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#475569", marginBottom: 4 }}>
+                      Mật khẩu hiện tại
+                    </label>
+                    <input
+                      type="password"
+                      value={profileOldPassword}
+                      onChange={(e) => setProfileOldPassword(e.target.value)}
+                      placeholder="Nhập mật khẩu đang dùng"
+                      className="ld-input w-full"
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#475569", marginBottom: 4 }}>
+                      Mật khẩu mới (tối thiểu 6 ký tự)
+                    </label>
+                    <input
+                      type="password"
+                      value={profileNewPassword}
+                      onChange={(e) => setProfileNewPassword(e.target.value)}
+                      placeholder="Nhập mật khẩu mới"
+                      className="ld-input w-full"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowProfileModal(false)}
+                  className="ld-btn ld-btn-secondary"
+                  style={{ fontSize: 13, padding: "8px 16px" }}
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={updatingProfile}
+                  className="ld-btn ld-btn-primary"
+                  style={{ fontSize: 13, padding: "8px 18px", gap: 6 }}
+                >
+                  {updatingProfile ? (
+                    <>
+                      <RefreshCw size={14} className="animate-spin" />
+                      Đang lưu...
+                    </>
+                  ) : (
+                    <>
+                      <Check size={14} />
+                      Lưu thay đổi
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -42,23 +42,15 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   return config;
 });
 
-// ── Response interceptor: bắt 401 → xóa token + chuyển về trang đăng nhập ──
-let redirectingToLogin = false;
-
+// ── Response interceptor: bắt 401 → phát sự kiện "livingdocs:session_expired" để hiện modal gia hạn ──
 apiClient.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
     if (error.response?.status === 401 && typeof window !== "undefined") {
-      // Không xử lý nếu đang ở trang đăng nhập (để form báo "sai mật khẩu").
+      // Nếu đang ở trang đăng nhập, để yên cho form hiển thị lỗi tài khoản/mật khẩu
       if (window.location.pathname !== LOGIN_PATH) {
-        clearAuthStorage();
-
-        // Chống redirect lặp khi nhiều request đồng thời cùng trả 401.
-        if (!redirectingToLogin) {
-          redirectingToLogin = true;
-          const next = window.location.pathname + window.location.search;
-          window.location.assign(`${LOGIN_PATH}?next=${encodeURIComponent(next)}`);
-        }
+        // Bắn CustomEvent để AppShell hoặc UI hiển thị Modal hỏi gia hạn phiên
+        window.dispatchEvent(new CustomEvent("livingdocs:session_expired"));
       }
     }
 

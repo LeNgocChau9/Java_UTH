@@ -1,7 +1,11 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { AppShell } from "@/components/AppShell";
 import { useSession } from "@/hooks/useSession";
+import { documentService } from "@/services/documentService";
+import { repoService, RepoItem } from "@/services/repoService";
+import type { DocumentItem } from "@/types/document";
 import Link from "next/link";
 import {
   FileText,
@@ -11,102 +15,26 @@ import {
   GitPullRequest,
   Sparkles,
   TrendingUp,
-  TrendingDown,
+  RefreshCw,
+  FolderGit2,
 } from "lucide-react";
-
-// ─── Mock data ───────────────────────────────────────────
-const STATS = [
-  {
-    label: "Tổng tài liệu",
-    value: "148",
-    delta: "+12 tuần này",
-    trend: "up" as const,
-    icon: <FileText size={16} />,
-  },
-  {
-    label: "Chờ xem xét",
-    value: "23",
-    delta: "+5 hôm nay",
-    trend: "up" as const,
-    icon: <Clock size={16} />,
-  },
-  {
-    label: "Cảnh báo sai lệch",
-    value: "7",
-    delta: "-3 so với tuần trước",
-    trend: "down" as const,
-    icon: <AlertTriangle size={16} />,
-  },
-  {
-    label: "Đã phê duyệt",
-    value: "94",
-    delta: "+18 tháng này",
-    trend: "up" as const,
-    icon: <CheckCircle size={16} />,
-  },
-];
-
-const RECENT_ACTIVITY = [
-  {
-    id: 1,
-    type: "pr",
-    title: "PR #142 — Refactor AuthService",
-    desc: "AI phát hiện 3 tài liệu bị ảnh hưởng",
-    time: "2 phút trước",
-    status: "warning",
-    statusLabel: "Cần cập nhật",
-    repo: "livingdocs-backend",
-  },
-  {
-    id: 2,
-    type: "approved",
-    title: "API Gateway Documentation v2.1",
-    desc: "Manager Nguyễn Văn A đã phê duyệt",
-    time: "18 phút trước",
-    status: "success",
-    statusLabel: "Đã duyệt",
-    repo: "api-gateway",
-  },
-  {
-    id: 3,
-    type: "ai",
-    title: "AI sinh tài liệu mới — WebhookHandler",
-    desc: "Bản nháp đã sẵn sàng để Staff xem xét",
-    time: "1 giờ trước",
-    status: "info",
-    statusLabel: "Nháp",
-    repo: "livingdocs-backend",
-  },
-  {
-    id: 4,
-    type: "alert",
-    title: "Sai lệch: README.md / payment-service",
-    desc: "Code thay đổi nhưng tài liệu chưa cập nhật 14 ngày",
-    time: "3 giờ trước",
-    status: "danger",
-    statusLabel: "Quá hạn",
-    repo: "payment-service",
-  },
-  {
-    id: 5,
-    type: "approved",
-    title: "Module Docs — Notification Service",
-    desc: "Đã publish lên kho lưu trữ",
-    time: "Hôm qua",
-    status: "success",
-    statusLabel: "Đã publish",
-    repo: "notification-svc",
-  },
-];
 
 const QUICK_ACTIONS = [
   { label: "Yêu cầu sinh tài liệu", href: "/yeu-cau-sinh-tai-lieu", icon: <Sparkles size={14} />, roles: ["DEVELOPER"] },
   { label: "Xem hàng đợi xem xét", href: "/hang-doi-xem-xet", icon: <Clock size={14} />, roles: ["STAFF"] },
   { label: "Phê duyệt tài liệu", href: "/trung-tam-phe-duyet", icon: <CheckCircle size={14} />, roles: ["MANAGER"] },
-  { label: "Kéo PR mới nhất", href: "/canh-bao-sai-lech", icon: <GitPullRequest size={14} />, roles: ["DEVELOPER", "TECH_LEAD"] },
+  { label: "Kho lưu trữ GitHub", href: "/kho-luu-tru", icon: <FolderGit2 size={14} />, roles: ["DEVELOPER", "TECH_LEAD"] },
 ];
 
 // ─── Sub-components ────────────────────────────────────────
+
+interface StatCardProps {
+  label: string;
+  value: string;
+  delta: string;
+  trend: "up" | "down";
+  icon: React.ReactNode;
+}
 
 function StatCard({
   label,
@@ -114,7 +42,7 @@ function StatCard({
   delta,
   trend,
   icon,
-}: (typeof STATS)[0]) {
+}: StatCardProps) {
   return (
     <div className="ld-stat">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
@@ -123,71 +51,9 @@ function StatCard({
       </div>
       <p className="ld-stat-value">{value}</p>
       <p className={`ld-stat-delta ${trend}`} style={{ display: "flex", alignItems: "center", gap: 4, margin: "8px 0 0" }}>
-        {trend === "up" ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+        {trend === "up" ? <TrendingUp size={11} /> : <TrendingUp size={11} />}
         {delta}
       </p>
-    </div>
-  );
-}
-
-const STATUS_COLORS: Record<string, string> = {
-  warning: "#b45309",
-  success: "#059669",
-  info: "#047857",
-  danger: "#b91c1c",
-};
-
-const STATUS_BG: Record<string, string> = {
-  warning: "#fffbeb",
-  success: "#ecfdf5",
-  info: "#ecfdf5",
-  danger: "#fef2f2",
-};
-
-function ActivityRow({ item }: { item: (typeof RECENT_ACTIVITY)[0] }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "flex-start",
-        gap: 12,
-        padding: "10px 0",
-        borderBottom: "1px solid #e2e8f0",
-      }}
-    >
-      {/* Status dot */}
-      <div
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: "50%",
-          background: STATUS_COLORS[item.status],
-          marginTop: 6,
-          flexShrink: 0,
-        }}
-      />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-          <p style={{ fontSize: 13, fontWeight: 500, color: "#0f172a", margin: 0 }}>
-            {item.title}
-          </p>
-          <span
-            className="ld-badge"
-            style={{
-              background: STATUS_BG[item.status],
-              color: STATUS_COLORS[item.status],
-            }}
-          >
-            {item.statusLabel}
-          </span>
-        </div>
-        <p style={{ fontSize: 12, color: "#475569", margin: "2px 0 0" }}>
-          {item.desc}
-        </p>
-        <p style={{ fontSize: 11, color: "#64748b", margin: "2px 0 0" }}>
-          {item.repo} · {item.time}
-        </p>
-      </div>
     </div>
   );
 }
@@ -196,6 +62,70 @@ function ActivityRow({ item }: { item: (typeof RECENT_ACTIVITY)[0] }) {
 export default function DashboardPage() {
   const { ready, user, roles, signedIn } = useSession();
   const name = user?.fullName || user?.email?.split("@")[0] || "bạn";
+
+  const [docs, setDocs] = useState<DocumentItem[]>([]);
+  const [repos, setRepos] = useState<RepoItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        setLoading(true);
+        const [docList, repoList] = await Promise.all([
+          documentService.getDocuments().catch(() => [] as DocumentItem[]),
+          repoService.getRepositories().catch(() => [] as RepoItem[]),
+        ]);
+        setDocs(docList || []);
+        setRepos(repoList || []);
+      } catch (err) {
+        console.error("Lỗi khi tải dữ liệu dashboard:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
+
+  // Tính toán số liệu thống kê thực tế từ CSDL
+  const totalDocs = docs.length;
+  const underReviewDocs = docs.filter(
+    (d) => d.status === "UNDER_REVIEW_STAFF" || d.status === "UNDER_REVIEW_MANAGER"
+  ).length;
+  const approvedDocs = docs.filter(
+    (d) => d.status === "APPROVED" || d.status === "PUBLISHED"
+  ).length;
+  const draftDocs = docs.filter((d) => d.status === "DRAFT").length;
+
+  const realStats = [
+    {
+      label: "Tổng tài liệu",
+      value: String(totalDocs),
+      delta: `${docs.length} tài liệu trong CSDL`,
+      trend: "up" as const,
+      icon: <FileText size={16} />,
+    },
+    {
+      label: "Chờ xem xét",
+      value: String(underReviewDocs),
+      delta: underReviewDocs > 0 ? "Cần xử lý" : "Hàng đợi trống",
+      trend: "up" as const,
+      icon: <Clock size={16} />,
+    },
+    {
+      label: "Bản nháp (Draft)",
+      value: String(draftDocs),
+      delta: `${draftDocs} bản nháp`,
+      trend: "up" as const,
+      icon: <Sparkles size={16} />,
+    },
+    {
+      label: "Đã phê duyệt",
+      value: String(approvedDocs),
+      delta: `${approvedDocs} đã duyệt/publish`,
+      trend: "up" as const,
+      icon: <CheckCircle size={16} />,
+    },
+  ];
 
   const visibleActions = QUICK_ACTIONS.filter((a) =>
     a.roles.some((r) => roles.includes(r as never))
@@ -226,7 +156,7 @@ export default function DashboardPage() {
           marginBottom: 24,
         }}
       >
-        {STATS.map((s) => (
+        {realStats.map((s) => (
           <StatCard key={s.label} {...s} />
         ))}
       </div>
@@ -253,14 +183,51 @@ export default function DashboardPage() {
             }}
           >
             <p style={{ fontSize: 13, fontWeight: 600, color: "#0f172a", margin: 0 }}>
-              Hoạt động gần đây
+              Hoạt động tài liệu gần đây
             </p>
-            <span className="ld-badge ld-badge-blue">{RECENT_ACTIVITY.length} sự kiện</span>
+            <span className="ld-badge ld-badge-blue">{docs.length} tài liệu</span>
           </div>
-          <div style={{ padding: "4px 16px 4px" }}>
-            {RECENT_ACTIVITY.map((item) => (
-              <ActivityRow key={item.id} item={item} />
-            ))}
+          <div style={{ padding: "8px 16px" }}>
+            {docs.length === 0 ? (
+              <div style={{ padding: "32px 0", textAlign: "center", color: "#64748b" }}>
+                <FileText size={32} style={{ margin: "0 auto 8px", opacity: 0.3 }} />
+                <p style={{ fontSize: 13, margin: 0 }}>Chưa có tài liệu nào trong cơ sở dữ liệu.</p>
+                <p style={{ fontSize: 12, color: "#94a3b8", margin: "4px 0 0" }}>
+                  Hãy vào mục <strong>&quot;Yêu cầu sinh tài liệu&quot;</strong> để tạo tài liệu đầu tiên!
+                </p>
+              </div>
+            ) : (
+              docs.slice(0, 5).map((doc) => (
+                <div
+                  key={doc.docId}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "10px 0",
+                    borderBottom: "1px solid #f1f5f9",
+                  }}
+                >
+                  <div>
+                    <p style={{ fontSize: 13, fontWeight: 600, color: "#0f172a", margin: 0 }}>
+                      {doc.title}
+                    </p>
+                    <p style={{ fontSize: 11, color: "#64748b", margin: "2px 0 0" }}>
+                      Repo ID: {doc.repoId} · Phiên bản v{doc.currentVersion}
+                    </p>
+                  </div>
+                  <span
+                    className="ld-badge"
+                    style={{
+                      background: doc.status === "APPROVED" || doc.status === "PUBLISHED" ? "#ecfdf5" : "#fffbeb",
+                      color: doc.status === "APPROVED" || doc.status === "PUBLISHED" ? "#047857" : "#b45309",
+                    }}
+                  >
+                    {doc.status}
+                  </span>
+                </div>
+              ))
+            )}
           </div>
         </div>
 

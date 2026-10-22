@@ -35,6 +35,7 @@ public class AuthController {
     private final AuthServicePort authServicePort;
     private final GitHubOAuthClient gitHubOAuthClient;
     private final GitHubOAuthProperties gitHubOAuthProperties;
+    private final com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository gitHubConnectionRepository;
 
     @PostMapping("/auth/register")
     @Operation(summary = "Đăng ký tài khoản mới", description = "Tạo tài khoản mới với email và mật khẩu, kiểm tra trùng lặp email và cấp JWT token")
@@ -50,6 +51,13 @@ public class AuthController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/auth/refresh")
+    @Operation(summary = "Gia hạn phiên đăng nhập", description = "Làm mới và cấp JWT Access Token mới khi phiên gần hết hạn hoặc cần kéo dài")
+    public ResponseEntity<AuthResponse> refresh(@RequestHeader(value = "Authorization", required = false) String authHeader) {
+        AuthResponse response = authServicePort.refreshToken(authHeader);
+        return ResponseEntity.ok(response);
+    }
+
     @GetMapping("/me")
     @SecurityRequirement(name = "BearerAuth")
     @Operation(summary = "Lấy thông tin tài khoản hiện tại", description = "Xác thực Bearer token từ Authorization header và trả về thông tin cá nhân")
@@ -59,6 +67,19 @@ public class AuthController {
         }
         UserProfileResponse profile = authServicePort.getCurrentUserProfile(principal.getName());
         return ResponseEntity.ok(profile);
+    }
+
+    @PutMapping("/me")
+    @SecurityRequirement(name = "BearerAuth")
+    @Operation(summary = "Cập nhật thông tin cá nhân", description = "Cho phép người dùng tự đổi tên, đổi avatar và đổi mật khẩu tài khoản của chính mình")
+    public ResponseEntity<UserProfileResponse> updateProfile(
+            @Valid @RequestBody com.example.livingdocs_backend.application.dto.UpdateProfileRequest request,
+            Principal principal) {
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        UserProfileResponse updated = authServicePort.updateProfile(principal.getName(), request);
+        return ResponseEntity.ok(updated);
     }
 
     // ═══ Đăng nhập bằng GitHub OAuth2 (Authorization Code Flow) ═══
@@ -113,6 +134,27 @@ public class AuthController {
             GitHubProfileRequest profile = new GitHubProfileRequest(
                     identity.id(), identity.login(), identity.name(), identity.email(), identity.avatarUrl());
             AuthResponse auth = authServicePort.loginWithGithub(profile);
+
+            // Tự động lưu/cập nhật bảng github_connections cho user này
+            try {
+                Long userId = auth.getUser().getUserId();
+                Long workspaceId = 1L; // Workspace mặc định
+                com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity conn =
+                        gitHubConnectionRepository.findByWorkspaceIdAndUserId(workspaceId, userId)
+                                .orElse(com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity.builder()
+                                        .workspaceId(workspaceId)
+                                        .userId(userId)
+                                        .build());
+
+                conn.setGithubUserId(identity.id());
+                conn.setGithubUsername(identity.login());
+                conn.setAccessTokenEncrypted(identity.accessToken() != null ? identity.accessToken() : "placeholder");
+                conn.setStatus("CONNECTED");
+                conn.setUpdatedAt(java.time.Instant.now());
+                gitHubConnectionRepository.save(conn);
+            } catch (Exception connEx) {
+                // Không để lỗi connection chặn đăng nhập
+            }
 
             String target = sanitizeRedirect(redirectTarget);
             String callbackUrl = gitHubOAuthProperties.getFrontendCallbackUrl()

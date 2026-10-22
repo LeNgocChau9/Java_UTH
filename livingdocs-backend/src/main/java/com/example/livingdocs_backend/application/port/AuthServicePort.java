@@ -10,5 +10,7 @@ public interface AuthServicePort {
     AuthResponse register(RegisterRequest request);
     AuthResponse login(LoginRequest request);
     AuthResponse loginWithGithub(GitHubProfileRequest request);
+    AuthResponse refreshToken(String token);
     UserProfileResponse getCurrentUserProfile(String email);
+    UserProfileResponse updateProfile(String email, com.example.livingdocs_backend.application.dto.UpdateProfileRequest request);
 }

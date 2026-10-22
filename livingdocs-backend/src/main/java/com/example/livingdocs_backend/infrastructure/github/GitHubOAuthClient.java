@@ -53,7 +53,7 @@ public class GitHubOAuthClient {
         String accessToken = exchangeCodeForAccessToken(code);
         GitHubUser user = fetchUser(accessToken);
         String email = resolveEmail(user, accessToken);
-        return new GitHubIdentity(user.id(), user.login(), user.name(), email, user.avatarUrl());
+        return new GitHubIdentity(user.id(), user.login(), user.name(), email, user.avatarUrl(), accessToken);
     }
 
     private String exchangeCodeForAccessToken(String code) {
@@ -133,7 +133,7 @@ public class GitHubOAuthClient {
     }
 
     /** Danh tính người dùng GitHub đã được chuẩn hóa (dùng ở tầng application). */
-    public record GitHubIdentity(Long id, String login, String name, String email, String avatarUrl) {}
+    public record GitHubIdentity(Long id, String login, String name, String email, String avatarUrl, String accessToken) {}
 
     public record GitHubUser(
             Long id,
