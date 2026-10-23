@@ -5,6 +5,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
@@ -15,6 +16,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.util.Collections;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
@@ -27,21 +29,27 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     FilterChain filterChain) throws ServletException, IOException {
         String token = resolveToken(request);
 
-        if (StringUtils.hasText(token) && tokenProvider.validateToken(token)) {
-            try {
-                String email = tokenProvider.getEmailFromToken(token);
-                Long userId = tokenProvider.getUserIdFromToken(token);
-                java.util.List<String> roles = tokenProvider.getRolesFromToken(token);
+        if (StringUtils.hasText(token)) {
+            boolean isValid = tokenProvider.validateToken(token);
+            if (isValid) {
+                try {
+                    String email = tokenProvider.getEmailFromToken(token);
+                    Long userId = tokenProvider.getUserIdFromToken(token);
+                    java.util.List<String> roles = tokenProvider.getRolesFromToken(token);
 
-                UserPrincipal userPrincipal = new UserPrincipal(userId, email, roles);
+                    UserPrincipal userPrincipal = new UserPrincipal(userId, email, roles);
 
-                UsernamePasswordAuthenticationToken authentication =
-                        new UsernamePasswordAuthenticationToken(userPrincipal, null, userPrincipal.getAuthorities());
-                authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                    UsernamePasswordAuthenticationToken authentication =
+                            new UsernamePasswordAuthenticationToken(userPrincipal, null, userPrincipal.getAuthorities());
+                    authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
 
-                SecurityContextHolder.getContext().setAuthentication(authentication);
-            } catch (Exception ignored) {
-                SecurityContextHolder.clearContext();
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
+                } catch (Exception ex) {
+                    log.warn("Lỗi khi giải mã UserPrincipal từ token: {}", ex.getMessage());
+                    SecurityContextHolder.clearContext();
+                }
+            } else {
+                log.warn("Token không hợp lệ hoặc đã hết hạn cho request: {} {}", request.getMethod(), request.getRequestURI());
             }
         }
 
