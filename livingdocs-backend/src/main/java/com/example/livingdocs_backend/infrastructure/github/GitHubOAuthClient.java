@@ -35,13 +35,14 @@ public class GitHubOAuthClient {
         return config.isConfigured();
     }
 
-    /** Sinh URL chuyển hướng trình duyệt sang trang cho phép của GitHub. */
+    /** Sinh URL chuyển hướng trình duyệt sang trang cho phép của GitHub (luôn yêu cầu đăng nhập và cấp quyền mới). */
     public String buildAuthorizeUrl(String state) {
         return UriComponentsBuilder.fromHttpUrl(AUTHORIZE_URL)
                 .queryParam("client_id", config.getClientId())
                 .queryParam("redirect_uri", config.getRedirectUri())
                 .queryParam("scope", config.getScope())
                 .queryParam("state", state)
+                .queryParam("prompt", "login")
                 .queryParam("allow_signup", "true")
                 .build()
                 .encode()

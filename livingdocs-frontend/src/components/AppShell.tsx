@@ -254,10 +254,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       setExtendError(null);
       await refreshSession();
       setShowSessionModal(false);
-      // Reload nhẹ dữ liệu hoặc trang để tiếp tục làm việc với token mới
       window.location.reload();
     } catch {
-      setExtendError("Không thể gia hạn tự động. Vui lòng đăng nhập lại.");
+      // Nếu không gia hạn được ngầm (ví dụ token cũ/GitHub OAuth cần cấp lại), chuyển hướng đăng nhập lại GitHub để lấy token tươi mới
+      const currentPath = typeof window !== "undefined" ? window.location.pathname + window.location.search : "/dashboard";
+      window.location.assign(`/api/auth/github?redirect=${encodeURIComponent(currentPath)}`);
     } finally {
       setExtendingSession(false);
     }

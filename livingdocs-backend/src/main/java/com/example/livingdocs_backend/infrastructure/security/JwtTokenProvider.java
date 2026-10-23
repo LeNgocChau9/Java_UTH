@@ -70,11 +70,16 @@ public class JwtTokenProvider {
         try {
             Claims claims = Jwts.parser()
                     .verifyWith(secretKey)
+                    .clockSkewSeconds(300)
                     .build()
                     .parseSignedClaims(token)
                     .getPayload();
-            return !claims.getExpiration().before(new Date());
+            return claims.getExpiration() == null || !claims.getExpiration().before(new Date(System.currentTimeMillis() - 300_000));
+        } catch (io.jsonwebtoken.ExpiredJwtException e) {
+            org.slf4j.LoggerFactory.getLogger(JwtTokenProvider.class).warn("[validateToken] Token đã hết hạn: {}", e.getMessage());
+            return false;
         } catch (JwtException | IllegalArgumentException e) {
+            org.slf4j.LoggerFactory.getLogger(JwtTokenProvider.class).warn("[validateToken] Token không hợp lệ: {}", e.getMessage());
             return false;
         }
     }
@@ -87,6 +92,7 @@ public class JwtTokenProvider {
         try {
             return Jwts.parser()
                     .verifyWith(secretKey)
+                    .clockSkewSeconds(300)
                     .build()
                     .parseSignedClaims(token)
                     .getPayload();

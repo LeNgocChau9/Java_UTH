@@ -47,8 +47,17 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
     if (error.response?.status === 401 && typeof window !== "undefined") {
-      // Nếu đang ở trang đăng nhập, để yên cho form hiển thị lỗi tài khoản/mật khẩu
-      if (window.location.pathname !== LOGIN_PATH) {
+      const requestUrl = error.config?.url || "";
+      // Không bắn modal hết phiên nếu:
+      // 1. Đang ở trang đăng nhập
+      // 2. Hoặc request gọi endpoint preview template (vì có fallback tự sinh markdown trực tiếp)
+      // 3. Hoặc request chính là refresh token
+      if (
+        window.location.pathname !== LOGIN_PATH &&
+        !requestUrl.includes("/preview") &&
+        !requestUrl.includes("/auth/refresh") &&
+        !requestUrl.includes("/auth/login")
+      ) {
         // Bắn CustomEvent để AppShell hoặc UI hiển thị Modal hỏi gia hạn phiên
         window.dispatchEvent(new CustomEvent("livingdocs:session_expired"));
       }
