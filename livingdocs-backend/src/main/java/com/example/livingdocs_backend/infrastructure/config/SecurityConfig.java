@@ -74,6 +74,8 @@ public class SecurityConfig {
                     "/api/repositories/**",
                     "/api/v1/code-entities",
                     "/api/v1/code-entities/**",
+                    "/api/code-diff",
+                    "/api/code-diff/**",
                     "/api/webhooks",
                     "/api/webhooks/**"
                 ).permitAll()
