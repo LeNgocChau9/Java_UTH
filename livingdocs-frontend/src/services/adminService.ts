@@ -26,3 +26,18 @@ export async function changeStatus(userId: number, active: boolean): Promise<Adm
   );
   return data;
 }
+
+export interface AdminCreateUserInput {
+  email: string;
+  password: string;
+  fullName: string;
+  role?: string;
+  avatarUrl?: string;
+}
+
+/** Tạo tài khoản người dùng mới (chỉ ADMIN). */
+export async function createUser(input: AdminCreateUserInput): Promise<AdminUser> {
+  const { data } = await apiClient.post<AdminUser>("/api/admin/users", input);
+  return data;
+}
+

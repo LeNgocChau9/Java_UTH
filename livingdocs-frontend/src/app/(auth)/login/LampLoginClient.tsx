@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import axios from "axios";
 import { gsap } from "gsap";
 import { ArrowLeft } from "lucide-react";
-import { login } from "@/services/authService";
+import { login, register } from "@/services/authService";
 import "./lamp-login.css";
 
 type ColorTheme = "amber" | "cyan" | "rose" | "mint" | "moonlight";
@@ -25,6 +25,7 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
   const [rememberMe, setRememberMe] = useState(true);
 
   // Form fields
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
@@ -280,6 +281,12 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
     }
 
     setFormError(null);
+
+    if (activeTab === "register" && !fullName.trim()) {
+      setFormError("Vui lòng nhập họ và tên.");
+      return;
+    }
+
     if (!email.trim()) {
       setFormError("Vui lòng nhập email hoặc tài khoản.");
       return;
@@ -288,10 +295,22 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
       setFormError("Vui lòng nhập mật khẩu.");
       return;
     }
+    if (activeTab === "register" && password.length < 6) {
+      setFormError("Mật khẩu phải có ít nhất 6 ký tự.");
+      return;
+    }
 
     setPending(true);
     try {
-      await login({ email: email.trim(), password });
+      if (activeTab === "register") {
+        await register({
+          email: email.trim(),
+          password,
+          fullName: fullName.trim(),
+        });
+      } else {
+        await login({ email: email.trim(), password });
+      }
       router.push("/dashboard");
       router.refresh();
     } catch (caught) {
@@ -301,11 +320,13 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
           setFormError(msg);
         } else if (caught.response?.status === 401) {
           setFormError("Email hoặc mật khẩu không chính xác.");
+        } else if (caught.response?.status === 409) {
+          setFormError("Email này đã được sử dụng. Vui lòng đăng nhập hoặc dùng email khác.");
         } else {
-          setFormError("Đăng nhập thất bại. Vui lòng thử lại.");
+          setFormError(activeTab === "register" ? "Đăng ký thất bại. Vui lòng thử lại." : "Đăng nhập thất bại. Vui lòng thử lại.");
         }
       } else {
-        setFormError("Đăng nhập chưa hoàn tất. Vui lòng thử lại.");
+        setFormError("Yêu cầu chưa hoàn tất. Vui lòng thử lại.");
       }
     } finally {
       setPending(false);
@@ -592,19 +613,39 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
 
             {/* Auth Form */}
             <form onSubmit={handleSubmit} autoComplete="off">
+              {activeTab === "register" && (
+                <div className="form-group">
+                  <label htmlFor="nameField">Họ và tên</label>
+                  <div className="input-wrapper">
+                    <svg className="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                      <circle cx="12" cy="7" r="4" />
+                    </svg>
+                    <input
+                      type="text"
+                      id="nameField"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      placeholder="Ví dụ: Nguyễn Văn Admin"
+                      required
+                    />
+                  </div>
+                </div>
+              )}
+
               <div className="form-group">
-                <label htmlFor="userField">Email doanh nghiệp</label>
+                <label htmlFor="userField">Email {activeTab === "register" ? "quản trị viên (Admin)" : "doanh nghiệp"}</label>
                 <div className="input-wrapper">
                   <svg className="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                    <circle cx="12" cy="7" r="4" />
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                    <polyline points="22,6 12,13 2,6" />
                   </svg>
                   <input
                     type="email"
                     id="userField"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    
+                    placeholder="admin@example.com"
                     required
                   />
                 </div>
@@ -674,7 +715,7 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
                     <div className="btn-spinner" />
                   ) : (
                     <>
-                      <span>{activeTab === "signin" ? "Đăng nhập" : "Đăng ký tài khoản"}</span>
+                      <span>{activeTab === "signin" ? "Đăng nhập" : "Đăng ký tài khoản Admin"}</span>
                       <svg className="btn-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                         <line x1="5" y1="12" x2="19" y2="12" />
                         <polyline points="12 5 19 12 12 19" />
