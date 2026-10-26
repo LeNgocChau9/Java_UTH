@@ -36,18 +36,24 @@ public class AuthServiceImpl implements AuthServicePort {
                 .email(request.getEmail().toLowerCase().trim())
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                 .fullName(request.getFullName().trim())
-                .avatarUrl(request.getAvatarUrl())
+                .avatarUrl(request.getAvatarUrl() != null && !request.getAvatarUrl().isBlank()
+                        ? request.getAvatarUrl().trim()
+                        : "https://api.dicebear.com/7.x/avataaars/svg?seed=" + request.getEmail().trim())
                 .status("ACTIVE")
                 .build();
 
         User savedUser = userRepositoryPort.save(newUser);
-        String token = jwtTokenProvider.generateToken(savedUser.getUserId(), savedUser.getEmail());
+        // Đăng ký tài khoản mặc định vai trò ADMIN
+        userRepositoryPort.changeRole(savedUser.getUserId(), "ADMIN");
+
+        User freshUser = userRepositoryPort.findById(savedUser.getUserId()).orElse(savedUser);
+        String token = jwtTokenProvider.generateToken(freshUser.getUserId(), freshUser.getEmail());
 
         return AuthResponse.builder()
                 .token(token)
                 .tokenType("Bearer")
                 .expiresIn(jwtTokenProvider.getExpirationSeconds())
-                .user(toProfileResponse(savedUser))
+                .user(toProfileResponse(freshUser))
                 .build();
     }
 
