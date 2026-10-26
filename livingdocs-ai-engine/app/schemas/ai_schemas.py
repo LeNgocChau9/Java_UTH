@@ -52,3 +52,59 @@ class DocGenerateResponse(BaseModel):
     generated_content: str = Field(..., description="Nội dung Markdown tài liệu được sinh")
     confidence_score: float = Field(..., description="Điểm tin cậy của tài liệu sinh bởi AI (0.0 đến 1.0)")
     grounding_evidence: List[GroundingEvidence] = Field(default=[], description="Bằng chứng xác thực liên kết mã nguồn")
+
+
+# --- Schemas cho Pipeline đối chiếu Code phát hiện hàm thay đổi từ PR (Thành viên 2) ---
+
+class FileDiffItem(BaseModel):
+    file_path: str = Field(..., description="Đường dẫn tương đối của file Java (vd: src/main/java/.../UserService.java)")
+    base_code: Optional[str] = Field(default="", description="Nội dung mã nguồn ở commit cũ (base)")
+    head_code: Optional[str] = Field(default="", description="Nội dung mã nguồn ở commit mới (head)")
+
+class AstDiffRequest(BaseModel):
+    repository_id: Optional[int] = Field(default=1, description="ID kho lưu trữ trong hệ thống")
+    pr_number: Optional[int] = Field(default=None, description="Số hiệu Pull Request nếu có")
+    base_commit_hash: Optional[str] = Field(default="base-hash", description="Mã băm commit base")
+    head_commit_hash: Optional[str] = Field(default="head-hash", description="Mã băm commit head")
+    files: List[FileDiffItem] = Field(..., description="Danh sách các file cần đối chiếu AST")
+
+class AffectedEntityItem(BaseModel):
+    entity_type: str = Field(..., description="METHOD hoặc CONSTRUCTOR")
+    class_name: Optional[str] = Field(None, description="Tên class chứa hàm")
+    method_name: str = Field(..., description="Tên hàm")
+    change_type: str = Field(..., description="DELETED, ADDED, RENAMED, PARAM_CHANGED, RETURN_TYPE_CHANGED, SIGNATURE_CHANGED, BODY_CHANGED")
+    impact_level: str = Field(default="MEDIUM", description="Mức độ nghiêm trọng: LOW, MEDIUM, HIGH, CRITICAL")
+    old_signature: Optional[str] = None
+    new_signature: Optional[str] = None
+    old_parameters: Optional[str] = None
+    new_parameters: Optional[str] = None
+    old_return_type: Optional[str] = None
+    new_return_type: Optional[str] = None
+    start_line: Optional[int] = None
+    end_line: Optional[int] = None
+    details: Optional[str] = None
+
+class DiffSummary(BaseModel):
+    added: int = 0
+    deleted: int = 0
+    renamed: int = 0
+    modified: int = 0
+
+class FileDiffResult(BaseModel):
+    file_path: str
+    file_status: str = Field(..., description="MODIFIED, ADDED, DELETED, UNCHANGED")
+    class_name: Optional[str] = None
+    total_affected: int = 0
+    summary: DiffSummary
+    affected_entities: List[AffectedEntityItem] = []
+
+class AstDiffResponse(BaseModel):
+    status: str = Field(default="success")
+    repository_id: Optional[int] = None
+    pr_number: Optional[int] = None
+    base_commit_hash: str
+    head_commit_hash: str
+    total_files_analyzed: int
+    total_affected_entities: int
+    files: List[FileDiffResult]
+

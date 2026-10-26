@@ -5,11 +5,17 @@ from app.schemas.ai_schemas import (
     AstExtractResponse,
     CodeEntityItem,
     DocGenerateRequest,
-    DocGenerateResponse
+    DocGenerateResponse,
+    AstDiffRequest,
+    AstDiffResponse,
+    FileDiffResult,
+    DiffSummary,
+    AffectedEntityItem
 )
 from app.services.mock_ai_service import MockAIService
 from app.services.tree_sitter_ast_parser import parse_java_with_treesitter
 from app.services.gemini_doc_service import GeminiDocService
+from app.services.diff_ast_service import DiffAstService
 
 router = APIRouter(prefix="/v1", tags=["AI Engine Endpoints"])
 
@@ -108,3 +114,74 @@ async def generate_doc(request: DocGenerateRequest):
 
     # MODE=real (Task #81): Gọi Google Gemini API thật
     return GeminiDocService.generate_documentation(request)
+
+
+@router.post(
+    "/ast/diff",
+    response_model=AstDiffResponse,
+    summary="Đối chiếu AST Java giữa Base và Head commit của Pull Request",
+    description="Phát hiện chính xác các phương thức Java bị xóa, thêm mới, đổi tên hoặc thay đổi chữ ký/tham số/thân hàm."
+)
+async def diff_ast(request: AstDiffRequest):
+    file_results: list[FileDiffResult] = []
+    total_affected = 0
+
+    for f in request.files:
+        diff_res = DiffAstService.compare_java_files(
+            file_path=f.file_path,
+            base_code=f.base_code,
+            head_code=f.head_code,
+            base_commit_hash=request.base_commit_hash,
+            head_commit_hash=request.head_commit_hash
+        )
+
+        affected_items = [
+            AffectedEntityItem(
+                entity_type=e["entity_type"],
+                class_name=e.get("class_name"),
+                method_name=e["method_name"],
+                change_type=e["change_type"],
+                impact_level=e.get("impact_level", "MEDIUM"),
+                old_signature=e.get("old_signature"),
+                new_signature=e.get("new_signature"),
+                old_parameters=e.get("old_parameters"),
+                new_parameters=e.get("new_parameters"),
+                old_return_type=e.get("old_return_type"),
+                new_return_type=e.get("new_return_type"),
+                start_line=e.get("start_line"),
+                end_line=e.get("end_line"),
+                details=e.get("details")
+            )
+            for e in diff_res.get("affected_entities", [])
+        ]
+
+        summary_dict = diff_res.get("summary", {})
+        summary_obj = DiffSummary(
+            added=summary_dict.get("added", 0),
+            deleted=summary_dict.get("deleted", 0),
+            renamed=summary_dict.get("renamed", 0),
+            modified=summary_dict.get("modified", 0)
+        )
+
+        file_results.append(FileDiffResult(
+            file_path=f.file_path,
+            file_status=diff_res["file_status"],
+            class_name=diff_res.get("class_name"),
+            total_affected=diff_res["total_affected"],
+            summary=summary_obj,
+            affected_entities=affected_items
+        ))
+
+        total_affected += diff_res["total_affected"]
+
+    return AstDiffResponse(
+        status="success",
+        repository_id=request.repository_id,
+        pr_number=request.pr_number,
+        base_commit_hash=request.base_commit_hash or "base-hash",
+        head_commit_hash=request.head_commit_hash or "head-hash",
+        total_files_analyzed=len(file_results),
+        total_affected_entities=total_affected,
+        files=file_results
+    )
+
