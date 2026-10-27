@@ -108,3 +108,95 @@ class AstDiffResponse(BaseModel):
     total_affected_entities: int
     files: List[FileDiffResult]
 
+
+# ---------------------------------------------------------------------------
+# Schemas cho Endpoint /v1/drift/analyze — Phân tích sai lệch ngữ nghĩa (S4-09)
+# ---------------------------------------------------------------------------
+
+class DriftAnalyzeRequest(BaseModel):
+    """Dữ liệu đầu vào gửi Gemini phân tích sai lệch tài liệu."""
+    code_diff: str = Field(
+        ...,
+        description="Code diff (unified diff format) thể hiện thay đổi mã nguồn từ Pull Request/Commit."
+    )
+    current_doc: str = Field(
+        ...,
+        description="Nội dung tài liệu hiện tại (Markdown hoặc plain text) đang được lưu trong hệ thống."
+    )
+    entity_name: Optional[str] = Field(
+        default=None,
+        description="Tên thực thể mã đang được tài liệu hóa (vd: OrderService, processPayment)."
+    )
+    entity_type: Optional[str] = Field(
+        default=None,
+        description="Loại thực thể: CLASS, METHOD, CONSTRUCTOR, ENDPOINT, MODULE."
+    )
+    file_path: Optional[str] = Field(
+        default=None,
+        description="Đường dẫn file nguồn Java/Python tương ứng."
+    )
+    document_id: Optional[int] = Field(
+        default=None,
+        description="ID tài liệu trong hệ thống LivingDocs."
+    )
+    repository_id: Optional[int] = Field(
+        default=None,
+        description="ID kho lưu trữ trong hệ thống."
+    )
+    pr_number: Optional[int] = Field(
+        default=None,
+        description="Số Pull Request kích hoạt phân tích."
+    )
+    commit_hash: Optional[str] = Field(
+        default=None,
+        description="Mã băm commit head của Pull Request."
+    )
+
+
+class DriftSuggestion(BaseModel):
+    """Một đề xuất sửa đổi cụ thể cho một phần của tài liệu."""
+    section: str = Field(..., description="Tên mục hoặc heading trong tài liệu cần cập nhật.")
+    old_text: str = Field(..., description="Đoạn văn bản cũ cần thay thế.")
+    suggested_text: str = Field(..., description="Đoạn văn bản mới AI đề xuất thay thế.")
+    reason: str = Field(..., description="Lý do kỹ thuật cần cập nhật đoạn này.")
+
+
+class DriftAnalyzeResponse(BaseModel):
+    """Kết quả phân tích sai lệch tài liệu ngữ nghĩa từ Gemini."""
+    status: str = Field(default="success")
+    mode: str = Field(default="real", description="Chế độ: real (Gemini API) hoặc mock.")
+    entity_name: Optional[str] = Field(None, description="Tên thực thể được phân tích.")
+    entity_type: Optional[str] = Field(None, description="Loại thực thể được phân tích.")
+    drift_score: float = Field(
+        ...,
+        ge=0.0, le=1.0,
+        description="Điểm sai lệch ngữ nghĩa từ 0.0 (nhất quán) đến 1.0 (hoàn toàn lỗi thời)."
+    )
+    severity: str = Field(
+        ...,
+        description="Mức độ: LOW (<0.25), MEDIUM (0.25-0.55), HIGH (0.55-0.80), CRITICAL (>0.80)."
+    )
+    classification: str = Field(
+        ...,
+        description="Phân loại: REFERENCE, SIGNATURE hoặc SEMANTIC."
+    )
+    is_drifted: bool = Field(
+        ...,
+        description="True nếu tài liệu bị coi là lỗi thời (drift_score >= 0.25)."
+    )
+    explanation: str = Field(
+        ...,
+        description="Giải thích từ AI về nguyên nhân sai lệch."
+    )
+    affected_sections: List[str] = Field(
+        default=[],
+        description="Danh sách các mục trong tài liệu bị ảnh hưởng."
+    )
+    suggestions: List[DriftSuggestion] = Field(
+        default=[],
+        description="Danh sách đề xuất sửa đổi cụ thể cho từng phần tài liệu bị ảnh hưởng."
+    )
+    model_used: str = Field(
+        default="gemini-3.8-flash",
+        description="Tên model Gemini đã sử dụng."
+    )
