@@ -1,3 +1,4 @@
+
 from fastapi import APIRouter, HTTPException
 from app.core.config import get_settings
 from app.schemas.ai_schemas import (
@@ -10,11 +11,14 @@ from app.schemas.ai_schemas import (
     AstDiffResponse,
     FileDiffResult,
     DiffSummary,
-    AffectedEntityItem
+    AffectedEntityItem,
+    DriftAnalyzeRequest,
+    DriftAnalyzeResponse,
 )
 from app.services.mock_ai_service import MockAIService
 from app.services.tree_sitter_ast_parser import parse_java_with_treesitter
 from app.services.gemini_doc_service import GeminiDocService
+from app.services.gemini_drift_service import GeminiDriftService
 from app.services.diff_ast_service import DiffAstService
 
 router = APIRouter(prefix="/v1", tags=["AI Engine Endpoints"])
@@ -185,3 +189,71 @@ async def diff_ast(request: AstDiffRequest):
         files=file_results
     )
 
+
+@router.post(
+    "/drift/analyze",
+    response_model=DriftAnalyzeResponse,
+    summary="[S4-09] Phân tích sai lệch ngữ nghĩa tài liệu so với code diff",
+    description=(
+        "Nhận vào code diff (unified diff format) và đoạn tài liệu hiện tại. "
+        "Gửi prompt phân tích ngữ nghĩa sang Google Gemini API. "
+        "Trả về drift_score (0.0→1.0), phân loại sai lệch (REFERENCE/SIGNATURE/SEMANTIC), "
+        "mức độ nghiêm trọng (LOW/MEDIUM/HIGH/CRITICAL) và danh sách đề xuất sửa đổi cụ thể."
+    )
+)
+async def analyze_drift(request: DriftAnalyzeRequest):
+    """
+    Endpoint phân tích sai lệch ngữ nghĩa tài liệu — Task S4-09.
+
+    Luồng xử lý:
+    1. Nhận DriftAnalyzeRequest (code_diff + current_doc + metadata).
+    2. Gọi GeminiDriftService.analyze() với google-genai SDK mới.
+    3. Gemini phân tích 4 chiều: Reference / Signature / Semantic / Completeness.
+    4. Trả về DriftAnalyzeResponse với drift_score, severity, classification, suggestions.
+    """
+    settings = get_settings()
+
+    # Chế độ mock: trả về dữ liệu giả lập để test frontend không cần Gemini
+    if settings.mode.lower() == "mock":
+        return DriftAnalyzeResponse(
+            status="success",
+            mode="mock",
+            entity_name=request.entity_name,
+            entity_type=request.entity_type,
+            drift_score=0.72,
+            severity="HIGH",
+            classification="SIGNATURE",
+            is_drifted=True,
+            explanation=(
+                "[MOCK] Phương thức 'processPayment' đã thay đổi tham số từ (Long orderId, Double amount) "
+                "sang (Long orderId, Double amount, String currency). Tài liệu hiện tại chưa đề cập "
+                "tham số 'currency' mới và cũng chưa mô tả hành vi xử lý đa tiền tệ."
+            ),
+            affected_sections=["2. Chi tiết Phương thức", "2.1. processPayment"],
+            suggestions=[
+                {
+                    "section": "2.1. processPayment",
+                    "old_text": "- **Tham số:** `Long orderId`, `Double amount`",
+                    "suggested_text": (
+                        "- **Tham số:** `Long orderId`, `Double amount`, `String currency`\n"
+                        "  - `currency`: Mã tiền tệ theo chuẩn ISO 4217 (vd: VND, USD, EUR)"
+                    ),
+                    "reason": "Tham số 'currency' đã được thêm vào signature của phương thức processPayment."
+                }
+            ],
+            model_used="mock"
+        )
+
+    # Chế độ real: Gọi Gemini API thật
+    try:
+        return GeminiDriftService.analyze(request)
+    except RuntimeError as ex:
+        raise HTTPException(
+            status_code=503,
+            detail=str(ex)
+        )
+    except Exception as ex:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Lỗi nội bộ khi phân tích drift: {str(ex)}"
+        )
