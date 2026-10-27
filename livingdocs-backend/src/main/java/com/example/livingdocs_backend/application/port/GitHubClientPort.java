@@ -103,13 +103,19 @@ public interface GitHubClientPort {
     String getCurrentFileSha(String token, String owner, String repo, String filePath);
 
     /**
-     * Kiểm tra tính hợp lệ của GitHub token kết nối (gọi GET /user).
+     * Đăng bình luận (Comment) lên Pull Request qua GitHub REST API.
+     * Tương ứng endpoint: POST /repos/{owner}/{repo}/issues/{issue_number}/comments
      *
-     * @param token GitHub Personal Access Token hoặc OAuth Access Token
-     * @return Kết quả kiểm tra (hợp lệ hay bị revoked/expired kèm thông báo)
+     * @param token    Access token GitHub
+     * @param owner    Chủ sở hữu repo
+     * @param repo     Tên repo
+     * @param prNumber Số thứ tự của Pull Request
+     * @param body     Nội dung bình luận dạng Markdown
+     * @return ID của comment vừa tạo
      */
-    com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult validateToken(String token);
+    Long createPullRequestComment(String token, String owner, String repo, int prNumber, String body);
 }
+
 
 
 
