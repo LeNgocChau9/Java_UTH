@@ -1,6 +1,7 @@
 package com.example.livingdocs_backend.infrastructure.web.controller;
 
 import com.example.livingdocs_backend.application.dto.ai.AstExtractResponseDto;
+import com.example.livingdocs_backend.application.dto.ai.DocCoverageResponseDto;
 import com.example.livingdocs_backend.application.port.CodeIndexServicePort;
 import com.example.livingdocs_backend.domain.model.CodeEntity;
 import io.swagger.v3.oas.annotations.Operation;
@@ -15,7 +16,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/code-entities")
 @RequiredArgsConstructor
-@Tag(name = "Code Entities & Indexing", description = "API bóc tách AST và lập chỉ mục phần tử mã nguồn Java")
+@Tag(name = "Code Entities & Indexing", description = "API bóc tách AST, lập chỉ mục và đo lường độ bao phủ tài liệu Java")
 public class CodeEntityController {
 
     private final CodeIndexServicePort codeIndexService;
@@ -67,5 +68,22 @@ public class CodeEntityController {
             @RequestParam String filePath
     ) {
         return ResponseEntity.ok(codeIndexService.getEntitiesByFile(repositoryId, filePath));
+    }
+
+    @GetMapping("/repository/{repositoryId}/coverage")
+    @Operation(summary = "Tính toán tỷ lệ bao phủ tài liệu (% Coverage) của toàn bộ Repository",
+               description = "Đo lường số thực thể code đã có tài liệu (doc_status = 'DOCUMENTED') so với tổng số thực thể bóc tách được của repo.")
+    public ResponseEntity<DocCoverageResponseDto> getRepositoryCoverage(@PathVariable Long repositoryId) {
+        return ResponseEntity.ok(codeIndexService.calculateRepositoryCoverage(repositoryId));
+    }
+
+    @GetMapping("/repository/{repositoryId}/file/coverage")
+    @Operation(summary = "Tính toán tỷ lệ bao phủ tài liệu (% Coverage) của một file cụ thể",
+               description = "Đo lường số thực thể code đã có tài liệu trong file so với tổng số thực thể bóc tách được.")
+    public ResponseEntity<DocCoverageResponseDto> getFileCoverage(
+            @PathVariable Long repositoryId,
+            @RequestParam String filePath
+    ) {
+        return ResponseEntity.ok(codeIndexService.calculateFileCoverage(repositoryId, filePath));
     }
 }

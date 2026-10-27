@@ -1,6 +1,7 @@
 package com.example.livingdocs_backend.application.port;
 
 import com.example.livingdocs_backend.application.dto.ai.AstExtractResponseDto;
+import com.example.livingdocs_backend.application.dto.ai.DocCoverageResponseDto;
 import com.example.livingdocs_backend.domain.model.CodeEntity;
 
 import java.util.List;
@@ -35,4 +36,14 @@ public interface CodeIndexServicePort {
      * Trực tiếp gọi AI Engine để bóc tách AST mà không bắt buộc lưu (dùng để preview).
      */
     AstExtractResponseDto extractAstRaw(Long repositoryId, String filePath, String sourceCode, String commitHash);
+
+    /**
+     * Tính toán tỷ lệ bao phủ tài liệu (% Coverage) cho toàn bộ repository.
+     */
+    DocCoverageResponseDto calculateRepositoryCoverage(Long repositoryId);
+
+    /**
+     * Tính toán tỷ lệ bao phủ tài liệu (% Coverage) cho một file cụ thể trong repository.
+     */
+    DocCoverageResponseDto calculateFileCoverage(Long repositoryId, String filePath);
 }
