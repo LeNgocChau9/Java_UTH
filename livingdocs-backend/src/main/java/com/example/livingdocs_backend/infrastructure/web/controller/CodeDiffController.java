@@ -19,6 +19,7 @@ import java.util.List;
 public class CodeDiffController {
 
     private final CodeDiffAnalysisServicePort codeDiffAnalysisService;
+    private final com.example.livingdocs_backend.application.port.DocDriftDetectionServicePort docDriftDetectionService;
 
     @PostMapping("/analyze")
     @Operation(summary = "Đối chiếu AST trực tiếp giữa các file mã nguồn Java (Base vs Head)")
@@ -36,6 +37,27 @@ public class CodeDiffController {
     ) {
         List<DocumentChangeAlertEntity> alerts = codeDiffAnalysisService.processPullRequestCodeDiff(repositoryId, prId, requestDto);
         return ResponseEntity.ok(alerts);
+    }
+
+    @PostMapping("/repositories/{repositoryId}/pull-requests/{prNumber}/drift-comment")
+    @Operation(summary = "Thuật toán tìm tài liệu bị ảnh hưởng qua doc_code_links, tạo drift_alerts và tự động comment lên PR")
+    public ResponseEntity<com.example.livingdocs_backend.application.dto.drift.PrDriftAnalysisResultDto> detectDriftAndComment(
+            @PathVariable Long repositoryId,
+            @PathVariable int prNumber,
+            @RequestBody AstDiffRequestDto requestDto
+    ) {
+        var result = docDriftDetectionService.detectDriftAndCommentOnPr(repositoryId, prNumber, requestDto);
+        return ResponseEntity.ok(result);
+    }
+
+    @PostMapping("/repositories/{repositoryId}/affected-docs")
+    @Operation(summary = "Truy vấn danh sách tài liệu bị ảnh hưởng từ doc_code_links theo các hàm/class vừa thay đổi")
+    public ResponseEntity<List<com.example.livingdocs_backend.application.dto.drift.AffectedDocumentResultDto>> getAffectedDocuments(
+            @PathVariable Long repositoryId,
+            @RequestBody AstDiffRequestDto requestDto
+    ) {
+        var result = docDriftDetectionService.findAffectedDocuments(repositoryId, requestDto);
+        return ResponseEntity.ok(result);
     }
 
     @GetMapping("/repositories/{repositoryId}/alerts")
