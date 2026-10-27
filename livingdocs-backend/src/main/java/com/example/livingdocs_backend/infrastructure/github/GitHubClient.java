@@ -457,6 +457,46 @@ public class GitHubClient implements GitHubClientPort {
         }
     }
 
+    @Override
+    public Long createPullRequestComment(String token, String owner, String repo, int prNumber, String body) {
+        String uri = UriComponentsBuilder.fromPath("/repos/{owner}/{repo}/issues/{issue_number}/comments")
+                .buildAndExpand(owner, repo, prNumber)
+                .toUriString();
+
+        log.info("Đăng comment cảnh báo lên PR #{} của repo {}/{}", prNumber, owner, repo);
+
+        Map<String, String> requestBody = Map.of("body", body);
+
+        try {
+            var requestSpec = restClient.post()
+                    .uri(uri)
+                    .header(HttpHeaders.USER_AGENT, "LivingDocs-GitHubClient/1.0")
+                    .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .body(requestBody);
+
+            if (StringUtils.hasText(token)) {
+                requestSpec.header(HttpHeaders.AUTHORIZATION, "Bearer " + token.trim());
+            }
+
+            var responseEntity = requestSpec.retrieve().toEntity(GitCommentResponse.class);
+            GitCommentResponse commentResponse = responseEntity.getBody();
+            if (commentResponse != null && commentResponse.id() != null) {
+                log.info("Đăng comment thành công lên PR #{}, comment_id={}", prNumber, commentResponse.id());
+                return commentResponse.id();
+            }
+            return 1L; // ID giả lập nếu response rỗng
+        } catch (RestClientResponseException ex) {
+            handleGitHubError(ex, "createPullRequestComment PR #" + prNumber);
+            return null;
+        } catch (Exception ex) {
+            log.error("Lỗi ngoại lệ khi đăng comment lên PR #{}: {}", prNumber, ex.getMessage(), ex);
+            throw new GitHubApiException("Không thể đăng comment lên PR: " + ex.getMessage(), 500, ex);
+        }
+    }
+
+
 
     /**
      * Tạo RestClient request với Header Authentication và GitHub API Version tiêu chuẩn.
@@ -686,7 +726,16 @@ public class GitHubClient implements GitHubClientPort {
             String email,
             @JsonProperty("avatar_url") String avatarUrl
     ) {}
+
+    // Response khi POST comment lên Pull Request
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record GitCommentResponse(
+            Long id,
+            @JsonProperty("html_url") String htmlUrl,
+            String body
+    ) {}
 }
+
 
 
 
