@@ -543,7 +543,8 @@ export default function SourceTreePage() {
       (e) => e.entityType === "CONSTRUCTOR"
     ).length;
     const documented = entities.filter((e) => e.docStatus === "DOCUMENTED").length;
-    return { total, classes, methods, constructors, documented };
+    const coverage = total > 0 ? Math.round((documented / total) * 1000) / 10 : 0;
+    return { total, classes, methods, constructors, documented, coverage };
   }, [entities]);
 
   // Render đệ quy cây thư mục
@@ -701,6 +702,8 @@ export default function SourceTreePage() {
                     <span>Constructor: <strong className="text-amber-600">{stats.constructors}</strong></span>
                     <span>•</span>
                     <span>Có Javadoc: <strong className="text-purple-600">{stats.documented}/{stats.total}</strong></span>
+                    <span>•</span>
+                    <span>Bao phủ: <strong className={stats.coverage >= 70 ? "text-emerald-600" : stats.coverage >= 50 ? "text-amber-600" : "text-rose-600"}>{stats.coverage}%</strong></span>
                   </div>
                 </div>
 

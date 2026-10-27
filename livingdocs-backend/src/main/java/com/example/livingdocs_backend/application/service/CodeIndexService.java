@@ -1,7 +1,9 @@
+
 package com.example.livingdocs_backend.application.service;
 
 import com.example.livingdocs_backend.application.dto.ai.AstExtractRequestDto;
 import com.example.livingdocs_backend.application.dto.ai.AstExtractResponseDto;
+import com.example.livingdocs_backend.application.dto.ai.DocCoverageResponseDto;
 import com.example.livingdocs_backend.application.port.CodeIndexServicePort;
 import com.example.livingdocs_backend.domain.model.CodeEntity;
 import com.example.livingdocs_backend.domain.repository.CodeEntityRepositoryPort;
@@ -13,13 +15,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClient;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 /**
- * Service xử lý bóc tách AST từ AI Engine và lưu toàn bộ Code Entities vào CSDL.
+ * Service xử lý bóc tách AST từ AI Engine, lưu Code Entities và tính tỷ lệ bao
+ * phủ tài liệu (% Coverage).
  */
 @Slf4j
 @Service
@@ -31,8 +34,7 @@ public class CodeIndexService implements CodeIndexServicePort {
     @Autowired
     public CodeIndexService(
             CodeEntityRepositoryPort codeEntityRepository,
-            @Value("${ai.engine.url:http://localhost:8000}") String aiEngineUrl
-    ) {
+            @Value("${ai.engine.url:http://localhost:8000}") String aiEngineUrl) {
         this.codeEntityRepository = codeEntityRepository;
         this.restClient = RestClient.builder()
                 .baseUrl(aiEngineUrl)
@@ -57,7 +59,8 @@ public class CodeIndexService implements CodeIndexServicePort {
             return Collections.emptyList();
         }
 
-        // 2. Xóa các entity cũ của file này trong repo để cập nhật mới nhất (idempotent)
+        // 2. Xóa các entity cũ của file này trong repo để cập nhật mới nhất
+        // (idempotent)
         codeEntityRepository.deleteByRepositoryIdAndFilePath(repositoryId, filePath);
 
         // 3. Chuyển đổi và lưu vào CSDL
@@ -91,7 +94,8 @@ public class CodeIndexService implements CodeIndexServicePort {
     }
 
     @Override
-    public AstExtractResponseDto extractAstRaw(Long repositoryId, String filePath, String sourceCode, String commitHash) {
+    public AstExtractResponseDto extractAstRaw(Long repositoryId, String filePath, String sourceCode,
+            String commitHash) {
         AstExtractRequestDto requestDto = AstExtractRequestDto.builder()
                 .repository_id(repositoryId)
                 .file_path(filePath)
@@ -120,5 +124,65 @@ public class CodeIndexService implements CodeIndexServicePort {
     @Override
     public List<CodeEntity> getEntitiesByFile(Long repositoryId, String filePath) {
         return codeEntityRepository.findByRepositoryIdAndFilePath(repositoryId, filePath);
+    }
+
+    @Override
+    public DocCoverageResponseDto calculateRepositoryCoverage(Long repositoryId) {
+        List<CodeEntity> entities = getEntitiesByRepository(repositoryId);
+        return buildCoverageResponse(repositoryId, null, entities);
+    }
+
+    @Override
+    public DocCoverageResponseDto calculateFileCoverage(Long repositoryId, String filePath) {
+        List<CodeEntity> entities = getEntitiesByFile(repositoryId, filePath);
+        return buildCoverageResponse(repositoryId, filePath, entities);
+    }
+
+    private DocCoverageResponseDto buildCoverageResponse(Long repositoryId, String filePath,
+            List<CodeEntity> entities) {
+        if (entities == null || entities.isEmpty()) {
+            return DocCoverageResponseDto.builder()
+                    .repositoryId(repositoryId)
+                    .filePath(filePath)
+                    .totalEntities(0)
+                    .documentedEntities(0)
+                    .undocumentedEntities(0)
+                    .coveragePercentage(0.0)
+                    .byEntityType(Collections.emptyMap())
+                    .documentedByEntityType(Collections.emptyMap())
+                    .build();
+        }
+
+        int total = entities.size();
+        int documented = 0;
+        Map<String, Integer> byType = new HashMap<>();
+        Map<String, Integer> documentedByType = new HashMap<>();
+
+        for (CodeEntity e : entities) {
+            String type = e.getEntityType() != null ? e.getEntityType().toUpperCase() : "UNKNOWN";
+            byType.put(type, byType.getOrDefault(type, 0) + 1);
+
+            boolean isDoc = "DOCUMENTED".equalsIgnoreCase(e.getDocStatus());
+            if (isDoc) {
+                documented++;
+                documentedByType.put(type, documentedByType.getOrDefault(type, 0) + 1);
+            }
+        }
+
+        int undocumented = total - documented;
+        double pct = BigDecimal.valueOf((double) documented * 100 / total)
+                .setScale(2, RoundingMode.HALF_UP)
+                .doubleValue();
+
+        return DocCoverageResponseDto.builder()
+                .repositoryId(repositoryId)
+                .filePath(filePath)
+                .totalEntities(total)
+                .documentedEntities(documented)
+                .undocumentedEntities(undocumented)
+                .coveragePercentage(pct)
+                .byEntityType(byType)
+                .documentedByEntityType(documentedByType)
+                .build();
     }
 }
