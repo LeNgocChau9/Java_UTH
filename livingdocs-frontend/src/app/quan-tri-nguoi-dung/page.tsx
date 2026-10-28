@@ -184,7 +184,15 @@ export default function AdminUsersPage() {
                     <tr key={user.userId} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-3">
-                          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">{initials(user.fullName || user.email)}</span>
+                          {user.avatarUrl ? (
+                            <img
+                              src={user.avatarUrl}
+                              alt={user.fullName || user.email}
+                              className="size-9 shrink-0 rounded-full object-cover border border-slate-200"
+                            />
+                          ) : (
+                            <span className="grid size-9 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">{initials(user.fullName || user.email)}</span>
+                          )}
                           <div className="min-w-0">
                             <p className="truncate text-sm font-semibold text-slate-900">{user.fullName || "—"}</p>
                             <p className="truncate text-xs text-slate-500">{user.email}</p>
