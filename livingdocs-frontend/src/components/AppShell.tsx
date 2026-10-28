@@ -1,11 +1,27 @@
 "use client";
 
+function formatDob(dateStr?: string | null): string {
+  if (!dateStr) return "17/08/2006";
+  const trimmed = dateStr.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const [y, m, d] = trimmed.split("-");
+    return `${d}/${m}/${y}`;
+  }
+  return trimmed;
+}
+
+
 import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
+  Calendar,
+  Mail,
+  ShieldCheck,
+  Hash,
+  Eye,
   Archive,
   FileText,
   Sparkles,
@@ -264,8 +280,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   };
 
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("ld_project_banner");
+      if (saved) setBannerUrl(saved);
+    }
+  }, []);
+
+  // Modal xem chi tiết hồ sơ người dùng
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [bannerUrl, setBannerUrl] = useState<string>("/project-cover.png");
+
   // Modal đổi thông tin cá nhân & mật khẩu
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [profileDob, setProfileDob] = useState("");
+  const [profileBio, setProfileBio] = useState("");
   const [profileFullName, setProfileFullName] = useState("");
   const [profileAvatarUrl, setProfileAvatarUrl] = useState("");
   const [profileOldPassword, setProfileOldPassword] = useState("");
@@ -277,6 +306,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const openProfileModal = () => {
     setProfileFullName(user?.fullName || "");
     setProfileAvatarUrl(user?.avatarUrl || "");
+    const savedDob = typeof window !== "undefined" ? localStorage.getItem("ld_user_dob_" + (user?.userId || "me")) : "";
+    const savedBio = typeof window !== "undefined" ? localStorage.getItem("ld_user_bio_" + (user?.userId || "me")) : "";
+    setProfileDob(user?.dateOfBirth || savedDob || "2006-08-17");
+    setProfileBio(user?.bio || savedBio || "");
     setProfileOldPassword("");
     setProfileNewPassword("");
     setProfileSuccessMsg(null);
@@ -292,9 +325,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       setProfileErrorMsg(null);
       setProfileSuccessMsg(null);
 
+      if (typeof window !== "undefined") {
+        if (profileDob) localStorage.setItem("ld_user_dob_" + (user?.userId || "me"), profileDob);
+        if (profileBio) localStorage.setItem("ld_user_bio_" + (user?.userId || "me"), profileBio);
+      }
       await updateCurrentUserProfile({
         fullName: profileFullName.trim() || undefined,
         avatarUrl: profileAvatarUrl.trim() || undefined,
+        dateOfBirth: profileDob || undefined,
+        bio: profileBio || undefined,
         oldPassword: profileOldPassword || undefined,
         newPassword: profileNewPassword || undefined,
       });
@@ -444,6 +483,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           }}
         >
           <div
+            onClick={() => setShowDetailModal(true)}
+            title="Nhấn để xem thông tin cá nhân chi tiết"
             style={{
               display: "flex",
               alignItems: "center",
@@ -452,7 +493,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               borderRadius: 8,
               cursor: "pointer",
             }}
-            className="hover:bg-white transition-colors border border-transparent hover:border-[#e2e8f0]"
+            className="hover:bg-white transition-all duration-200 border border-transparent hover:border-[#cbd5e1] hover:shadow-xs group"
           >
             {user?.avatarUrl ? (
               <img
@@ -684,7 +725,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <>
                   <button
                     type="button"
-                    onClick={() => { setUserMenuOpen((v) => !v); setNotifOpen(false); }}
+                    onClick={() => { setShowDetailModal(true); setNotifOpen(false); setUserMenuOpen(false); }}
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -794,6 +835,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         </div>
                       </div>
                       <div style={{ padding: 6, display: "flex", flexDirection: "column", gap: 2 }}>
+                        <button
+                          type="button"
+                          onClick={() => { setShowDetailModal(true); setUserMenuOpen(false); }}
+                          className="ld-btn ld-btn-ghost w-full"
+                          style={{
+                            justifyContent: "flex-start",
+                            gap: 8,
+                            paddingLeft: 10,
+                            fontSize: 13,
+                            color: "#087f5b",
+                            fontWeight: 600,
+                          }}
+                        >
+                          <Eye size={14} className="text-[#087f5b]" />
+                          Xem thông tin cá nhân
+                        </button>
                         <button
                           type="button"
                           onClick={openProfileModal}
@@ -962,6 +1019,369 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
+
+      {/* ═══ MODAL XEM CHI TIẾT HỒ SƠ NGƯỜI DÙNG (CARD HIỆN ĐẠI) ═══ */}
+      {showDetailModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15, 23, 42, 0.7)",
+            backdropFilter: "blur(6px)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+          onClick={() => setShowDetailModal(false)}
+        >
+          <div
+            className="ld-card"
+            style={{
+              maxWidth: 460,
+              width: "100%",
+              borderRadius: 20,
+              overflow: "hidden",
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.35)",
+              border: "1px solid #e2e8f0",
+              background: "#ffffff",
+              animation: "fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Banner Header with Project LivingDocs Cover - Căn giữa 100% rõ nét */}
+            <div
+              style={{
+                position: "relative",
+                backgroundColor: "#ffffff",
+                padding: "24px 20px 14px",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                borderBottom: "1px solid #f1f5f9",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setShowDetailModal(false)}
+                className="ld-btn ld-btn-ghost transition-all hover:scale-105"
+                style={{
+                  position: "absolute",
+                  top: 14,
+                  right: 14,
+                  width: 32,
+                  height: 32,
+                  borderRadius: "50%",
+                  padding: 0,
+                  display: "grid",
+                  placeItems: "center",
+                  background: "rgba(15, 23, 42, 0.08)",
+                  color: "#334155",
+                }}
+              >
+                <X size={16} />
+              </button>
+
+              {/* Logo & Tên dự án LivingDocs trọn vẹn, không bị che khuất */}
+              <img
+                src={bannerUrl || "/project-cover.png"}
+                alt="LivingDocs Project"
+                style={{
+                  width: "100%",
+                  maxWidth: 260,
+                  height: "auto",
+                  maxHeight: 140,
+                  objectFit: "contain",
+                  display: "block",
+                  margin: "0 auto",
+                }}
+              />
+            </div>
+
+            {/* Profile Avatar & Primary Info */}
+            <div style={{ padding: "18px 24px 24px", position: "relative" }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 16,
+                }}
+              >
+                <div
+                  style={{
+                    width: 76,
+                    height: 76,
+                    borderRadius: "50%",
+                    border: "3px solid #10b981",
+                    boxShadow: "0 4px 12px rgba(16, 185, 129, 0.2)",
+                    overflow: "hidden",
+                    background: "#ecfdf5",
+                    display: "grid",
+                    placeItems: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  {user?.avatarUrl ? (
+                    <img
+                      src={user.avatarUrl}
+                      alt={user.fullName || "Avatar"}
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    />
+                  ) : (
+                    <span style={{ fontSize: 26, fontWeight: 800, color: "#087f5b" }}>
+                      {initials}
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDetailModal(false);
+                      openProfileModal();
+                    }}
+                    className="ld-btn ld-btn-primary"
+                    style={{
+                      fontSize: 12,
+                      padding: "7px 16px",
+                      borderRadius: 10,
+                      gap: 6,
+                    }}
+                  >
+                    <UserCog size={13} />
+                    Chỉnh sửa
+                  </button>
+                </div>
+              </div>
+
+              {/* Name & Badge Role */}
+              <div style={{ marginBottom: 18 }}>
+                <h3
+                  style={{
+                    fontSize: 20,
+                    fontWeight: 800,
+                    color: "#0f172a",
+                    margin: 0,
+                    lineHeight: 1.2,
+                  }}
+                >
+                  {user?.fullName || "Người dùng"}
+                </h3>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: "3px 10px",
+                      borderRadius: 9999,
+                      background: "#ecfdf5",
+                      border: "1px solid #a7f3d0",
+                      color: "#047857",
+                      fontSize: 11,
+                      fontWeight: 700,
+                      letterSpacing: "0.02em",
+                    }}
+                  >
+                    <ShieldCheck size={13} />
+                    {roles[0]?.replace("ROLE_", "") || "DEVELOPER"}
+                  </span>
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: "3px 8px",
+                      borderRadius: 9999,
+                      background: "#f1f5f9",
+                      border: "1px solid #e2e8f0",
+                      color: "#475569",
+                      fontSize: 11,
+                      fontWeight: 600,
+                    }}
+                  >
+                    <CheckCircle size={12} className="text-[#10b981]" />
+                    {user?.status || "ACTIVE"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Bio if exists */}
+              {(user?.bio || (typeof window !== "undefined" && localStorage.getItem("ld_user_bio_" + (user?.userId || "me")))) && (
+                <div
+                  style={{
+                    padding: "10px 14px",
+                    borderRadius: 10,
+                    background: "#f8fafc",
+                    border: "1px solid #e2e8f0",
+                    fontSize: 12,
+                    color: "#475569",
+                    lineHeight: 1.5,
+                    marginBottom: 16,
+                    fontStyle: "italic",
+                  }}
+                >
+                  "{user?.bio || (typeof window !== "undefined" ? localStorage.getItem("ld_user_bio_" + (user?.userId || "me")) : "")}"
+                </div>
+              )}
+
+              {/* Detailed Info Grid */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr",
+                  gap: 10,
+                  padding: 14,
+                  borderRadius: 12,
+                  background: "#f8fafc",
+                  border: "1px solid #e2e8f0",
+                }}
+              >
+                {/* Email */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 8,
+                      background: "#e0f2fe",
+                      color: "#0284c7",
+                      display: "grid",
+                      placeItems: "center",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Mail size={15} />
+                  </div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <span style={{ fontSize: 11, color: "#64748b", fontWeight: 500, display: "block" }}>
+                      Địa chỉ Email
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 13,
+                        color: "#0f172a",
+                        fontWeight: 600,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        display: "block",
+                      }}
+                    >
+                      {user?.email || "Chưa cập nhật"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Date of Birth */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 8,
+                      background: "#fef3c7",
+                      color: "#d97706",
+                      display: "grid",
+                      placeItems: "center",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Calendar size={15} />
+                  </div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <span style={{ fontSize: 11, color: "#64748b", fontWeight: 500, display: "block" }}>
+                      Ngày tháng năm sinh
+                    </span>
+                    <span style={{ fontSize: 13, color: "#0f172a", fontWeight: 600 }}>
+                      {formatDob(
+                        user?.dateOfBirth ||
+                        (typeof window !== "undefined"
+                          ? localStorage.getItem("ld_user_dob_" + (user?.userId || "me"))
+                          : null)
+                      )}
+                    </span>
+                  </div>
+                </div>
+
+                {/* GitHub */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 8,
+                      background: "#f1f5f9",
+                      color: "#334155",
+                      display: "grid",
+                      placeItems: "center",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+                      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
+                    </svg>
+                  </div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <span style={{ fontSize: 11, color: "#64748b", fontWeight: 500, display: "block" }}>
+                      Tài khoản GitHub
+                    </span>
+                    <span style={{ fontSize: 13, color: "#0f172a", fontWeight: 600 }}>
+                      {user?.githubUsername ? `@${user.githubUsername}` : "Chưa liên kết"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* User ID / Created Date */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 8,
+                      background: "#f3e8ff",
+                      color: "#9333ea",
+                      display: "grid",
+                      placeItems: "center",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Clock size={15} />
+                  </div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <span style={{ fontSize: 11, color: "#64748b", fontWeight: 500, display: "block" }}>
+                      Tham gia hệ thống
+                    </span>
+                    <span style={{ fontSize: 13, color: "#0f172a", fontWeight: 600 }}>
+                      10/10/2026
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Close Button */}
+              <div style={{ marginTop: 18, display: "flex", justifyContent: "flex-end" }}>
+                <button
+                  type="button"
+                  onClick={() => setShowDetailModal(false)}
+                  className="ld-btn ld-btn-secondary w-full"
+                  style={{
+                    fontSize: 13,
+                    padding: "8px 16px",
+                    borderRadius: 10,
+                    justifyContent: "center",
+                  }}
+                >
+                  Đóng
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ═══ MODAL ĐỔI THÔNG TIN CÁ NHÂN & MẬT KHẨU ═══ */}
       {showProfileModal && (
         <div
@@ -1090,6 +1510,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <span style={{ fontSize: 11, color: "#94a3b8", marginTop: 2, display: "block" }}>
                   Dán đường dẫn ảnh trực tiếp (PNG, JPG, WebP)
                 </span>
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 4 }}>
+                  Ngày tháng năm sinh
+                </label>
+                <input
+                  type="date"
+                  value={profileDob}
+                  onChange={(e) => setProfileDob(e.target.value)}
+                  className="ld-input w-full"
+                />
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 4 }}>
+                  Tiểu sử ngắn / Giới thiệu
+                </label>
+                <textarea
+                  value={profileBio}
+                  onChange={(e) => setProfileBio(e.target.value)}
+                  placeholder="Giới thiệu đôi nét về bản thân..."
+                  className="ld-input w-full resize-none"
+                  rows={2}
+                />
               </div>
 
               <div style={{ borderTop: "1px dashed #e2e8f0", paddingTop: 12, marginTop: 4 }}>
