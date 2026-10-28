@@ -52,6 +52,8 @@ export async function refreshSession(): Promise<AuthResponse> {
 export async function updateCurrentUserProfile(payload: {
   fullName?: string;
   avatarUrl?: string;
+  dateOfBirth?: string;
+  bio?: string;
   newPassword?: string;
   oldPassword?: string;
 }): Promise<UserProfile> {
