@@ -8,8 +8,8 @@ import com.example.livingdocs_backend.application.port.CodeDiffAnalysisServicePo
 import com.example.livingdocs_backend.application.port.GitHubClientPort;
 import com.example.livingdocs_backend.application.service.DocDriftDetectionService;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocCodeLinkEntity;
-import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentChangeAlertEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.PullRequestEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocCodeLinkRepository;
@@ -21,48 +21,40 @@ import com.example.livingdocs_backend.infrastructure.persistence.repository.Spri
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
 
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class DocDriftDetectionServiceTest {
 
-    @Mock
     private CodeDiffAnalysisServicePort codeDiffAnalysisService;
-
-    @Mock
     private SpringDataDocCodeLinkRepository docCodeLinkRepository;
-
-    @Mock
     private SpringDataDocumentRepository documentRepository;
-
-    @Mock
     private SpringDataDocumentChangeAlertRepository alertRepository;
-
-    @Mock
     private SpringDataRepositoryRepository repositoryRepository;
-
-    @Mock
     private SpringDataPullRequestRepository pullRequestRepository;
-
-    @Mock
     private SpringDataGitHubConnectionRepository connectionRepository;
-
-    @Mock
     private GitHubClientPort gitHubClient;
 
     private DocDriftDetectionService docDriftDetectionService;
 
     @BeforeEach
     void setUp() {
-        MockitoAnnotations.openMocks(this);
+        codeDiffAnalysisService = mock(CodeDiffAnalysisServicePort.class);
+        docCodeLinkRepository = mock(SpringDataDocCodeLinkRepository.class);
+        documentRepository = mock(SpringDataDocumentRepository.class);
+        alertRepository = mock(SpringDataDocumentChangeAlertRepository.class);
+        repositoryRepository = mock(SpringDataRepositoryRepository.class);
+        pullRequestRepository = mock(SpringDataPullRequestRepository.class);
+        connectionRepository = mock(SpringDataGitHubConnectionRepository.class);
+        gitHubClient = mock(GitHubClientPort.class);
+
         docDriftDetectionService = new DocDriftDetectionService(
                 codeDiffAnalysisService,
                 docCodeLinkRepository,
@@ -87,6 +79,12 @@ class DocDriftDetectionServiceTest {
                 .connectionId(10L)
                 .build();
         when(repositoryRepository.findById(repoId)).thenReturn(Optional.of(repo));
+
+        GitHubConnectionEntity conn = GitHubConnectionEntity.builder()
+                .connectionId(10L)
+                .accessTokenEncrypted("valid_github_token_xyz")
+                .build();
+        when(connectionRepository.findById(10L)).thenReturn(Optional.of(conn));
 
         PullRequestEntity pr = PullRequestEntity.builder()
                 .prId(500L)
@@ -113,7 +111,7 @@ class DocDriftDetectionServiceTest {
                                                 .method_name("processOrder")
                                                 .change_type("PARAM_CHANGED")
                                                 .impact_level("HIGH")
-                                                .details("Thêm tham số String promoCode")
+                                                .details("Tham số của hàm đã thay đổi")
                                                 .build()
                                 ))
                                 .build()
