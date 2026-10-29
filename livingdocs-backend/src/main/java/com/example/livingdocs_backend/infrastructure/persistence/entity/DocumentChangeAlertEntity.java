@@ -2,9 +2,14 @@ package com.example.livingdocs_backend.infrastructure.persistence.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.Instant;
 
+/**
+ * Entity lưu cảnh báo trôi dạt tài liệu phát hiện từ Pull Request hoặc đối chiếu Code AST.
+ * Bảng: document_change_alerts
+ */
 @Entity
 @Table(name = "document_change_alerts")
 @Getter
@@ -19,7 +24,7 @@ public class DocumentChangeAlertEntity {
     @Column(name = "alert_id")
     private Long alertId;
 
-    @Column(name = "document_id", nullable = false)
+    @Column(name = "document_id")
     private Long documentId;
 
     @Column(name = "repository_id", nullable = false)
@@ -27,15 +32,15 @@ public class DocumentChangeAlertEntity {
 
     @Column(name = "classification", nullable = false, length = 30)
     @Builder.Default
-    private String classification = "SEMANTIC";
+    private String classification = "SEMANTIC"; // REFERENCE, SIGNATURE, SEMANTIC
 
     @Column(name = "severity", nullable = false, length = 20)
     @Builder.Default
-    private String severity = "MEDIUM";
+    private String severity = "MEDIUM"; // LOW, MEDIUM, HIGH, CRITICAL
 
     @Column(name = "status", nullable = false, length = 30)
     @Builder.Default
-    private String status = "OPEN";
+    private String status = "OPEN"; // OPEN, RESOLVED, IGNORED
 
     @Column(name = "source_commit", length = 64)
     private String sourceCommit;
@@ -46,9 +51,9 @@ public class DocumentChangeAlertEntity {
     @Column(name = "details", columnDefinition = "TEXT")
     private String details;
 
-    @Column(name = "created_at", nullable = false)
-    @Builder.Default
-    private Instant createdAt = Instant.now();
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private Instant createdAt;
 
     @Column(name = "resolved_at")
     private Instant resolvedAt;

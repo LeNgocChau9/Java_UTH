@@ -6,6 +6,7 @@ import type {
   DocumentItem,
   DocumentVersionItem,
   DocumentAuditLogItem,
+  ChangelogItem,
   IntegrityCheckResult,
   RollbackResponse,
   UpdateDocumentPayload,
@@ -112,6 +113,29 @@ export const documentService = {
     const res = await apiClient.get<DocumentAuditLogItem[]>(
       `/api/documents/${docId}/audit-trail`
     );
+    return res.data;
+  },
+
+  /**
+   * Lấy danh sách changelog của một tài liệu cụ thể
+   */
+  async getDocumentChangelogs(docId: number): Promise<ChangelogItem[]> {
+    const res = await apiClient.get<ChangelogItem[]>(
+      `/api/documents/${docId}/changelogs`
+    );
+    return res.data;
+  },
+
+  /**
+   * Lấy danh sách changelog toàn hệ thống có hỗ trợ lọc
+   */
+  async getSystemChangelogs(params?: {
+    documentId?: number;
+    actorRole?: string;
+  }): Promise<ChangelogItem[]> {
+    const res = await apiClient.get<ChangelogItem[]>("/api/changelogs", {
+      params,
+    });
     return res.data;
   },
 

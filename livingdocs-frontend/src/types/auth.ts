@@ -6,6 +6,8 @@ export type UserProfile = {
   status: string;
   roles: string[];
   githubUsername?: string | null;
+  dateOfBirth?: string | null;
+  bio?: string | null;
   createdAt: string;
 };
 

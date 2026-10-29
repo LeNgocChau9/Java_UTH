@@ -1,24 +1,28 @@
 package com.example.livingdocs_backend;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import java.time.Instant;
+import java.util.Collections;
+import java.util.List;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
 import com.example.livingdocs_backend.application.port.JobHandler;
 import com.example.livingdocs_backend.domain.model.Job;
 import com.example.livingdocs_backend.domain.model.JobStatus;
 import com.example.livingdocs_backend.domain.repository.JobRepositoryPort;
 import com.example.livingdocs_backend.infrastructure.worker.JobWorker;
 import com.example.livingdocs_backend.infrastructure.worker.handler.FailingTestJobHandler;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
-
-import java.time.Instant;
-import java.util.Collections;
-import java.util.List;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.*;
 
 class JobWorkerTest {
 
@@ -57,7 +61,8 @@ class JobWorkerTest {
         assertEquals(1, job.getAttempts(), "Lần 1: Số lần thử phải là 1");
         assertEquals(JobStatus.PENDING, job.getStatus(), "Lần 1: Trạng thái vẫn là PENDING để retry tiếp");
         assertNotNull(job.getLastError(), "Lần 1: Phải có thông tin lỗi ghi vào last_error");
-        assertTrue(job.getLastError().contains("Simulated connection timeout"), "Nội dung lỗi khớp với exception giả lập");
+        assertTrue(job.getLastError().contains("Simulated connection timeout"),
+                "Nội dung lỗi khớp với exception giả lập");
 
         // --- Lần 2: Worker quét tiếp ---
         jobWorker.processPendingJobs();

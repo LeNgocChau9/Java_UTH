@@ -46,6 +46,17 @@ export interface AstExtractResponseDto {
   }[];
 }
 
+export interface DocCoverageDto {
+  repositoryId: number;
+  filePath?: string | null;
+  totalEntities: number;
+  documentedEntities: number;
+  undocumentedEntities: number;
+  coveragePercentage: number;
+  byEntityType: Record<string, number>;
+  documentedByEntityType: Record<string, number>;
+}
+
 export const codeEntityService = {
   /**
    * Lấy danh sách entities theo repository ID
@@ -63,6 +74,29 @@ export const codeEntityService = {
   async getByFile(repositoryId: number, filePath: string): Promise<CodeEntityDto[]> {
     const res = await apiClient.get<CodeEntityDto[]>(
       `/api/v1/code-entities/repository/${repositoryId}/file`,
+      {
+        params: { filePath },
+      }
+    );
+    return res.data;
+  },
+
+  /**
+   * Tính toán tỷ lệ bao phủ tài liệu (% Coverage) của repository
+   */
+  async getRepositoryCoverage(repositoryId: number): Promise<DocCoverageDto> {
+    const res = await apiClient.get<DocCoverageDto>(
+      `/api/v1/code-entities/repository/${repositoryId}/coverage`
+    );
+    return res.data;
+  },
+
+  /**
+   * Tính toán tỷ lệ bao phủ tài liệu (% Coverage) của một file
+   */
+  async getFileCoverage(repositoryId: number, filePath: string): Promise<DocCoverageDto> {
+    const res = await apiClient.get<DocCoverageDto>(
+      `/api/v1/code-entities/repository/${repositoryId}/file/coverage`,
       {
         params: { filePath },
       }

@@ -7,6 +7,19 @@ export async function login(payload: LoginRequest) {
   return data;
 }
 
+export interface RegisterRequest {
+  email: string;
+  password: string;
+  fullName: string;
+  avatarUrl?: string;
+}
+
+export async function register(payload: RegisterRequest) {
+  const { data } = await apiClient.post<AuthResponse>("/api/auth/register", payload);
+  saveSession(data);
+  return data;
+}
+
 /** Lưu token vào localStorage + cookie (dùng cho cả đăng nhập email và GitHub OAuth). */
 export function saveToken(token: string, expiresIn = 86400) {
   if (typeof window === "undefined") {
@@ -39,6 +52,8 @@ export async function refreshSession(): Promise<AuthResponse> {
 export async function updateCurrentUserProfile(payload: {
   fullName?: string;
   avatarUrl?: string;
+  dateOfBirth?: string;
+  bio?: string;
   newPassword?: string;
   oldPassword?: string;
 }): Promise<UserProfile> {

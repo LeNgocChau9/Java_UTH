@@ -86,6 +86,11 @@ public interface DocumentServicePort {
     List<DocumentAuditLogResponse> getDocumentAuditLogs(Long docId);
 
     /**
+     * Lấy danh sách changelogs của tài liệu.
+     */
+    List<ChangelogResponse> getDocumentChangelogs(Long docId);
+
+    /**
      * Xuất bản tài liệu lên GitHub bằng GitHub Contents API.
      * Tạo hoặc cập nhật file Markdown tại đường dẫn targetPath của tài liệu trong repository.
      * Ghi nhận commit hash và link commit vào bảng document_versions.

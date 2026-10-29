@@ -1,0 +1,78 @@
+@startuml LivingDocs_Document_StateMachine
+skinparam state {
+    BackgroundColor #F8FAFC
+    BorderColor #64748B
+    FontColor #0F172A
+    FontSize 13
+    ArrowColor #2563EB
+    ArrowFontSize 11
+    RoundCorner 14
+}
+
+skinparam defaultFontName "Segoe UI", Arial, sans-serif
+
+title HỆ THỐNG LIVINGDOCS - VÒNG ĐỜI TRẠNG THÁI TÀI LIỆU (UML STATE MACHINE)
+
+[*] --> DRAFT : **createDocument()**\n[Tạo mới tài liệu v1 & Genesis Hash]
+
+state DRAFT #E0F2FE ##0284C7 {
+    DRAFT : **Bản nháp ban đầu**
+    DRAFT : • Tự động tạo v1 (Genesis Hash)
+    DRAFT : • Tác giả có quyền chỉnh sửa tự do
+    DRAFT : • Quyền: DEVELOPER, TECH_LEAD, AI
+}
+
+DRAFT --> DRAFT : **updateDocument()**\n[Cập nhật nội dung -> sinh v(N+1), nối hash]
+
+DRAFT --> UNDER_REVIEW_STAFF : **submitForReview()**\n[Tác giả gửi rà soát]\n/ log **DOCUMENT_SUBMITTED**
+
+state UNDER_REVIEW_STAFF #FEF3C7 ##D97706 {
+    UNDER_REVIEW_STAFF : **Hàng đợi Staff (Duyệt Cấp 1)**
+    UNDER_REVIEW_STAFF : • Đối chiếu code AST & cấu trúc markdown
+    UNDER_REVIEW_STAFF : • Nhập ghi chú đánh giá chất lượng
+    UNDER_REVIEW_STAFF : • Quyền: STAFF, MANAGER, ADMIN
+}
+
+UNDER_REVIEW_STAFF --> UNDER_REVIEW_MANAGER : **handleStaffAction(APPROVE)**\n[Staff xác nhận đạt chuẩn]\n/ log **DOCUMENT_STAFF_REVIEWED**
+
+UNDER_REVIEW_STAFF --> REJECTED : **handleStaffAction(REJECT)**\n[Staff từ chối kèm lý do]\n/ log **DOCUMENT_REJECTED**
+
+state UNDER_REVIEW_MANAGER #EDE9FE ##7C3AED {
+    UNDER_REVIEW_MANAGER : **Trung tâm phê duyệt Manager (Duyệt Cấp 2)**
+    UNDER_REVIEW_MANAGER : • Xem nhận xét từ Staff & kiểm tra Diff
+    UNDER_REVIEW_MANAGER : • Ra quyết định ký xuất bản hệ thống
+    UNDER_REVIEW_MANAGER : • Quyền: CHỈ MANAGER, ADMIN
+}
+
+UNDER_REVIEW_MANAGER --> PUBLISHED : **handleManagerAction(PUBLISH)**\n[Manager ký duyệt xuất bản]\n/ Đẩy commit GitHub & log **DOCUMENT_PUBLISHED**
+
+UNDER_REVIEW_MANAGER --> UNDER_REVIEW_STAFF : **handleManagerAction(RETURN_STAFF)**\n[Manager trả về yêu cầu hiệu chỉnh]\n/ log **DOCUMENT_RETURNED_STAFF**
+
+UNDER_REVIEW_MANAGER --> REJECTED : **handleManagerAction(REJECT)**\n[Manager từ chối xuất bản]\n/ log **DOCUMENT_REJECTED**
+
+state REJECTED #FFE4E6 ##E11D48 {
+    REJECTED : **Tài liệu bị từ chối**
+    REJECTED : • Lưu trữ nhận xét đánh giá của Reviewer
+    REJECTED : • Tác giả được phép mở lại để khắc phục
+}
+
+REJECTED --> DRAFT : **updateDocument()**\n[Tác giả chỉnh sửa khắc phục -> sinh v(N+1)]
+
+state PUBLISHED #DCFCE7 ##16A34A {
+    PUBLISHED : **Đã xuất bản (Trạng thái kết thúc an toàn)**
+    PUBLISHED : • Đã đồng bộ mã nguồn & wiki GitHub
+    PUBLISHED : • Bất biến, bảo vệ bằng chuỗi băm SHA-256
+}
+
+PUBLISHED --> [*] : Hoàn tất chu trình
+
+PUBLISHED ..> DRAFT : **rollbackToVersion()**\n[Khôi phục phiên bản lịch sử -> sinh v(N+1)]
+
+legend right
+  |= Vai trò |= Quyền hạn chuyển trạng thái |
+  | **DEVELOPER / AI** | Tạo DRAFT, Chỉnh sửa, Gửi duyệt (DRAFT -> STAFF) |
+  | **STAFF** | Duyệt Cấp 1 (STAFF -> MANAGER hoặc REJECTED) |
+  | **MANAGER** | Duyệt Cấp 2 (MANAGER -> PUBLISHED, RETURN_STAFF, REJECTED) |
+endlegend
+
+@enduml

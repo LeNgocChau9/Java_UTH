@@ -188,6 +188,13 @@ public class DocumentController {
         return ResponseEntity.ok(response);
     }
 
+    @GetMapping("/{docId}/changelogs")
+    @Operation(summary = "Lấy danh sách nhật ký thay đổi của tài liệu", description = "Truy xuất danh sách changelogs được tự động ghi lại mỗi khi tài liệu được tạo mới, chỉnh sửa, duyệt hoặc khôi phục.")
+    public ResponseEntity<List<ChangelogResponse>> getDocumentChangelogs(@PathVariable Long docId) {
+        List<ChangelogResponse> changelogs = documentServicePort.getDocumentChangelogs(docId);
+        return ResponseEntity.ok(changelogs);
+    }
+
     private String extractRole(UserPrincipal userPrincipal) {
         if (userPrincipal == null || userPrincipal.getAuthorities() == null || userPrincipal.getAuthorities().isEmpty()) {
             return "DEV";

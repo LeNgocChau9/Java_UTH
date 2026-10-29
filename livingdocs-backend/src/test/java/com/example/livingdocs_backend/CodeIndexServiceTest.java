@@ -1,6 +1,7 @@
 package com.example.livingdocs_backend;
 
 import com.example.livingdocs_backend.application.dto.ai.AstExtractResponseDto;
+import com.example.livingdocs_backend.application.dto.ai.DocCoverageResponseDto;
 import com.example.livingdocs_backend.application.service.CodeIndexService;
 import com.example.livingdocs_backend.domain.model.CodeEntity;
 import com.example.livingdocs_backend.domain.repository.CodeEntityRepositoryPort;
@@ -10,8 +11,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.web.client.RestClient;
 
+import java.util.Collections;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -132,5 +133,44 @@ class CodeIndexServiceTest {
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getClassName()).isEqualTo("Test");
+    }
+
+    @Test
+    @DisplayName("Tính toán tỷ lệ bao phủ tài liệu (% Coverage) chính xác cho Repository")
+    void shouldCalculateRepositoryCoverageAccurately() {
+        Long repoId = 1L;
+        List<CodeEntity> mockEntities = List.of(
+                CodeEntity.builder().repositoryId(repoId).entityType("CLASS").docStatus("DOCUMENTED").build(),
+                CodeEntity.builder().repositoryId(repoId).entityType("METHOD").docStatus("DOCUMENTED").build(),
+                CodeEntity.builder().repositoryId(repoId).entityType("METHOD").docStatus("UNDOCUMENTED").build(),
+                CodeEntity.builder().repositoryId(repoId).entityType("CONSTRUCTOR").docStatus("UNDOCUMENTED").build()
+        );
+
+        when(codeEntityRepository.findByRepositoryId(repoId)).thenReturn(mockEntities);
+
+        DocCoverageResponseDto coverage = codeIndexService.calculateRepositoryCoverage(repoId);
+
+        assertThat(coverage).isNotNull();
+        assertThat(coverage.getRepositoryId()).isEqualTo(repoId);
+        assertThat(coverage.getTotalEntities()).isEqualTo(4);
+        assertThat(coverage.getDocumentedEntities()).isEqualTo(2);
+        assertThat(coverage.getUndocumentedEntities()).isEqualTo(2);
+        assertThat(coverage.getCoveragePercentage()).isEqualTo(50.0);
+        assertThat(coverage.getByEntityType()).containsEntry("CLASS", 1).containsEntry("METHOD", 2).containsEntry("CONSTRUCTOR", 1);
+        assertThat(coverage.getDocumentedByEntityType()).containsEntry("CLASS", 1).containsEntry("METHOD", 1);
+    }
+
+    @Test
+    @DisplayName("Trả về 0% coverage khi repository không có thực thể mã nào")
+    void shouldReturnZeroCoverageWhenRepositoryIsEmpty() {
+        Long repoId = 2L;
+        when(codeEntityRepository.findByRepositoryId(repoId)).thenReturn(Collections.emptyList());
+
+        DocCoverageResponseDto coverage = codeIndexService.calculateRepositoryCoverage(repoId);
+
+        assertThat(coverage).isNotNull();
+        assertThat(coverage.getTotalEntities()).isEqualTo(0);
+        assertThat(coverage.getDocumentedEntities()).isEqualTo(0);
+        assertThat(coverage.getCoveragePercentage()).isEqualTo(0.0);
     }
 }
