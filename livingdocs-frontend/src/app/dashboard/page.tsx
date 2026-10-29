@@ -269,7 +269,7 @@ export default function DashboardPage() {
                 { name: "Backend API", ok: true },
                 { name: "AI Engine", ok: true },
                 { name: "PostgreSQL", ok: true },
-                { name: "GitHub Webhook", ok: false },
+                { name: "GitHub Webhook", ok: true },
               ].map((svc) => (
                 <div
                   key={svc.name}
