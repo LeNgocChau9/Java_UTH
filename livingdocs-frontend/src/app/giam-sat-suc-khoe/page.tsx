@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { saveSystemHealth, getStoredSystemHealth } from "@/services/systemHealthService";
 import { AppShell } from "@/components/AppShell";
 import {
   Activity,
@@ -114,6 +115,19 @@ export default function GiamSatSucKhoePage() {
 
   // Chỉ mở rộng khi người dùng nhấn xem nguyên nhân lỗi (mặc định đóng)
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
+  useEffect(() => {
+    const saved = getStoredSystemHealth();
+    setServices((prev) =>
+      prev.map((s) => {
+        if (s.id === "backend") return { ...s, status: saved.backend ? "online" : "offline" };
+        if (s.id === "ai_engine") return { ...s, status: saved.aiEngine ? "online" : "offline" };
+        if (s.id === "postgres") return { ...s, status: saved.postgres ? "online" : "offline" };
+        if (s.id === "webhook") return { ...s, status: saved.webhook ? "online" : "offline" };
+        return s;
+      })
+    );
+  }, []);
+
 
   const toggleExpand = (id: string) => {
     setExpandedCardId((prev) => (prev === id ? null : id));
@@ -158,11 +172,21 @@ export default function GiamSatSucKhoePage() {
         })
       );
 
+      saveSystemHealth({
+        backend: isBackendUp,
+        aiEngine: true,
+        postgres: true,
+        webhook: true,
+        lastChecked: Date.now(),
+      });
+
       setLogs((prev) => [
         {
-          level: "info",
+          level: isBackendUp ? "info" : "warn",
           time: nowStr,
-          msg: `Health check OK: Hệ thống phản hồi ổn định (${elapsed}ms)`,
+          msg: isBackendUp
+            ? `Health check OK: Hệ thống phản hồi ổn định (${elapsed}ms)`
+            : "Health check cảnh báo: Backend không phản hồi (Offline)",
         },
         ...prev.slice(0, 6),
       ]);
