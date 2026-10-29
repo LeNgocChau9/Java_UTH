@@ -29,6 +29,7 @@ import com.example.livingdocs_backend.application.dto.PublishToGitHubResponse;
 import com.example.livingdocs_backend.application.dto.UpdateDocumentRequest;
 import com.example.livingdocs_backend.application.dto.github.GitHubPublishResultDto;
 import com.example.livingdocs_backend.application.port.AuditServicePort;
+import com.example.livingdocs_backend.application.port.ChangelogServicePort;
 import com.example.livingdocs_backend.application.port.GitHubClientPort;
 import com.example.livingdocs_backend.application.service.DocumentServiceImpl;
 import com.example.livingdocs_backend.application.service.TemplateStructureCheck;
@@ -53,6 +54,8 @@ class DocumentServiceImplTest {
         private SpringDataGitHubConnectionRepository gitHubConnectionRepository;
         private GitHubClientPort gitHubClient;
         private DocumentServiceImpl documentService;
+        private ChangelogServicePort changelogServicePort;
+        private TemplateStructureCheck templateStructureCheck;
 
         @BeforeEach
         void setUp() {
@@ -62,14 +65,17 @@ class DocumentServiceImplTest {
                 repositoryRepository = mock(SpringDataRepositoryRepository.class);
                 gitHubConnectionRepository = mock(SpringDataGitHubConnectionRepository.class);
                 gitHubClient = mock(GitHubClientPort.class);
+                changelogServicePort = mock(ChangelogServicePort.class);
+                templateStructureCheck = mock(TemplateStructureCheck.class);
                 documentService = new DocumentServiceImpl(
                                 documentRepositoryPort,
                                 documentVersionRepositoryPort,
                                 auditServicePort,
+                                changelogServicePort,
                                 repositoryRepository,
                                 gitHubConnectionRepository,
                                 gitHubClient,
-                                mock(TemplateStructureCheck.class));
+                                templateStructureCheck);
         }
 
         @Test

@@ -488,7 +488,7 @@ public class GitHubClient implements GitHubClientPort {
             }
             return 1L; // ID giả lập nếu response rỗng
         } catch (RestClientResponseException ex) {
-            handleGitHubError(ex, "createPullRequestComment PR #" + prNumber);
+            handleErrorResponse(ex, "createPullRequestComment PR #" + prNumber);
             return null;
         } catch (Exception ex) {
             log.error("Lỗi ngoại lệ khi đăng comment lên PR #{}: {}", prNumber, ex.getMessage(), ex);

@@ -27,6 +27,18 @@
 @REM   MVNW_VERBOSE - true: enable verbose log; others: silence the output
 @REM ----------------------------------------------------------------------------
 
+@IF EXIST "C:\Program Files\Java\jdk-17\bin\javac.exe" (
+  @IF NOT EXIST "%JAVA_HOME%\bin\javac.exe" (
+    @SET "JAVA_HOME=C:\Program Files\Java\jdk-17"
+    @SET "PATH=C:\Program Files\Java\jdk-17\bin;%PATH%"
+  ) ELSE (
+    @ECHO %JAVA_HOME% | FINDSTR /I "jdk-25" >NUL
+    @IF NOT ERRORLEVEL 1 (
+      @SET "JAVA_HOME=C:\Program Files\Java\jdk-17"
+      @SET "PATH=C:\Program Files\Java\jdk-17\bin;%PATH%"
+    )
+  )
+)
 @IF "%__MVNW_ARG0_NAME__%"=="" (SET __MVNW_ARG0_NAME__=%~nx0)
 @SET __MVNW_CMD__=
 @SET __MVNW_ERROR__=

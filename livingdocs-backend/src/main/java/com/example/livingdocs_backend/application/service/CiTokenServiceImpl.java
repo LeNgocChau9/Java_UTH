@@ -1,5 +1,17 @@
 package com.example.livingdocs_backend.application.service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
+import java.util.Optional;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.example.livingdocs_backend.application.dto.CiTokenResponse;
 import com.example.livingdocs_backend.application.dto.CreateCiTokenRequest;
 import com.example.livingdocs_backend.application.dto.CreatedCiTokenResponse;
@@ -12,18 +24,9 @@ import com.example.livingdocs_backend.domain.model.User;
 import com.example.livingdocs_backend.domain.repository.UserRepositoryPort;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
-import java.util.*;
 
 @Slf4j
 @Service
@@ -77,8 +80,7 @@ public class CiTokenServiceImpl implements CiTokenServicePort {
                 AuditAction.CI_TOKEN_CREATED,
                 "CiToken",
                 String.valueOf(saved.getTokenId()),
-                "Tạo mới CI Token: " + saved.getTokenName() + " (Prefix: " + prefix + ")"
-        );
+                "Tạo mới CI Token: " + saved.getTokenName() + " (Prefix: " + prefix + ")");
 
         return CreatedCiTokenResponse.builder()
                 .tokenId(saved.getTokenId())
@@ -88,7 +90,8 @@ public class CiTokenServiceImpl implements CiTokenServicePort {
                 .repositoryId(saved.getRepositoryId())
                 .expiresAt(saved.getExpiresAt())
                 .createdAt(saved.getCreatedAt())
-                .message("Lưu ý: Mã token chỉ hiển thị MỘT LẦN duy nhất. Vui lòng sao chép và cấu hình vào GitHub Secrets ngay bây giờ.")
+                .message(
+                        "Lưu ý: Mã token chỉ hiển thị MỘT LẦN duy nhất. Vui lòng sao chép và cấu hình vào GitHub Secrets ngay bây giờ.")
                 .build();
     }
 
@@ -125,8 +128,7 @@ public class CiTokenServiceImpl implements CiTokenServicePort {
                 AuditAction.CI_TOKEN_REVOKED,
                 "CiToken",
                 String.valueOf(tokenId),
-                "Thu hồi CI Token: " + token.getTokenName() + " (Prefix: " + token.getTokenPrefix() + ")"
-        );
+                "Thu hồi CI Token: " + token.getTokenName() + " (Prefix: " + token.getTokenPrefix() + ")");
     }
 
     @Override
@@ -198,7 +200,8 @@ public class CiTokenServiceImpl implements CiTokenServicePort {
     }
 
     private String resolveUserEmail(Long userId) {
-        if (userId == null) return "system";
+        if (userId == null)
+            return "system";
         return userRepositoryPort.findById(userId)
                 .map(User::getEmail)
                 .orElse("user-" + userId);
@@ -218,7 +221,8 @@ public class CiTokenServiceImpl implements CiTokenServicePort {
         StringBuilder hexString = new StringBuilder();
         for (byte b : bytes) {
             String hex = Integer.toHexString(0xff & b);
-            if (hex.length() == 1) hexString.append('0');
+            if (hex.length() == 1)
+                hexString.append('0');
             hexString.append(hex);
         }
         return hexString.toString();

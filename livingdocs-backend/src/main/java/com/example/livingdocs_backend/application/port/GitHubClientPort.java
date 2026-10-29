@@ -114,6 +114,14 @@ public interface GitHubClientPort {
      * @return ID của comment vừa tạo
      */
     Long createPullRequestComment(String token, String owner, String repo, int prNumber, String body);
+
+    /**
+     * Kiểm tra tính hợp lệ của access token kết nối GitHub.
+     *
+     * @param token Access token GitHub
+     * @return Kết quả xác thực token
+     */
+    com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult validateToken(String token);
 }
 
 
