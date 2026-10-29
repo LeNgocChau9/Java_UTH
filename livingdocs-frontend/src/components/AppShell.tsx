@@ -48,6 +48,7 @@ import {
   RefreshCw,
   UserCog,
   Check,
+  ExternalLink,
 } from "lucide-react";
 import { useSession } from "@/hooks/useSession";
 import { useRouter } from "next/navigation";
@@ -236,6 +237,9 @@ function SidebarSection({
         {title}
       </p>
       <div className="space-y-1">{children}</div>
+
+
+
     </div>
   );
 }
@@ -273,8 +277,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       window.location.reload();
     } catch {
       // Nếu không gia hạn được ngầm (ví dụ token cũ/GitHub OAuth cần cấp lại), chuyển hướng đăng nhập lại GitHub để lấy token tươi mới
-      const currentPath = typeof window !== "undefined" ? window.location.pathname + window.location.search : "/dashboard";
-      window.location.assign(`/api/auth/github?redirect=${encodeURIComponent(currentPath)}`);
+      clearSession();
+      setShowSessionModal(false);
+      router.push("/login?expired=true");
     } finally {
       setExtendingSession(false);
     }
@@ -289,6 +294,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   // Modal xem chi tiết hồ sơ người dùng
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showGitHubModal, setShowGitHubModal] = useState(false);
   const [bannerUrl, setBannerUrl] = useState<string>("/project-cover.png");
 
   // Modal đổi thông tin cá nhân & mật khẩu
@@ -816,8 +822,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                               <span style={{ fontSize: 11, color: "#94a3b8" }}>Chưa liên kết</span>
                             )}
                           </div>
-                          <a
-                            href="/api/auth/github?redirect=/dashboard"
+                          <button
+                            type="button"
+                            onClick={() => { setShowGitHubModal(true); setUserMenuOpen(false); }}
                             className="ld-btn ld-btn-secondary w-full"
                             style={{
                               fontSize: 11,
@@ -831,7 +838,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                               <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
                             </svg>
                             {user?.githubUsername ? "Đổi tài khoản GitHub" : "Liên kết GitHub"}
-                          </a>
+                          </button>
                         </div>
                       </div>
                       <div style={{ padding: 6, display: "flex", flexDirection: "column", gap: 2 }}>
@@ -1224,7 +1231,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     fontStyle: "italic",
                   }}
                 >
-                  "{user?.bio || (typeof window !== "undefined" ? localStorage.getItem("ld_user_bio_" + (user?.userId || "me")) : "")}"
+                  &ldquo;{user?.bio || (typeof window !== "undefined" ? localStorage.getItem("ld_user_bio_" + (user?.userId || "me")) : "")}&rdquo;
                 </div>
               )}
 
@@ -1307,31 +1314,41 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </div>
 
                 {/* GitHub */}
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div
-                    style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: 8,
-                      background: "#f1f5f9",
-                      color: "#334155",
-                      display: "grid",
-                      placeItems: "center",
-                      flexShrink: 0,
-                    }}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                    <div
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 8,
+                        background: "#f1f5f9",
+                        color: "#334155",
+                        display: "grid",
+                        placeItems: "center",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+                        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
+                      </svg>
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <span style={{ fontSize: 11, color: "#64748b", fontWeight: 500, display: "block" }}>
+                        Tài khoản GitHub
+                      </span>
+                      <span style={{ fontSize: 13, color: "#0f172a", fontWeight: 600 }}>
+                        {user?.githubUsername ? `@${user.githubUsername}` : "Chưa liên kết"}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowGitHubModal(true)}
+                    className="inline-flex items-center gap-1.5 rounded-[6px] border border-emerald-600 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                    title="Bấm để đổi hoặc liên kết tài khoản GitHub"
                   >
-                    <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
-                      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
-                    </svg>
-                  </div>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <span style={{ fontSize: 11, color: "#64748b", fontWeight: 500, display: "block" }}>
-                      Tài khoản GitHub
-                    </span>
-                    <span style={{ fontSize: 13, color: "#0f172a", fontWeight: 600 }}>
-                      {user?.githubUsername ? `@${user.githubUsername}` : "Chưa liên kết"}
-                    </span>
-                  </div>
+                    {user?.githubUsername ? "Đổi tài khoản" : "Liên kết ngay"}
+                  </button>
                 </div>
 
                 {/* User ID / Created Date */}
@@ -1538,6 +1555,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
 
               <div style={{ borderTop: "1px dashed #e2e8f0", paddingTop: 12, marginTop: 4 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", display: "block", marginBottom: 6 }}>
+                  Liên kết tài khoản GitHub
+                </span>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <svg className="w-5 h-5 text-slate-700 fill-current shrink-0" viewBox="0 0 24 24">
+                      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
+                    </svg>
+                    <div>
+                      <p style={{ fontSize: 13, fontWeight: 600, color: "#0f172a", margin: 0 }}>
+                        {user?.githubUsername ? `@${user.githubUsername}` : "Chưa liên kết tài khoản GitHub"}
+                      </p>
+                      <p style={{ fontSize: 11, color: "#64748b", margin: 0 }}>
+                        {user?.githubUsername ? "Tài khoản GitHub đang kết nối để đồng bộ kho lưu trữ" : "Liên kết để quét repo và nhận diện sai lệch tài liệu"}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowGitHubModal(true)}
+                    className="inline-flex items-center gap-1 rounded-[6px] bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"
+                  >
+                    {user?.githubUsername ? "Đổi tài khoản" : "Liên kết GitHub"}
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ borderTop: "1px dashed #e2e8f0", paddingTop: 12, marginTop: 4 }}>
                 <span style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", display: "block", marginBottom: 8 }}>
                   Đổi mật khẩu (Bỏ trống nếu không muốn đổi)
                 </span>
@@ -1599,6 +1644,119 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* ── MODAL XÁC NHẬN CHUYỂN HƯỚNG / ĐỔI TÀI KHOẢN GITHUB ── */}
+      {showGitHubModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15, 23, 42, 0.65)",
+            backdropFilter: "blur(4px)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            className="ld-card"
+            style={{
+              maxWidth: 480,
+              width: "100%",
+              padding: 24,
+              borderRadius: 16,
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+              border: "1px solid #e2e8f0",
+              background: "#ffffff",
+              position: "relative",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setShowGitHubModal(false)}
+              className="ld-btn ld-btn-ghost"
+              style={{ position: "absolute", top: 16, right: 16, padding: 4 }}
+            >
+              <X size={18} />
+            </button>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 12,
+                  background: "#0f172a",
+                  color: "#ffffff",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <svg className="w-6 h-6 fill-current" viewBox="0 0 24 24">
+                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
+                </svg>
+              </div>
+              <div>
+                <h3 style={{ fontSize: 17, fontWeight: 700, color: "#0f172a", margin: 0 }}>
+                  Xác thực & Liên kết GitHub
+                </h3>
+                <p style={{ fontSize: 12, color: "#64748b", margin: "2px 0 0" }}>
+                  Tài khoản hiện tại: {user?.githubUsername ? `@${user.githubUsername}` : "Chưa liên kết"}
+                </p>
+              </div>
+            </div>
+
+            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: 14, marginBottom: 16 }}>
+              <p style={{ fontSize: 13, color: "#334155", margin: 0, lineHeight: 1.5 }}>
+                Hệ thống sẽ chuyển bạn sang <strong>GitHub</strong> để xác thực danh tính.
+              </p>
+              <div style={{ marginTop: 8, padding: "8px 10px", background: "#fef3c7", border: "1px solid #fde68a", borderRadius: 6 }}>
+                <p style={{ fontSize: 12, color: "#92400e", margin: 0, lineHeight: 1.5 }}>
+                  ⚠️ <strong>Lưu ý:</strong> Nếu muốn đổi sang tài khoản GitHub khác, hãy đảm bảo bạn đã đăng nhập tài khoản đó trên <strong>github.com</strong> trước (tránh việc GitHub tự nhận diện phiên cũ).
+                </p>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <a
+                href="https://github.com/login"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="ld-btn ld-btn-secondary w-full"
+                style={{ fontSize: 13, padding: "9px 16px", justifyContent: "center", gap: 8 }}
+              >
+                <ExternalLink size={15} />
+                Mở github.com để đổi tài khoản
+              </a>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const target = typeof window !== "undefined" ? window.location.pathname : "/dashboard";
+                  window.location.assign(`/api/auth/github?redirect=${encodeURIComponent(target)}`);
+                }}
+                className="ld-btn ld-btn-primary w-full"
+                style={{ fontSize: 13, padding: "9px 16px", justifyContent: "center", gap: 8 }}
+              >
+                <Check size={16} />
+                Tiếp tục chuyển hướng liên kết
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowGitHubModal(false)}
+                className="ld-btn ld-btn-ghost w-full"
+                style={{ fontSize: 12, padding: "6px 12px", justifyContent: "center", color: "#64748b" }}
+              >
+                Hủy bỏ
+              </button>
+            </div>
           </div>
         </div>
       )}
