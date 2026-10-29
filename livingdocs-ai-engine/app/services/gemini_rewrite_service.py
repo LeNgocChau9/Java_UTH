@@ -32,7 +32,9 @@ logger = logging.getLogger(__name__)
 
 # Danh sách model Gemini có cơ chế fallback tự động
 REWRITE_MODELS = [
-    "gemini-3.5-flash-lite",
+    "gemini-1.5-flash",
+    "gemini-flash-latest",
+    "gemini-2.5-flash",
     "gemini-3.5-flash",
     "gemini-3.8-flash",
     "gemini-flash-lite-latest",

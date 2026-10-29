@@ -28,6 +28,14 @@ export function clearAuthStorage() {
   document.cookie = `${ACCESS_TOKEN_COOKIE}=; Path=/; SameSite=Lax; Max-Age=0`;
 }
 
+/** Lưu token mới vào localStorage và Cookie */
+export function saveToken(token: string, expiresIn = 86400) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(ACCESS_TOKEN_KEY, token);
+  const maxAge = expiresIn > 0 ? expiresIn : 86400;
+  document.cookie = `${ACCESS_TOKEN_COOKIE}=${token}; Path=/; SameSite=Lax; Max-Age=${maxAge}`;
+}
+
 // ── Request interceptor: tự động gắn "Authorization: Bearer <token>" ──
 apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   if (typeof window === "undefined") {
@@ -35,34 +43,125 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   }
 
   const token = window.localStorage.getItem(ACCESS_TOKEN_KEY);
-  if (token) {
+  if (token && !config.headers.has("Authorization")) {
     config.headers.set("Authorization", `Bearer ${token}`);
   }
 
   return config;
 });
 
-// ── Response interceptor: bắt 401 → phát sự kiện "livingdocs:session_expired" để hiện modal gia hạn ──
+// ── Biến cờ kiểm soát refresh token đồng thời & hàng đợi yêu cầu ──
+let isRefreshing = false;
+let failedQueue: Array<{
+  resolve: (token: string) => void;
+  reject: (error: unknown) => void;
+}> = [];
+
+const processQueue = (error: unknown, token: string | null = null) => {
+  failedQueue.forEach((prom) => {
+    if (error) {
+      prom.reject(error);
+    } else if (token) {
+      prom.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
+// ── Response interceptor: Tự động gia hạn ngầm (Silent Refresh) khi gặp 401 ──
 apiClient.interceptors.response.use(
   (response) => response,
-  (error: AxiosError) => {
-    if (error.response?.status === 401 && typeof window !== "undefined") {
-      const requestUrl = error.config?.url || "";
-      // Không bắn modal hết phiên nếu:
-      // 1. Đang ở trang đăng nhập
-      // 2. Hoặc request gọi endpoint preview template (vì có fallback tự sinh markdown trực tiếp)
-      // 3. Hoặc request chính là refresh token
-      if (
-        window.location.pathname !== LOGIN_PATH &&
-        !requestUrl.includes("/preview") &&
-        !requestUrl.includes("/auth/refresh") &&
-        !requestUrl.includes("/auth/login")
-      ) {
-        // Bắn CustomEvent để AppShell hoặc UI hiển thị Modal hỏi gia hạn phiên
-        window.dispatchEvent(new CustomEvent("livingdocs:session_expired"));
-      }
+  async (error: AxiosError) => {
+    const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+
+    // Bỏ qua nếu lỗi không có config hoặc không phải 401 hoặc chạy trên SSR
+    if (!originalRequest || error.response?.status !== 401 || typeof window === "undefined") {
+      return Promise.reject(error);
     }
 
-    return Promise.reject(error);
-  },
+    const requestUrl = originalRequest.url || "";
+
+    // Bỏ qua các URL đăng nhập, làm mới token hoặc preview
+    const isAuthRoute =
+      requestUrl.includes("/api/auth/login") ||
+      requestUrl.includes("/api/auth/register") ||
+      requestUrl.includes("/api/auth/refresh") ||
+      requestUrl.includes("/preview") ||
+      window.location.pathname === LOGIN_PATH;
+
+    if (isAuthRoute) {
+      return Promise.reject(error);
+    }
+
+    // Nếu request này đã từng thử retry 1 lần mà vẫn 401 -> phiên thực sự hết hạn
+    if (originalRequest._retry) {
+      clearAuthStorage();
+      window.dispatchEvent(new CustomEvent("livingdocs:session_expired"));
+      return Promise.reject(error);
+    }
+
+    // Nếu đang có một tiến trình refresh token chạy ngầm -> cho request này vào hàng đợi
+    if (isRefreshing) {
+      return new Promise<string>((resolve, reject) => {
+        failedQueue.push({ resolve, reject });
+      })
+        .then((newToken) => {
+          originalRequest.headers.set("Authorization", `Bearer ${newToken}`);
+          return apiClient(originalRequest);
+        })
+        .catch((err) => Promise.reject(err));
+    }
+
+    originalRequest._retry = true;
+    isRefreshing = true;
+
+    const currentToken = window.localStorage.getItem(ACCESS_TOKEN_KEY);
+
+    // Nếu trên máy client chưa từng có token thì không cần refresh
+    if (!currentToken) {
+      isRefreshing = false;
+      clearAuthStorage();
+      window.dispatchEvent(new CustomEvent("livingdocs:session_expired"));
+      return Promise.reject(error);
+    }
+
+    try {
+      // Dùng instance axios độc lập (không qua interceptor) để gọi API refresh
+      const refreshResponse = await axios.post<{
+        token: string;
+        expiresIn: number;
+        user?: unknown;
+      }>(
+        `${process.env.NEXT_PUBLIC_API_BASE_URL ?? ""}/api/auth/refresh`,
+        {},
+        {
+          headers: {
+            Authorization: `Bearer ${currentToken}`,
+            Accept: "application/json",
+          },
+        }
+      );
+
+      const newToken = refreshResponse.data.token;
+      saveToken(newToken, refreshResponse.data.expiresIn);
+
+      if (refreshResponse.data.user) {
+        window.localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(refreshResponse.data.user));
+      }
+
+      // Thông báo cho tất cả request đang chờ
+      processQueue(null, newToken);
+
+      // Cập nhật token cho request hiện tại và gửi lại
+      originalRequest.headers.set("Authorization", `Bearer ${newToken}`);
+      return apiClient(originalRequest);
+    } catch (refreshErr) {
+      processQueue(refreshErr, null);
+      clearAuthStorage();
+      window.dispatchEvent(new CustomEvent("livingdocs:session_expired"));
+      return Promise.reject(refreshErr);
+    } finally {
+      isRefreshing = false;
+    }
+  }
 );
