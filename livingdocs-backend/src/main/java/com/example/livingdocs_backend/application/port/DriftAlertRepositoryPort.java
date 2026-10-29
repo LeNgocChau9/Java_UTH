@@ -13,4 +13,3 @@ public interface DriftAlertRepositoryPort {
     List<DriftAlert> findByRepoIdAndPrNumber(Long repoId, Integer prNumber);
     List<DriftAlert> findByStatus(String status);
 }
-

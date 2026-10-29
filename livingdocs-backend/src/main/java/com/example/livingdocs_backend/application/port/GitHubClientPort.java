@@ -4,6 +4,7 @@ import com.example.livingdocs_backend.application.dto.github.GitHubCommitDto;
 import com.example.livingdocs_backend.application.dto.github.GitHubFileDto;
 import com.example.livingdocs_backend.application.dto.github.GitHubPublishResultDto;
 import com.example.livingdocs_backend.application.dto.github.GitHubPullRequestDto;
+import com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult;
 
 import java.util.List;
 
@@ -16,76 +17,31 @@ public interface GitHubClientPort {
 
     /**
      * Lấy toàn bộ cây thư mục/danh sách file trong repo tại một branch hoặc commit cụ thể.
-     *
-     * @param token      Access token (Personal Access Token hoặc OAuth Token)
-     * @param owner      Chủ sở hữu repo (username hoặc tổ chức)
-     * @param repo       Tên repo
-     * @param treeSha    Branch name (vd: 'main') hoặc Commit SHA
-     * @param recursive  True nếu muốn quét đệ quy toàn bộ thư mục con
-     * @return Danh sách file và folder
      */
     List<GitHubFileDto> getRepositoryTree(String token, String owner, String repo, String treeSha, boolean recursive);
 
     /**
      * Lấy thông tin chi tiết một Pull Request.
-     *
-     * @param token    Access token
-     * @param owner    Chủ sở hữu repo
-     * @param repo     Tên repo
-     * @param prNumber Số thứ tự của PR
-     * @return Thông tin PR
      */
     GitHubPullRequestDto getPullRequest(String token, String owner, String repo, int prNumber);
 
     /**
      * Lấy danh sách Pull Request của repository.
-     *
-     * @param token  Access token
-     * @param owner  Chủ sở hữu repo
-     * @param repo   Tên repo
-     * @param state  Trạng thái PR: "open", "closed", "all"
-     * @return Danh sách PR
      */
     List<GitHubPullRequestDto> listPullRequests(String token, String owner, String repo, String state);
 
     /**
      * Lấy danh sách Commit của repository (hoặc theo một branch/PR).
-     *
-     * @param token  Access token
-     * @param owner  Chủ sở hữu repo
-     * @param repo   Tên repo
-     * @param sha    Branch name hoặc SHA (tuỳ chọn, để null nếu lấy branch mặc định)
-     * @param limit  Số lượng commit tối đa (vd: 30, 100)
-     * @return Danh sách commit
      */
     List<GitHubCommitDto> listCommits(String token, String owner, String repo, String sha, int limit);
 
     /**
      * Tạo hoặc cập nhật file trong GitHub repository (Tạo commit lên branch chỉ định).
-     *
-     * @param token         Access token của GitHub
-     * @param owner         Chủ sở hữu repo
-     * @param repo          Tên repo
-     * @param filePath      Đường dẫn file trong repository (vd: docs/architecture.md)
-     * @param content       Nội dung file (plain text, hàm sẽ tự base64 encode)
-     * @param commitMessage Thông điệp commit
-     * @param branch        Tên branch cần push (vd: main)
-     * @return Commit SHA nếu thành công
      */
     String createOrUpdateFile(String token, String owner, String repo, String filePath, String content, String commitMessage, String branch);
 
     /**
      * Tạo hoặc cập nhật một file trong GitHub repository bằng GitHub Contents API.
-     * Tương ứng với: PUT /repos/{owner}/{repo}/contents/{path}
-     *
-     * @param token         Personal Access Token hoặc OAuth Token có quyền ghi repo
-     * @param owner         Chủ sở hữu repo (username hoặc tổ chức)
-     * @param repo          Tên repo
-     * @param filePath      Đường dẫn file trong repo (vd: docs/api/UserService.md)
-     * @param content       Nội dung file dạng plain text (sẽ được Base64 hóa trước khi gửi)
-     * @param commitMessage Commit message
-     * @param currentSha    SHA của file hiện tại trên repo (null nếu là file mới)
-     * @return Kết quả publish gồm commit SHA và HTML URL
      */
     GitHubPublishResultDto putFileContent(String token, String owner, String repo,
                                           String filePath, String content,
@@ -93,29 +49,16 @@ public interface GitHubClientPort {
 
     /**
      * Lấy SHA hiện tại của một file trong repo (null nếu file chưa tồn tại).
-     *
-     * @param token    Personal Access Token hoặc OAuth Token
-     * @param owner    Chủ sở hữu repo
-     * @param repo     Tên repo
-     * @param filePath Đường dẫn file trong repo
-     * @return SHA chuỗi băm của file hiện tại hoặc null nếu file chưa tồn tại
      */
     String getCurrentFileSha(String token, String owner, String repo, String filePath);
 
     /**
      * Đăng bình luận (Comment) lên Pull Request qua GitHub REST API.
-     * Tương ứng endpoint: POST /repos/{owner}/{repo}/issues/{issue_number}/comments
-     *
-     * @param token    Access token GitHub
-     * @param owner    Chủ sở hữu repo
-     * @param repo     Tên repo
-     * @param prNumber Số thứ tự của Pull Request
-     * @param body     Nội dung bình luận dạng Markdown
-     * @return ID của comment vừa tạo
      */
     Long createPullRequestComment(String token, String owner, String repo, int prNumber, String body);
+
+    /**
+     * Kiểm tra tính hợp lệ của access token kết nối GitHub.
+     */
+    GitHubTokenValidationResult validateToken(String token);
 }
-
-
-
-

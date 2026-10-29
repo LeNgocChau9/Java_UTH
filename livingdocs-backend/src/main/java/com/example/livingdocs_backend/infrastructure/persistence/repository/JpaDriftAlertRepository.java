@@ -12,4 +12,3 @@ public interface JpaDriftAlertRepository extends JpaRepository<DriftAlertEntity,
     List<DriftAlertEntity> findByRepoIdAndPrNumber(Long repoId, Integer prNumber);
     List<DriftAlertEntity> findByStatus(String status);
 }
-

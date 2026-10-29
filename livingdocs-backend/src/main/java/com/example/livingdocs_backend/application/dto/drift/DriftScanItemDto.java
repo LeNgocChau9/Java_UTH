@@ -32,4 +32,3 @@ public class DriftScanItemDto {
     @Schema(description = "ID tài liệu liên kết nếu đã xác định được trước", example = "10")
     private Long documentId;
 }
-

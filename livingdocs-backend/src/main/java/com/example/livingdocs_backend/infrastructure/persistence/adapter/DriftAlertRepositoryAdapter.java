@@ -82,4 +82,3 @@ public class DriftAlertRepositoryAdapter implements DriftAlertRepositoryPort {
                 .build();
     }
 }
-

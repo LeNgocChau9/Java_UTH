@@ -1,6 +1,7 @@
 package com.example.livingdocs_backend;
 
 import com.example.livingdocs_backend.application.dto.github.WebhookProcessingResult;
+import com.example.livingdocs_backend.application.port.JobQueue;
 import com.example.livingdocs_backend.application.service.GitHubWebhookServiceImpl;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.CommitEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.PullRequestEntity;
@@ -23,6 +24,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class GitHubWebhookServiceTest {
@@ -31,6 +33,7 @@ class GitHubWebhookServiceTest {
     private SpringDataPullRequestRepository pullRequestRepository;
     private SpringDataCommitRepository commitRepository;
     private ObjectMapper objectMapper;
+    private JobQueue jobQueue;
 
     private GitHubWebhookServiceImpl webhookService;
 
@@ -42,12 +45,14 @@ class GitHubWebhookServiceTest {
         pullRequestRepository = mock(SpringDataPullRequestRepository.class);
         commitRepository = mock(SpringDataCommitRepository.class);
         objectMapper = new ObjectMapper();
+        jobQueue = mock(JobQueue.class);
 
         webhookService = new GitHubWebhookServiceImpl(
                 repositoryRepository,
                 pullRequestRepository,
                 commitRepository,
-                objectMapper
+                objectMapper,
+                jobQueue
         );
 
         ReflectionTestUtils.setField(webhookService, "webhookSecret", secret);
@@ -60,31 +65,33 @@ class GitHubWebhookServiceTest {
 
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
-        byte[] hashBytes = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
+        byte[] bytes = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
         StringBuilder hex = new StringBuilder();
-        for (byte b : hashBytes) hex.append(String.format("%02x", b));
-        String signatureHeader = "sha256=" + hex.toString();
+        for (byte b : bytes) {
+            hex.append(String.format("%02x", b));
+        }
 
-        boolean valid = webhookService.verifySignature(payload, signatureHeader);
-        assertTrue(valid, "Chữ ký phải hợp lệ khi tính đúng hash HMAC SHA-256");
+        String signature = "sha256=" + hex.toString();
+
+        boolean result = webhookService.verifySignature(payload, signature);
+        assertTrue(result, "Chữ ký hợp lệ phải trả về true");
     }
 
     @Test
     @DisplayName("Chữ ký HMAC SHA-256: Bị từ chối khi hash sai")
     void shouldRejectInvalidSignature() {
-        String payload = "{\"zen\": \"test\"}";
-        String invalidSignature = "sha256=1111111111111111111111111111111111111111111111111111111111111111";
+        String payload = "{\"hello\": \"world\"}";
+        String invalidSignature = "sha256=abcdef1234567890badhash";
 
-        boolean valid = webhookService.verifySignature(payload, invalidSignature);
-        assertFalse(valid, "Chữ ký sai phải bị từ chối");
+        boolean result = webhookService.verifySignature(payload, invalidSignature);
+        assertFalse(result, "Chữ ký sai lệch phải trả về false");
     }
 
     @Test
-    @DisplayName("Xử lý sự kiện Push: Lưu danh sách commit vào bảng commits")
+    @DisplayName("Xử lý sự kiện Push: Lưu danh sách commits vào database")
     void shouldHandlePushEventAndSaveCommits() {
         String payload = """
                 {
-                  "ref": "refs/heads/main",
                   "repository": {
                     "id": 123456,
                     "full_name": "LeNgocChau9/Java_UTH"
@@ -92,12 +99,9 @@ class GitHubWebhookServiceTest {
                   "commits": [
                     {
                       "id": "c1a2b3d4e5f6",
-                      "message": "feat: webhook support",
+                      "message": "feat: commit 1",
                       "timestamp": "2026-10-19T10:00:00Z",
-                      "author": {
-                        "name": "Chau Le",
-                        "email": "chau@example.com"
-                      }
+                      "author": { "name": "Admin", "email": "admin@example.com" }
                     }
                   ]
                 }
@@ -122,8 +126,8 @@ class GitHubWebhookServiceTest {
     }
 
     @Test
-    @DisplayName("Xử lý sự kiện Pull Request: Lưu thông tin PR vào bảng pull_requests")
-    void shouldHandlePullRequestEventAndSavePR() {
+    @DisplayName("Xử lý sự kiện Pull Request: Lưu PR và tự động đẩy Job quét Drift vào JobQueue")
+    void shouldHandlePullRequestEventAndEnqueueDriftScanJob() {
         String payload = """
                 {
                   "action": "opened",
@@ -161,5 +165,8 @@ class GitHubWebhookServiceTest {
         assertEquals(1, result.affectedCount());
         verify(pullRequestRepository, times(1)).save(any(PullRequestEntity.class));
         verify(repositoryRepository, times(1)).save(mockRepo);
+
+        // Kiểm tra đã tự động kích hoạt Job quét Drift
+        verify(jobQueue, times(1)).enqueue(eq(GitHubWebhookServiceImpl.JOB_TYPE_PR_DRIFT_SCAN), anyString());
     }
 }

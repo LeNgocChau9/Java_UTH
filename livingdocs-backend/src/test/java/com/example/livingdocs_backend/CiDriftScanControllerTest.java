@@ -125,4 +125,3 @@ class CiDriftScanControllerTest {
         assertEquals("SUCCESS", body.getStatus());
     }
 }
-

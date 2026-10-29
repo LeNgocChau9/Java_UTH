@@ -103,4 +103,3 @@ public class CiDriftScanServiceImpl implements CiDriftScanServicePort {
         return driftAlertRepository.findByRepoIdAndPrNumber(repoId, prNumber);
     }
 }
-

@@ -12,4 +12,3 @@ public interface CiDriftScanServicePort {
     List<DriftAlert> getAlertsByRepo(Long repoId);
     List<DriftAlert> getAlertsByPr(Long repoId, Integer prNumber);
 }
-

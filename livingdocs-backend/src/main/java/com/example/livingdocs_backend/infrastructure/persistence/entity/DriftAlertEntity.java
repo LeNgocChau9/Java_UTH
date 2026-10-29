@@ -59,4 +59,3 @@ public class DriftAlertEntity {
     @Column(name = "resolved_at")
     private Instant resolvedAt;
 }
-

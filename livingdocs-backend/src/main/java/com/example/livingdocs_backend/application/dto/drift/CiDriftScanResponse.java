@@ -39,4 +39,3 @@ public class CiDriftScanResponse {
     @Schema(description = "Danh sách ID các alert vừa được tạo")
     private List<Long> alertIds;
 }
-

@@ -36,4 +36,3 @@ public class CiDriftScanRequest {
     @Schema(description = "Danh sách các cảnh báo trôi dạt phát hiện được từ CI quét")
     private List<DriftScanItemDto> alerts;
 }
-

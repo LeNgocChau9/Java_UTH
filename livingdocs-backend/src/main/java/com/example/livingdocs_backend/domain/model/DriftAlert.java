@@ -28,4 +28,3 @@ public class DriftAlert {
     private Instant createdAt;
     private Instant resolvedAt;
 }
-
