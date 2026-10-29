@@ -16,11 +16,6 @@ import {
   Loader2,
   ChevronDown,
   ChevronUp,
-  Wrench,
-  Terminal,
-  Copy,
-  Check,
-  Info,
 } from "lucide-react";
 
 interface ServiceItem {
@@ -31,11 +26,7 @@ interface ServiceItem {
   latency: string;
   port: number | null;
   errorDetail?: string;
-  fixSuggestions?: {
-    cause: string;
-    action: string;
-    command?: string;
-  }[];
+  rootCause?: string;
 }
 
 const INITIAL_SERVICES: ServiceItem[] = [
@@ -46,19 +37,8 @@ const INITIAL_SERVICES: ServiceItem[] = [
     uptime: "99.8%",
     latency: "6ms",
     port: 8080,
-    errorDetail: "Không thể kết nối đến cổng 8080 (ECONNREFUSED). Process Spring Boot có thể đã bị dừng.",
-    fixSuggestions: [
-      {
-        cause: "Ứng dụng Spring Boot chưa được khởi động",
-        action: "Chạy lệnh Maven để khởi động ứng dụng backend",
-        command: "cd livingdocs-backend && ./mvnw spring-boot:run",
-      },
-      {
-        cause: "Cổng 8080 đang bị tiến trình khác chiếm dụng",
-        action: "Tìm và dừng tiến trình đang giữ cổng 8080",
-        command: "netstat -ano | findstr :8080",
-      },
-    ],
+    errorDetail: "Mất kết nối cổng 8080 (ECONNREFUSED). Process Spring Boot đã bị tắt hoặc gặp sự cố dừng đột ngột.",
+    rootCause: "Ứng dụng backend chưa được chạy hoặc cổng 8080 bị tiến trình khác chiếm dụng.",
   },
   {
     id: "ai_engine",
@@ -68,18 +48,7 @@ const INITIAL_SERVICES: ServiceItem[] = [
     latency: "—",
     port: 8000,
     errorDetail: "Không thể kết nối tới http://localhost:8000/health (Connection refused).",
-    fixSuggestions: [
-      {
-        cause: "FastAPI server chưa chạy",
-        action: "Khởi động AI Engine bằng Uvicorn",
-        command: "cd livingdocs-ai-engine && uvicorn app.main:app --port 8000 --reload",
-      },
-      {
-        cause: "Thiếu biến môi trường GEMINI_API_KEY",
-        action: "Kiểm tra file .env trong thư mục livingdocs-ai-engine",
-        command: "export GEMINI_API_KEY='your-key-here'",
-      },
-    ],
+    rootCause: "Server AI FastAPI chưa được khởi động hoặc cổng 8000 chưa mở lắng nghe kết nối.",
   },
   {
     id: "postgres",
@@ -88,18 +57,8 @@ const INITIAL_SERVICES: ServiceItem[] = [
     uptime: "100%",
     latency: "3ms",
     port: 5432,
-    errorDetail: "Database connection failed. Container Postgres có thể bị stop.",
-    fixSuggestions: [
-      {
-        cause: "Docker container PostgreSQL chưa chạy",
-        action: "Bật lại container PostgreSQL của dự án",
-        command: "docker start ContainerLivingDocs",
-      },
-      {
-        cause: "Sai thông tin kết nối DB trong application.properties",
-        action: "Kiểm tra user/password và port (mặc định 5433 trên host)",
-      },
-    ],
+    errorDetail: "Không thể kết nối cơ sở dữ liệu PostgreSQL tại localhost:5433.",
+    rootCause: "Docker container ContainerLivingDocs đang ở trạng thái Exited hoặc bị tắt.",
   },
   {
     id: "redis",
@@ -108,14 +67,8 @@ const INITIAL_SERVICES: ServiceItem[] = [
     uptime: "99.9%",
     latency: "1ms",
     port: 6379,
-    errorDetail: "Không thể kết nối Redis tại cổng 6379.",
-    fixSuggestions: [
-      {
-        cause: "Redis server chưa bật",
-        action: "Khởi động Redis qua Docker hoặc service Windows",
-        command: "docker run -d --name redis-cache -p 6379:6379 redis:alpine",
-      },
-    ],
+    errorDetail: "Không nhận được phản hồi PING từ Redis tại cổng 6379.",
+    rootCause: "Dịch vụ bộ nhớ đệm Redis chưa được khởi chạy.",
   },
   {
     id: "webhook",
@@ -125,17 +78,7 @@ const INITIAL_SERVICES: ServiceItem[] = [
     latency: "25ms",
     port: 8080,
     errorDetail: "Chưa nhận được sự kiện Webhook (ping/push) từ GitHub trong 24 giờ qua.",
-    fixSuggestions: [
-      {
-        cause: "Chưa cấu hình Webhook URL trên GitHub Repository",
-        action: "Vào Repo GitHub > Settings > Webhooks và điền Payload URL",
-        command: "http://<domain-cua-ban>/api/webhooks/github",
-      },
-      {
-        cause: "Secret key không khớp",
-        action: "Kiểm tra cấu hình GITHUB_WEBHOOK_SECRET trong application.properties",
-      },
-    ],
+    rootCause: "Chưa cấu hình Webhook URL trên GitHub Repository hoặc sai Secret key.",
   },
   {
     id: "pgvector",
@@ -144,14 +87,8 @@ const INITIAL_SERVICES: ServiceItem[] = [
     uptime: "100%",
     latency: "—",
     port: null,
-    errorDetail: "Extension vector chưa được kích hoạt trong database.",
-    fixSuggestions: [
-      {
-        cause: "Chưa cài đặt extension vector trong PostgreSQL",
-        action: "Chạy câu lệnh SQL để kích hoạt pgvector",
-        command: "CREATE EXTENSION IF NOT EXISTS vector;",
-      },
-    ],
+    errorDetail: "Extension vector chưa được cài đặt trong PostgreSQL schema.",
+    rootCause: "Thiếu extension pgvector phục vụ cho tác vụ tìm kiếm vector ngữ nghĩa.",
   },
 ];
 
@@ -175,20 +112,11 @@ export default function GiamSatSucKhoePage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string>(() => new Date().toLocaleTimeString("vi-VN"));
 
-  // State quản lý việc mở rộng chi tiết lỗi của từng card (mặc định đóng gọn gàng)
+  // Chỉ mở rộng khi người dùng nhấn xem nguyên nhân lỗi (mặc định đóng)
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
-  const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
 
   const toggleExpand = (id: string) => {
     setExpandedCardId((prev) => (prev === id ? null : id));
-  };
-
-  const handleCopyCommand = (cmd: string) => {
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(cmd);
-      setCopiedCmd(cmd);
-      setTimeout(() => setCopiedCmd(null), 2000);
-    }
   };
 
   const handleRefresh = async () => {
@@ -290,13 +218,13 @@ export default function GiamSatSucKhoePage() {
           <p style={{ fontSize: 14, fontWeight: 600, color: offlineServices.length === 0 ? "#059669" : "#b45309", margin: 0 }}>
             {offlineServices.length === 0
               ? "Tất cả dịch vụ đang hoạt động ổn định"
-              : `Phát hiện ${offlineServices.length} dịch vụ đang gặp sự cố cần xử lý`}
+              : `Phát hiện ${offlineServices.length} dịch vụ đang gặp sự cố`}
           </p>
           <p style={{ fontSize: 12, color: "#475569", margin: "2px 0 0" }}>
             {onlineCount}/{services.length} services online ·{" "}
             {offlineServices.length === 0
               ? "Hệ thống sẵn sàng phục vụ 100%"
-              : `Các dịch vụ gặp lỗi: ${offlineServices.map((s) => s.name).join(", ")}`}
+              : `Dịch vụ ngoại tuyến: ${offlineServices.map((s) => s.name).join(", ")}`}
           </p>
         </div>
       </div>
@@ -364,120 +292,63 @@ export default function GiamSatSucKhoePage() {
                 {svc.port && <span>Port: <strong style={{ color: "#334155" }}>{svc.port}</strong></span>}
               </div>
 
-              {/* Nút bấm xem chi tiết nguyên nhân & cách fix (CHỈ HIỆN KHI ẤN) */}
-              <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px dashed #e2e8f0" }}>
-                <button
-                  type="button"
-                  onClick={() => toggleExpand(svc.id)}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    width: "100%",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    padding: "6px 10px",
-                    borderRadius: 6,
-                    background: isOffline ? "#fee2e2" : "#f1f5f9",
-                    color: isOffline ? "#991b1b" : "#334155",
-                    border: "none",
-                    cursor: "pointer",
-                    transition: "background 0.15s",
-                  }}
-                >
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                    <Wrench size={13} />
-                    {isOffline ? "Xem nguyên nhân lỗi & cách fix" : "Xem thông số & chẩn đoán"}
-                  </span>
-                  {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                </button>
-
-                {/* Phần nội dung chi tiết ẩn/hiện mượt mà */}
-                {isExpanded && (
-                  <div
+              {/* CHỈ HIỂN THỊ NÚT BẤM KHI DỊCH VỤ BỊ LỖI (OFFLINE) */}
+              {isOffline && (
+                <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px dashed #fca5a5" }}>
+                  <button
+                    type="button"
+                    onClick={() => toggleExpand(svc.id)}
                     style={{
-                      marginTop: 10,
-                      padding: 10,
-                      borderRadius: 6,
-                      background: isOffline ? "#fef2f2" : "#f8fafc",
-                      border: `1px solid ${isOffline ? "#fca5a5" : "#e2e8f0"}`,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      width: "100%",
                       fontSize: 12,
+                      fontWeight: 600,
+                      padding: "6px 10px",
+                      borderRadius: 6,
+                      background: "#fee2e2",
+                      color: "#991b1b",
+                      border: "none",
+                      cursor: "pointer",
+                      transition: "background 0.15s",
                     }}
                   >
-                    {isOffline && svc.errorDetail && (
-                      <div style={{ marginBottom: 10 }}>
-                        <p style={{ margin: 0, fontWeight: 700, color: "#991b1b" }}>Chi tiết lỗi phát hiện:</p>
-                        <p style={{ margin: "2px 0 0", color: "#b91c1c", fontFamily: "monospace", fontSize: 11 }}>
-                          {svc.errorDetail}
-                        </p>
-                      </div>
-                    )}
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <AlertTriangle size={13} />
+                      Xem nguyên nhân lỗi
+                    </span>
+                    {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </button>
 
-                    {svc.fixSuggestions && svc.fixSuggestions.length > 0 ? (
-                      <div>
-                        <p style={{ margin: "0 0 6px", fontWeight: 700, color: "#1e293b" }}>
-                          Hướng dẫn khắc phục cho Admin:
-                        </p>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                          {svc.fixSuggestions.map((sug, idx) => (
-                            <div
-                              key={idx}
-                              style={{
-                                padding: 8,
-                                background: "#ffffff",
-                                borderRadius: 4,
-                                border: "1px solid #cbd5e1",
-                              }}
-                            >
-                              <div style={{ fontWeight: 600, color: "#334155" }}>
-                                • {sug.cause}:
-                              </div>
-                              <div style={{ color: "#64748b", marginTop: 2 }}>{sug.action}</div>
-                              {sug.command && (
-                                <div
-                                  style={{
-                                    marginTop: 6,
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "space-between",
-                                    background: "#0f172a",
-                                    color: "#38bdf8",
-                                    padding: "4px 8px",
-                                    borderRadius: 4,
-                                    fontFamily: "monospace",
-                                    fontSize: 11,
-                                  }}
-                                >
-                                  <span style={{ overflowX: "auto", whiteSpace: "nowrap" }}>
-                                    {sug.command}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleCopyCommand(sug.command!)}
-                                    title="Copy lệnh"
-                                    style={{
-                                      background: "transparent",
-                                      border: "none",
-                                      color: copiedCmd === sug.command ? "#4ade80" : "#94a3b8",
-                                      cursor: "pointer",
-                                      padding: "2px 4px",
-                                      marginLeft: 6,
-                                    }}
-                                  >
-                                    {copiedCmd === sug.command ? <Check size={12} /> : <Copy size={12} />}
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
+                  {/* Khi ấn mới bung ra nguyên nhân lỗi */}
+                  {isExpanded && (
+                    <div
+                      style={{
+                        marginTop: 8,
+                        padding: 10,
+                        borderRadius: 6,
+                        background: "#ffffff",
+                        border: "1px solid #fca5a5",
+                        fontSize: 12,
+                      }}
+                    >
+                      <div style={{ marginBottom: 6 }}>
+                        <span style={{ fontWeight: 700, color: "#991b1b" }}>Chi tiết lỗi: </span>
+                        <span style={{ color: "#b91c1c", fontFamily: "monospace", fontSize: 11 }}>
+                          {svc.errorDetail}
+                        </span>
                       </div>
-                    ) : (
-                      <p style={{ margin: 0, color: "#64748b" }}>Dịch vụ đang vận hành bình thường, không có lỗi cần sửa.</p>
-                    )}
-                  </div>
-                )}
-              </div>
+                      {svc.rootCause && (
+                        <div>
+                          <span style={{ fontWeight: 700, color: "#334155" }}>Nguyên nhân: </span>
+                          <span style={{ color: "#475569" }}>{svc.rootCause}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
