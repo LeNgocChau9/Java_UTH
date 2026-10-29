@@ -24,8 +24,12 @@ import org.mockito.ArgumentCaptor;
 import com.example.livingdocs_backend.application.dto.CreateDocumentRequest;
 import com.example.livingdocs_backend.application.dto.DocumentResponse;
 import com.example.livingdocs_backend.application.dto.IntegrityCheckResponse;
+import com.example.livingdocs_backend.application.dto.PublishToGitHubRequest;
+import com.example.livingdocs_backend.application.dto.PublishToGitHubResponse;
 import com.example.livingdocs_backend.application.dto.UpdateDocumentRequest;
+import com.example.livingdocs_backend.application.dto.github.GitHubPublishResultDto;
 import com.example.livingdocs_backend.application.port.AuditServicePort;
+import com.example.livingdocs_backend.application.port.GitHubClientPort;
 import com.example.livingdocs_backend.application.service.DocumentServiceImpl;
 import com.example.livingdocs_backend.application.service.TemplateStructureCheck;
 import com.example.livingdocs_backend.domain.exception.DocumentNotFoundException;
@@ -36,24 +40,9 @@ import com.example.livingdocs_backend.domain.model.DocumentVersion;
 import com.example.livingdocs_backend.domain.repository.DocumentRepositoryPort;
 import com.example.livingdocs_backend.domain.repository.DocumentVersionRepositoryPort;
 import com.example.livingdocs_backend.domain.util.HashUtils;
-import com.example.livingdocs_backend.application.dto.PublishToGitHubRequest;
-import com.example.livingdocs_backend.application.dto.PublishToGitHubResponse;
-import com.example.livingdocs_backend.application.dto.github.GitHubPublishResultDto;
-import com.example.livingdocs_backend.application.port.GitHubClientPort;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
-
-import java.time.Instant;
-import java.util.List;
-import java.util.Optional;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
 
 class DocumentServiceImplTest {
 
@@ -82,7 +71,6 @@ class DocumentServiceImplTest {
                                 gitHubClient,
                                 mock(TemplateStructureCheck.class));
         }
-
 
         @Test
         void testCreateDocument_generatesVersion1WithGenesisHash() {
@@ -610,7 +598,8 @@ class DocumentServiceImplTest {
                 verify(documentVersionRepositoryPort).save(versionCaptor.capture());
                 DocumentVersion updatedVersion = versionCaptor.getValue();
                 assertEquals("commit_hash_abc123456", updatedVersion.getCommitHash());
-                assertEquals("https://github.com/my-org/my-repo/commit/commit_hash_abc123456", updatedVersion.getCommitUrl());
+                assertEquals("https://github.com/my-org/my-repo/commit/commit_hash_abc123456",
+                                updatedVersion.getCommitUrl());
                 assertNotNull(updatedVersion.getPublishedAt());
 
                 // Xác minh audit log được ghi nhận
@@ -664,4 +653,3 @@ class DocumentServiceImplTest {
         }
 
 }
-

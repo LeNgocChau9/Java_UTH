@@ -33,16 +33,36 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class DocumentServiceImpl implements DocumentServicePort {
 
     private final DocumentRepositoryPort documentRepositoryPort;
     private final DocumentVersionRepositoryPort documentVersionRepositoryPort;
     private final AuditServicePort auditServicePort;
+    private final com.example.livingdocs_backend.application.port.ChangelogServicePort changelogServicePort;
     private final SpringDataRepositoryRepository repositoryRepository;
     private final SpringDataGitHubConnectionRepository gitHubConnectionRepository;
     private final GitHubClientPort gitHubClient;
     private final TemplateStructureCheck templateStructureCheck;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public DocumentServiceImpl(
+            DocumentRepositoryPort documentRepositoryPort,
+            DocumentVersionRepositoryPort documentVersionRepositoryPort,
+            AuditServicePort auditServicePort,
+            com.example.livingdocs_backend.application.port.ChangelogServicePort changelogServicePort,
+            SpringDataRepositoryRepository repositoryRepository,
+            SpringDataGitHubConnectionRepository gitHubConnectionRepository,
+            GitHubClientPort gitHubClient,
+            TemplateStructureCheck templateStructureCheck) {
+        this.documentRepositoryPort = documentRepositoryPort;
+        this.documentVersionRepositoryPort = documentVersionRepositoryPort;
+        this.auditServicePort = auditServicePort;
+        this.changelogServicePort = changelogServicePort;
+        this.repositoryRepository = repositoryRepository;
+        this.gitHubConnectionRepository = gitHubConnectionRepository;
+        this.gitHubClient = gitHubClient;
+        this.templateStructureCheck = templateStructureCheck;
+    }
 
 
     @Override
@@ -99,6 +119,16 @@ public class DocumentServiceImpl implements DocumentServicePort {
                     savedDoc.getDocId(),
                     AuditAction.DOCUMENT_CREATED,
                     "Khởi tạo tài liệu v1: \"" + savedDoc.getTitle() + "\"" + pathInfo);
+        }
+
+        // 5. Tự động ghi nhận Changelog
+        if (changelogServicePort != null) {
+            changelogServicePort.logChange(
+                    savedDoc.getDocId(),
+                    savedVersion1.getVersionId(),
+                    actorId,
+                    role.name(),
+                    "Khởi tạo tài liệu v1: \"" + savedDoc.getTitle() + "\"");
         }
 
         return toDocumentResponse(savedDoc, savedVersion1);
@@ -182,6 +212,17 @@ public class DocumentServiceImpl implements DocumentServicePort {
                     docId,
                     AuditAction.DOCUMENT_UPDATED,
                     detailBuilder.toString());
+        }
+
+        // Tự động ghi nhận Changelog
+        if (changelogServicePort != null) {
+            String summary = "Cập nhật tài liệu lên phiên bản v" + nextVersionNum + " (Tiêu đề: \"" + updatedDoc.getTitle() + "\")";
+            changelogServicePort.logChange(
+                    docId,
+                    savedVersion.getVersionId(),
+                    actorId,
+                    role.name(),
+                    summary);
         }
 
         return toDocumentResponse(updatedDoc, savedVersion);
@@ -354,6 +395,19 @@ public class DocumentServiceImpl implements DocumentServicePort {
             auditServicePort.recordDocumentAction(actorId, docId, action, detailMsg);
         }
 
+        // Tự động ghi nhận Changelog khi Staff duyệt/từ chối
+        if (changelogServicePort != null) {
+            String summary = (nextStatus == DocumentStatus.REJECTED)
+                    ? "Staff đã từ chối tài liệu. Lý do: " + (comment.isEmpty() ? "Không có lý do chi tiết" : comment)
+                    : "Staff đã phê duyệt tài liệu cấp 1 (chuyển sang Manager). " + (comment.isEmpty() ? "" : "Ghi chú: " + comment);
+            changelogServicePort.logChange(
+                    docId,
+                    latest != null ? latest.getVersionId() : null,
+                    actorId,
+                    actorRole != null ? actorRole : "STAFF",
+                    summary.trim());
+        }
+
         return toDocumentResponse(saved, latest);
     }
 
@@ -426,6 +480,28 @@ public class DocumentServiceImpl implements DocumentServicePort {
                         + (!comment.isEmpty() ? comment : "Tài liệu không đạt chuẩn xuất bản.");
             }
             auditServicePort.recordDocumentAction(actorId, docId, action, detailMsg);
+        }
+
+        // Tự động ghi nhận Changelog khi Manager phê duyệt/từ chối/trả lại
+        if (changelogServicePort != null) {
+            String summary;
+            if (nextStatus == DocumentStatus.PUBLISHED) {
+                summary = "Manager đã phê duyệt xuất bản (PUBLISHED)."
+                        + (gitCommitSha != null ? " Commit SHA: " + gitCommitSha + "." : "")
+                        + (!comment.isEmpty() ? " Ghi chú: " + comment : "");
+            } else if (nextStatus == DocumentStatus.UNDER_REVIEW_STAFF) {
+                summary = "Manager yêu cầu xem xét lại (Trả lại Staff). Lý do: "
+                        + (!comment.isEmpty() ? comment : "Cần rà soát lại.");
+            } else {
+                summary = "Manager đã từ chối tài liệu. Lý do: "
+                        + (!comment.isEmpty() ? comment : "Không đạt chuẩn xuất bản.");
+            }
+            changelogServicePort.logChange(
+                    docId,
+                    latest != null ? latest.getVersionId() : null,
+                    actorId,
+                    actorRole != null ? actorRole : "MANAGER",
+                    summary.trim());
         }
 
         return toDocumentResponse(saved, latest);
@@ -572,6 +648,18 @@ public class DocumentServiceImpl implements DocumentServicePort {
                     "Khôi phục tài liệu về phiên bản v" + targetVersion + " -> Tạo phiên bản mới v" + nextVersionNum
                             + msgReason);
         }
+
+        // Tự động ghi nhận Changelog khi Khôi phục (Rollback)
+        if (changelogServicePort != null) {
+            String summary = "Khôi phục tài liệu về phiên bản v" + targetVersion + " (tạo phiên bản mới v" + nextVersionNum + ")" + msgReason;
+            changelogServicePort.logChange(
+                    docId,
+                    savedVersion.getVersionId(),
+                    actorId,
+                    role.name(),
+                    summary);
+        }
+
         String message = "Đã khôi phục thành công tài liệu về nội dung của phiên bản v" + targetVersion
                 + ", tạo phiên bản mới v" + nextVersionNum + " để bảo đảm toàn vẹn chuỗi băm lịch sử" + msgReason + ".";
 
@@ -766,6 +854,18 @@ public class DocumentServiceImpl implements DocumentServicePort {
                         .createdAt(log.getCreatedAt())
                         .build())
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ChangelogResponse> getDocumentChangelogs(Long docId) {
+        if (!documentRepositoryPort.existsById(docId)) {
+            throw new DocumentNotFoundException(docId);
+        }
+        if (changelogServicePort == null) {
+            return List.of();
+        }
+        return changelogServicePort.getChangelogsByDocument(docId);
     }
 
     /**

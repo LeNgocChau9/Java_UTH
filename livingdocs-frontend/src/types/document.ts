@@ -100,3 +100,13 @@ export interface DocumentAuditLogItem {
   createdAt: string;
 }
 
+export interface ChangelogItem {
+  id: number;
+  documentId: number;
+  versionId: number | null;
+  actorId: number | null;
+  actorRole: "AI" | "DEV" | "STAFF" | "MANAGER" | string;
+  changeSummary: string;
+  createdAt: string;
+}
+
