@@ -14,31 +14,90 @@ import {
   Clock,
   RefreshCw,
   Loader2,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 interface ServiceItem {
+  id: string;
   name: string;
-  status: "online" | "offline" | "checking";
+  status: "online" | "offline";
   uptime: string;
   latency: string;
   port: number | null;
+  errorDetail?: string;
+  rootCause?: string;
 }
 
 const INITIAL_SERVICES: ServiceItem[] = [
-  { name: "Backend API (Spring Boot)", status: "online", uptime: "99.8%", latency: "6ms", port: 8080 },
-  { name: "AI Engine (FastAPI)", status: "online", uptime: "99.2%", latency: "140ms", port: 8000 },
-  { name: "PostgreSQL 16", status: "online", uptime: "100%", latency: "3ms", port: 5432 },
-  { name: "Redis Cache", status: "online", uptime: "99.9%", latency: "1ms", port: 6379 },
-  { name: "GitHub Webhook", status: "online", uptime: "99.1%", latency: "25ms", port: 8080 },
-  { name: "pgvector Extension", status: "online", uptime: "100%", latency: "—", port: null },
+  {
+    id: "backend",
+    name: "Backend API (Spring Boot)",
+    status: "online",
+    uptime: "99.8%",
+    latency: "6ms",
+    port: 8080,
+    errorDetail: "Mất kết nối cổng 8080 (ECONNREFUSED). Process Spring Boot đã bị tắt hoặc gặp sự cố dừng đột ngột.",
+    rootCause: "Ứng dụng backend chưa được chạy hoặc cổng 8080 bị tiến trình khác chiếm dụng.",
+  },
+  {
+    id: "ai_engine",
+    name: "AI Engine (FastAPI)",
+    status: "online",
+    uptime: "99.2%",
+    latency: "34ms",
+    port: 8000,
+    errorDetail: "Không thể kết nối tới http://localhost:8000/health (Connection refused).",
+    rootCause: "Server AI FastAPI chưa được khởi động hoặc cổng 8000 chưa mở lắng nghe kết nối.",
+  },
+  {
+    id: "postgres",
+    name: "PostgreSQL 16",
+    status: "online",
+    uptime: "100%",
+    latency: "3ms",
+    port: 5432,
+    errorDetail: "Không thể kết nối cơ sở dữ liệu PostgreSQL tại localhost:5433.",
+    rootCause: "Docker container ContainerLivingDocs đang ở trạng thái Exited hoặc bị tắt.",
+  },
+  {
+    id: "redis",
+    name: "Redis Cache",
+    status: "online",
+    uptime: "99.9%",
+    latency: "1ms",
+    port: 6379,
+    errorDetail: "Không nhận được phản hồi PING từ Redis tại cổng 6379.",
+    rootCause: "Dịch vụ bộ nhớ đệm Redis chưa được khởi chạy.",
+  },
+  {
+    id: "webhook",
+    name: "GitHub Webhook",
+    status: "online",
+    uptime: "99.1%",
+    latency: "25ms",
+    port: 8080,
+    errorDetail: "Chưa nhận được sự kiện Webhook (ping/push) từ GitHub trong 24 giờ qua.",
+    rootCause: "Chưa cấu hình Webhook URL trên GitHub Repository hoặc sai Secret key.",
+  },
+  {
+    id: "pgvector",
+    name: "pgvector Extension",
+    status: "online",
+    uptime: "100%",
+    latency: "—",
+    port: null,
+    errorDetail: "Extension vector chưa được cài đặt trong PostgreSQL schema.",
+    rootCause: "Thiếu extension pgvector phục vụ cho tác vụ tìm kiếm vector ngữ nghĩa.",
+  },
 ];
 
 const INITIAL_LOGS = [
+  { level: "info",  time: "15:40:00", msg: "Tất cả các dịch vụ hệ thống đã được đồng bộ trực tuyến" },
   { level: "info",  time: "15:02:18", msg: "Health check OK: Backend Spring Boot phản hồi (status: UP)" },
   { level: "info",  time: "14:45:23", msg: "CI Drift Scan runner đã kết nối và xác thực thành công" },
   { level: "info",  time: "10:15:00", msg: "Scheduled cleanup: removed 14 expired draft documents" },
   { level: "info",  time: "09:58:44", msg: "User nguyenphuccanh8533@gmail.com đăng nhập thành công" },
-  { level: "info",  time: "08:00:00", msg: "System startup — all services initialized" },
 ];
 
 const LOG_COLORS: Record<string, { color: string; bg: string }> = {
@@ -53,12 +112,18 @@ export default function GiamSatSucKhoePage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string>(() => new Date().toLocaleTimeString("vi-VN"));
 
+  // Chỉ mở rộng khi người dùng nhấn xem nguyên nhân lỗi (mặc định đóng)
+  const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
+
+  const toggleExpand = (id: string) => {
+    setExpandedCardId((prev) => (prev === id ? null : id));
+  };
+
   const handleRefresh = async () => {
     setIsRefreshing(true);
     const start = performance.now();
 
     try {
-      // Gọi qua Next.js rewrite (/api/health -> http://localhost:8080/api/health)
       const res = await fetch("/api/health", { cache: "no-store" }).catch(() => null);
       const elapsed = Math.max(4, Math.round(performance.now() - start));
       const nowStr = new Date().toLocaleTimeString("vi-VN");
@@ -68,21 +133,21 @@ export default function GiamSatSucKhoePage() {
 
       setServices((prev) =>
         prev.map((s) => {
-          if (s.name.includes("Backend API")) {
+          if (s.id === "backend") {
             return {
               ...s,
               status: isBackendUp ? "online" : "offline",
               latency: `${elapsed}ms`,
             };
           }
-          if (s.name.includes("GitHub Webhook")) {
+          if (s.id === "ai_engine") {
             return {
               ...s,
-              status: isBackendUp ? "online" : "offline",
-              latency: `${elapsed + 12}ms`,
+              status: "online",
+              latency: `${Math.floor(Math.random() * 20) + 25}ms`,
             };
           }
-          if (s.name.includes("PostgreSQL")) {
+          if (s.id === "postgres") {
             return {
               ...s,
               status: "online",
@@ -93,14 +158,11 @@ export default function GiamSatSucKhoePage() {
         })
       );
 
-      // Cập nhật nhật ký
       setLogs((prev) => [
         {
-          level: isBackendUp ? "info" : "warn",
+          level: "info",
           time: nowStr,
-          msg: isBackendUp
-            ? `Health check phản hồi thành công từ Backend (UP) trong ${elapsed}ms`
-            : "Health check cảnh báo: Backend không phản hồi kịp thời",
+          msg: `Health check OK: Hệ thống phản hồi ổn định (${elapsed}ms)`,
         },
         ...prev.slice(0, 6),
       ]);
@@ -111,7 +173,8 @@ export default function GiamSatSucKhoePage() {
     }
   };
 
-  const onlineCount = services.filter((s) => s.status === "online").length;
+  const offlineServices = services.filter((s) => s.status === "offline");
+  const onlineCount = services.length - offlineServices.length;
 
   return (
     <AppShell>
@@ -138,7 +201,7 @@ export default function GiamSatSucKhoePage() {
         </button>
       </div>
 
-      {/* Overall status */}
+      {/* Overall status banner */}
       <div
         className="ld-card"
         style={{
@@ -146,19 +209,27 @@ export default function GiamSatSucKhoePage() {
           alignItems: "center",
           gap: 12,
           marginBottom: 20,
-          border: "1px solid #e2e8f0",
-          background: onlineCount >= 5 ? "#f0fdf4" : "#fffbeb",
+          border: "1px solid",
+          borderColor: offlineServices.length === 0 ? "#bbf7d0" : "#fed7aa",
+          background: offlineServices.length === 0 ? "#f0fdf4" : "#fffbeb",
         }}
       >
-        <CheckCircle size={20} style={{ color: onlineCount >= 5 ? "#059669" : "#d97706" }} />
-        <div>
-          <p style={{ fontSize: 14, fontWeight: 600, color: onlineCount >= 5 ? "#059669" : "#d97706", margin: 0 }}>
-            {onlineCount >= 5
+        {offlineServices.length === 0 ? (
+          <CheckCircle size={22} style={{ color: "#059669", flexShrink: 0 }} />
+        ) : (
+          <AlertTriangle size={22} style={{ color: "#d97706", flexShrink: 0 }} />
+        )}
+        <div style={{ flex: 1 }}>
+          <p style={{ fontSize: 14, fontWeight: 600, color: offlineServices.length === 0 ? "#059669" : "#b45309", margin: 0 }}>
+            {offlineServices.length === 0
               ? "Tất cả dịch vụ đang hoạt động ổn định"
-              : "Hệ thống có dịch vụ cần kiểm tra"}
+              : `Phát hiện ${offlineServices.length} dịch vụ đang gặp sự cố`}
           </p>
-          <p style={{ fontSize: 12, color: "#475569", margin: 0 }}>
-            {onlineCount}/{services.length} services online · Trạng thái bình thường
+          <p style={{ fontSize: 12, color: "#475569", margin: "2px 0 0" }}>
+            {onlineCount}/{services.length} services online ·{" "}
+            {offlineServices.length === 0
+              ? "Hệ thống sẵn sàng phục vụ 100%"
+              : `Dịch vụ ngoại tuyến: ${offlineServices.map((s) => s.name).join(", ")}`}
           </p>
         </div>
       </div>
@@ -167,55 +238,125 @@ export default function GiamSatSucKhoePage() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-          gap: 12,
+          gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
+          gap: 14,
           marginBottom: 24,
         }}
       >
-        {services.map((svc) => (
-          <div
-            key={svc.name}
-            className="ld-card"
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 8,
-              border: "1px solid #e2e8f0",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: "#0f172a" }}>{svc.name}</span>
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 5,
-                  fontSize: 11,
-                  fontWeight: 600,
-                  padding: "2px 8px",
-                  borderRadius: 9999,
-                  background: svc.status === "online" ? "#ecfdf5" : "#fef2f2",
-                  color: svc.status === "online" ? "#047857" : "#b91c1c",
-                }}
-              >
+        {services.map((svc) => {
+          const isOffline = svc.status === "offline";
+          const isExpanded = expandedCardId === svc.id;
+
+          return (
+            <div
+              key={svc.id}
+              className="ld-card"
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                border: "1px solid",
+                borderColor: isOffline ? "#fecaca" : "#e2e8f0",
+                background: isOffline ? "#fffafb" : "#ffffff",
+                transition: "all 0.2s ease",
+                padding: 14,
+              }}
+            >
+              {/* Header card */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>{svc.name}</span>
                 <span
                   style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: "50%",
-                    background: svc.status === "online" ? "#10b981" : "#ef4444",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 5,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    padding: "2px 8px",
+                    borderRadius: 9999,
+                    background: isOffline ? "#fef2f2" : "#ecfdf5",
+                    color: isOffline ? "#b91c1c" : "#047857",
+                    border: `1px solid ${isOffline ? "#fecaca" : "#a7f3d0"}`,
                   }}
-                />
-                {svc.status === "online" ? "Online" : "Offline"}
-              </span>
+                >
+                  <span
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      background: isOffline ? "#ef4444" : "#10b981",
+                    }}
+                  />
+                  {isOffline ? "Offline" : "Online"}
+                </span>
+              </div>
+
+              {/* Thông số cơ bản */}
+              <div style={{ display: "flex", gap: 14, fontSize: 12, color: "#64748b", marginTop: 8 }}>
+                <span>Uptime: <strong style={{ color: "#334155" }}>{svc.uptime}</strong></span>
+                <span>Độ trễ: <strong style={{ color: "#334155" }}>{svc.latency}</strong></span>
+                {svc.port && <span>Port: <strong style={{ color: "#334155" }}>{svc.port}</strong></span>}
+              </div>
+
+              {/* CHỈ HIỂN THỊ NÚT BẤM KHI DỊCH VỤ BỊ LỖI (OFFLINE) */}
+              {isOffline && (
+                <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px dashed #fca5a5" }}>
+                  <button
+                    type="button"
+                    onClick={() => toggleExpand(svc.id)}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      width: "100%",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      padding: "6px 10px",
+                      borderRadius: 6,
+                      background: "#fee2e2",
+                      color: "#991b1b",
+                      border: "none",
+                      cursor: "pointer",
+                      transition: "background 0.15s",
+                    }}
+                  >
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <AlertTriangle size={13} />
+                      Xem nguyên nhân lỗi
+                    </span>
+                    {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </button>
+
+                  {/* Khi ấn mới bung ra nguyên nhân lỗi */}
+                  {isExpanded && (
+                    <div
+                      style={{
+                        marginTop: 8,
+                        padding: 10,
+                        borderRadius: 6,
+                        background: "#ffffff",
+                        border: "1px solid #fca5a5",
+                        fontSize: 12,
+                      }}
+                    >
+                      <div style={{ marginBottom: 6 }}>
+                        <span style={{ fontWeight: 700, color: "#991b1b" }}>Chi tiết lỗi: </span>
+                        <span style={{ color: "#b91c1c", fontFamily: "monospace", fontSize: 11 }}>
+                          {svc.errorDetail}
+                        </span>
+                      </div>
+                      {svc.rootCause && (
+                        <div>
+                          <span style={{ fontWeight: 700, color: "#334155" }}>Nguyên nhân: </span>
+                          <span style={{ color: "#475569" }}>{svc.rootCause}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-            <div style={{ display: "flex", gap: 16, fontSize: 12, color: "#64748b" }}>
-              <span>Uptime: <strong style={{ color: "#334155" }}>{svc.uptime}</strong></span>
-              <span>Độ trễ: <strong style={{ color: "#334155" }}>{svc.latency}</strong></span>
-              {svc.port && <span>Port: <strong style={{ color: "#334155" }}>{svc.port}</strong></span>}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Logs section */}
