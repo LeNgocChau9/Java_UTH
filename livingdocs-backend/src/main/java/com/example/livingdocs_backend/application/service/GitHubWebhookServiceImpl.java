@@ -1,7 +1,9 @@
 package com.example.livingdocs_backend.application.service;
 
+import com.example.livingdocs_backend.application.dto.drift.PrDriftScanJobPayload;
 import com.example.livingdocs_backend.application.dto.github.WebhookProcessingResult;
 import com.example.livingdocs_backend.application.port.GitHubWebhookServicePort;
+import com.example.livingdocs_backend.application.port.JobQueue;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.CommitEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.PullRequestEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
@@ -23,9 +25,11 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Service xử lý chữ ký bảo mật HMAC-SHA256 và bóc tách dữ liệu sự kiện push / pull_request từ GitHub.
+ * Tự động đẩy Job ngầm quét Drift khi phát hiện Pull Request được mở hoặc cập nhật commit.
  */
 @Slf4j
 @Service
@@ -36,6 +40,10 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
     private final SpringDataPullRequestRepository pullRequestRepository;
     private final SpringDataCommitRepository commitRepository;
     private final ObjectMapper objectMapper;
+    private final JobQueue jobQueue;
+
+    public static final String JOB_TYPE_PR_DRIFT_SCAN = "PR_DRIFT_SCAN";
+    private static final Set<String> DRIFT_TRIGGER_ACTIONS = Set.of("opened", "synchronize", "reopened");
 
     @Value("${github.webhook.secret:}")
     private String webhookSecret;
@@ -260,12 +268,37 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
         log.info("[Webhook - PR] Đã lưu/cập nhật PR #{}: [{}] trạng thái [{}] cho repo [{}] (action: {})",
                 prNumber, title, state, repo.getRepoFullName(), action);
 
+        // Kích hoạt quét sai lệch tài liệu (Drift Scan) qua bảng jobs nếu action là opened, synchronize, hoặc reopened
+        String jobStatusMsg = "";
+        if (DRIFT_TRIGGER_ACTIONS.contains(action.toLowerCase())) {
+            try {
+                PrDriftScanJobPayload jobPayload = PrDriftScanJobPayload.builder()
+                        .repositoryId(repo.getRepositoryId())
+                        .repoFullName(repo.getRepoFullName())
+                        .prNumber(prNumber)
+                        .prTitle(title)
+                        .authorUsername(authorUsername)
+                        .headCommitHash(headCommitHash)
+                        .baseCommitHash(baseCommitHash)
+                        .action(action)
+                        .build();
+
+                String payloadJson = objectMapper.writeValueAsString(jobPayload);
+                jobQueue.enqueue(JOB_TYPE_PR_DRIFT_SCAN, payloadJson);
+                jobStatusMsg = " | Đã lên lịch quét sai lệch (Drift Scan Job)";
+                log.info("[Webhook - PR] Đã đẩy Job [{}] cho PR #{} (repo: {}) vào hàng đợi ngầm",
+                        JOB_TYPE_PR_DRIFT_SCAN, prNumber, repo.getRepoFullName());
+            } catch (Exception e) {
+                log.error("[Webhook - PR] Lỗi khi tạo Job quét Drift cho PR #{}: {}", prNumber, e.getMessage(), e);
+            }
+        }
+
         return WebhookProcessingResult.builder()
                 .success(true)
                 .eventType("pull_request")
                 .repoFullName(repo.getRepoFullName())
                 .affectedCount(1)
-                .message("Đã cập nhật PR #" + prNumber + " (" + state + ") thành công")
+                .message("Đã cập nhật PR #" + prNumber + " (" + state + ")" + jobStatusMsg)
                 .build();
     }
 
