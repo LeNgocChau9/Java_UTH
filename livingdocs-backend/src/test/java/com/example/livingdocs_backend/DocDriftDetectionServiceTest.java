@@ -1,74 +1,62 @@
 package com.example.livingdocs_backend;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.contains;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-
-import java.util.Collections;
-import java.util.List;
-import java.util.Optional;
-
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
-
 import com.example.livingdocs_backend.application.dto.ai.AstDiffRequestDto;
 import com.example.livingdocs_backend.application.dto.ai.AstDiffResponseDto;
+import com.example.livingdocs_backend.application.dto.drift.AffectedDocumentResultDto;
 import com.example.livingdocs_backend.application.dto.drift.PrDriftAnalysisResultDto;
 import com.example.livingdocs_backend.application.port.CodeDiffAnalysisServicePort;
 import com.example.livingdocs_backend.application.port.GitHubClientPort;
 import com.example.livingdocs_backend.application.service.DocDriftDetectionService;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocCodeLinkEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.PullRequestEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
-import com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocCodeLinkRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentChangeAlertRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataPullRequestRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.*;
 
 class DocDriftDetectionServiceTest {
 
-        @Mock
         private CodeDiffAnalysisServicePort codeDiffAnalysisService;
-
-        @Mock
         private SpringDataDocCodeLinkRepository docCodeLinkRepository;
-
-        @Mock
         private SpringDataDocumentRepository documentRepository;
-
-        @Mock
         private SpringDataDocumentChangeAlertRepository alertRepository;
-
-        @Mock
         private SpringDataRepositoryRepository repositoryRepository;
-
-        @Mock
         private SpringDataPullRequestRepository pullRequestRepository;
-
-        @Mock
         private SpringDataGitHubConnectionRepository connectionRepository;
-
-        @Mock
         private GitHubClientPort gitHubClient;
-
         private DocDriftDetectionService docDriftDetectionService;
 
         @BeforeEach
         void setUp() {
-                MockitoAnnotations.openMocks(this);
+                codeDiffAnalysisService = mock(CodeDiffAnalysisServicePort.class);
+                docCodeLinkRepository = mock(SpringDataDocCodeLinkRepository.class);
+                documentRepository = mock(SpringDataDocumentRepository.class);
+                alertRepository = mock(SpringDataDocumentChangeAlertRepository.class);
+                repositoryRepository = mock(SpringDataRepositoryRepository.class);
+                pullRequestRepository = mock(SpringDataPullRequestRepository.class);
+                connectionRepository = mock(SpringDataGitHubConnectionRepository.class);
+                gitHubClient = mock(GitHubClientPort.class);
+
                 docDriftDetectionService = new DocDriftDetectionService(
                                 codeDiffAnalysisService,
                                 docCodeLinkRepository,

@@ -200,3 +200,76 @@ class DriftAnalyzeResponse(BaseModel):
         default="gemini-3.8-flash",
         description="Tên model Gemini đã sử dụng."
     )
+
+
+# ---------------------------------------------------------------------------
+# Schemas cho Endpoint /v1/docs/rewrite-suggestion — AI Gợi ý viết lại tài liệu (S4-10)
+# ---------------------------------------------------------------------------
+
+class DocSectionDiffItem(BaseModel):
+    """Chi tiết thay đổi ở từng section được AI viết lại."""
+    section_title: str = Field(..., description="Tiêu đề mục hoặc heading (vd: 2.1. processPayment)")
+    status: str = Field(..., description="MODIFIED (đã sửa đổi) hoặc UNCHANGED (giữ nguyên)")
+    old_content: str = Field(..., description="Nội dung cũ của section này")
+    new_content: str = Field(..., description="Nội dung mới do AI viết lại hoặc giữ nguyên")
+    change_reason: Optional[str] = Field(default=None, description="Lý do kỹ thuật viết lại section này")
+
+
+class DocRewriteRequest(BaseModel):
+    """Yêu cầu AI viết lại tài liệu dựa trên code diff mới."""
+    current_doc: str = Field(
+        ...,
+        description="Toàn bộ nội dung tài liệu Markdown hiện tại cần cập nhật"
+    )
+    code_diff: str = Field(
+        ...,
+        description="Unified code diff hoặc danh sách thay đổi mã nguồn mới nhất"
+    )
+    file_path: Optional[str] = Field(
+        default=None,
+        description="Đường dẫn file mã nguồn tương ứng (vd: src/main/java/.../OrderService.java)"
+    )
+    entity_name: Optional[str] = Field(
+        default=None,
+        description="Tên thực thể mã nguồn chính (vd: OrderService)"
+    )
+    commit_hash: Optional[str] = Field(
+        default="head-commit",
+        description="Mã băm commit của phiên bản code mới"
+    )
+    instruction: Optional[str] = Field(
+        default=None,
+        description="Yêu cầu bổ sung cho AI (vd: nhấn mạnh ngoại lệ, giữ phong cách ngắn gọn...)"
+    )
+
+
+class DocRewriteResponse(BaseModel):
+    """Kết quả tài liệu đã được AI viết lại thông minh."""
+    status: str = Field(default="success")
+    mode: str = Field(default="real", description="Chế độ xử lý: real hoặc mock")
+    original_doc_length: int = Field(..., description="Số ký tự của tài liệu ban đầu")
+    rewritten_doc_length: int = Field(..., description="Số ký tự của tài liệu sau khi viết lại")
+    updated_doc: str = Field(
+        ...,
+        description="Toàn bộ nội dung tài liệu Markdown đã cập nhật, giữ nguyên các phần không bị ảnh hưởng"
+    )
+    summary_of_changes: str = Field(
+        ...,
+        description="Tóm tắt ngắn gọn các điểm đã cập nhật trong tài liệu (1-3 câu)"
+    )
+    modified_sections_count: int = Field(
+        ...,
+        description="Số lượng mục/section đã được cập nhật nội dung mới"
+    )
+    unchanged_sections_count: int = Field(
+        ...,
+        description="Số lượng mục/section được giữ nguyên hoàn toàn"
+    )
+    section_diffs: List[DocSectionDiffItem] = Field(
+        default=[],
+        description="Chi tiết đối chiếu từng section cũ và mới"
+    )
+    model_used: str = Field(
+        default="gemini-3.5-flash-lite",
+        description="Model Gemini đã thực hiện viết lại"
+    )

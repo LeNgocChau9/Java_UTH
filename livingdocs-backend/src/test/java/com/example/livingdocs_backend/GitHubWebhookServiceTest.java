@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.example.livingdocs_backend.application.dto.github.WebhookProcessingResult;
+import com.example.livingdocs_backend.application.port.JobQueue;
 import com.example.livingdocs_backend.application.service.GitHubWebhookServiceImpl;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.CommitEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.PullRequestEntity;
