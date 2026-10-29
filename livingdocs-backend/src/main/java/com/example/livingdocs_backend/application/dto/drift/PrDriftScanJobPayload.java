@@ -22,3 +22,4 @@ public class PrDriftScanJobPayload {
     private String baseCommitHash;
     private String action;
 }
+

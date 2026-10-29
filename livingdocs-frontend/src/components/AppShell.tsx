@@ -1224,7 +1224,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     fontStyle: "italic",
                   }}
                 >
-                  "{user?.bio || (typeof window !== "undefined" ? localStorage.getItem("ld_user_bio_" + (user?.userId || "me")) : "")}"
+                  &ldquo;{user?.bio || (typeof window !== "undefined" ? localStorage.getItem("ld_user_bio_" + (user?.userId || "me")) : "")}&rdquo;
                 </div>
               )}
 
