@@ -14,11 +14,15 @@ from app.schemas.ai_schemas import (
     AffectedEntityItem,
     DriftAnalyzeRequest,
     DriftAnalyzeResponse,
+    DocRewriteRequest,
+    DocRewriteResponse,
+    DocSectionDiffItem,
 )
 from app.services.mock_ai_service import MockAIService
 from app.services.tree_sitter_ast_parser import parse_java_with_treesitter
 from app.services.gemini_doc_service import GeminiDocService
 from app.services.gemini_drift_service import GeminiDriftService
+from app.services.gemini_rewrite_service import GeminiRewriteService
 from app.services.diff_ast_service import DiffAstService
 
 router = APIRouter(prefix="/v1", tags=["AI Engine Endpoints"])
@@ -204,12 +208,6 @@ async def diff_ast(request: AstDiffRequest):
 async def analyze_drift(request: DriftAnalyzeRequest):
     """
     Endpoint phân tích sai lệch ngữ nghĩa tài liệu — Task S4-09.
-
-    Luồng xử lý:
-    1. Nhận DriftAnalyzeRequest (code_diff + current_doc + metadata).
-    2. Gọi GeminiDriftService.analyze() với google-genai SDK mới.
-    3. Gemini phân tích 4 chiều: Reference / Signature / Semantic / Completeness.
-    4. Trả về DriftAnalyzeResponse với drift_score, severity, classification, suggestions.
     """
     settings = get_settings()
 
@@ -256,4 +254,68 @@ async def analyze_drift(request: DriftAnalyzeRequest):
         raise HTTPException(
             status_code=500,
             detail=f"Lỗi nội bộ khi phân tích drift: {str(ex)}"
+        )
+
+
+@router.post(
+    "/docs/rewrite-suggestion",
+    response_model=DocRewriteResponse,
+    summary="[S4-10] AI Gợi ý đoạn văn bản sửa đổi theo Code mới",
+    description=(
+        "Tích hợp logic yêu cầu Google Gemini tự động viết lại phần mô tả tài liệu dựa trên code vừa thay đổi. "
+        "Bảo đảm văn phong kỹ thuật chuẩn, chỉ sửa các mục bị ảnh hưởng, giữ nguyên các phần còn lại."
+    )
+)
+async def rewrite_document_suggestion(request: DocRewriteRequest):
+    """
+    Endpoint AI Gợi ý đoạn văn bản sửa đổi theo Code mới — Task S4-10 (TV4).
+
+    Luồng hoạt động:
+    1. Nhận DocRewriteRequest (tài liệu hiện tại + code diff mới + ngữ cảnh).
+    2. Gọi GeminiRewriteService.rewrite_document().
+    3. Gemini phân tích mục bị tác động, viết lại chính xác nội dung kỹ thuật.
+    4. Giữ nguyên 100% các mục không bị ảnh hưởng.
+    5. Trả về updated_doc hoàn chỉnh cùng danh sách section_diffs để so sánh.
+    """
+    settings = get_settings()
+
+    # Chế độ mock: hỗ trợ test frontend hoặc chạy offline
+    if settings.mode.lower() == "mock":
+        sample_updated = request.current_doc.replace(
+            "public void processPayment(Long orderId, Double amount)",
+            "public void processPayment(Long orderId, Double amount, String currency)"
+        )
+        return DocRewriteResponse(
+            status="success",
+            mode="mock",
+            original_doc_length=len(request.current_doc),
+            rewritten_doc_length=len(sample_updated),
+            updated_doc=sample_updated,
+            summary_of_changes="[MOCK] Cập nhật tham số String currency cho phương thức processPayment theo thay đổi mới nhất.",
+            modified_sections_count=1,
+            unchanged_sections_count=3,
+            section_diffs=[
+                DocSectionDiffItem(
+                    section_title="2.1. processPayment",
+                    status="MODIFIED",
+                    old_content="- **Tham số:** Long orderId, Double amount",
+                    new_content="- **Tham số:** Long orderId, Double amount, String currency",
+                    change_reason="Thêm tham số currency mới vào phương thức xử lý thanh toán"
+                )
+            ],
+            model_used="mock"
+        )
+
+    # Chế độ real: Gọi Gemini API thật
+    try:
+        return GeminiRewriteService.rewrite_document(request)
+    except RuntimeError as ex:
+        raise HTTPException(
+            status_code=503,
+            detail=str(ex)
+        )
+    except Exception as ex:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Lỗi nội bộ khi AI viết lại tài liệu: {str(ex)}"
         )
