@@ -13,6 +13,8 @@ public class Changelog {
 
     private Long id;
     private Long documentId;
+    private String documentTitle;
+    private Long repoId;
     private Long versionId;
     private Long actorId;
     private String actorRole;
