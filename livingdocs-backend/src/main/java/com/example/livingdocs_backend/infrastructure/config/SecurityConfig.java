@@ -77,7 +77,8 @@ public class SecurityConfig {
                     "/api/code-diff",
                     "/api/code-diff/**",
                     "/api/webhooks",
-                    "/api/webhooks/**"
+                    "/api/webhooks/**",
+                    "/api/ci/**"
                 ).permitAll()
                 .requestMatchers("/api/me").authenticated()
                 .anyRequest().authenticated()
