@@ -24,7 +24,9 @@ logger = logging.getLogger(__name__)
 
 # Danh sách model Gemini ưu tiên (có cơ chế fallback nếu model chính bị 503 high demand)
 DRIFT_MODELS = [
-    "gemini-3.5-flash-lite",
+    "gemini-1.5-flash",
+    "gemini-flash-latest",
+    "gemini-2.5-flash",
     "gemini-3.5-flash",
     "gemini-3.8-flash",
     "gemini-flash-lite-latest",
