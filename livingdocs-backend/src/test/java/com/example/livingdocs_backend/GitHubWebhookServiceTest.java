@@ -1,26 +1,5 @@
 package com.example.livingdocs_backend;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-
-import java.nio.charset.StandardCharsets;
-import java.util.List;
-import java.util.Optional;
-
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
-
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
-
 import com.example.livingdocs_backend.application.dto.github.WebhookProcessingResult;
 import com.example.livingdocs_backend.application.port.JobQueue;
 import com.example.livingdocs_backend.application.service.GitHubWebhookServiceImpl;
@@ -31,142 +10,163 @@ import com.example.livingdocs_backend.infrastructure.persistence.repository.Spri
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataPullRequestRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.*;
 
 class GitHubWebhookServiceTest {
 
-  private SpringDataRepositoryRepository repositoryRepository;
-  private SpringDataPullRequestRepository pullRequestRepository;
-  private SpringDataCommitRepository commitRepository;
-  private ObjectMapper objectMapper;
+    private SpringDataRepositoryRepository repositoryRepository;
+    private SpringDataPullRequestRepository pullRequestRepository;
+    private SpringDataCommitRepository commitRepository;
+    private ObjectMapper objectMapper;
+    private JobQueue jobQueue;
 
-  private GitHubWebhookServiceImpl webhookService;
+    private GitHubWebhookServiceImpl webhookService;
 
-  private final String secret = "my_webhook_secret_12345";
+    private final String secret = "my_webhook_secret_12345";
 
-  @BeforeEach
-  void setUp() {
-    repositoryRepository = mock(SpringDataRepositoryRepository.class);
-    pullRequestRepository = mock(SpringDataPullRequestRepository.class);
-    commitRepository = mock(SpringDataCommitRepository.class);
-    objectMapper = new ObjectMapper();
+    @BeforeEach
+    void setUp() {
+        repositoryRepository = mock(SpringDataRepositoryRepository.class);
+        pullRequestRepository = mock(SpringDataPullRequestRepository.class);
+        commitRepository = mock(SpringDataCommitRepository.class);
+        objectMapper = new ObjectMapper();
+        jobQueue = mock(JobQueue.class);
 
-    webhookService = new GitHubWebhookServiceImpl(
-        repositoryRepository,
-        pullRequestRepository,
-        commitRepository,
-        objectMapper);
+        webhookService = new GitHubWebhookServiceImpl(
+                repositoryRepository,
+                pullRequestRepository,
+                commitRepository,
+                objectMapper,
+                jobQueue
+        );
 
-    ReflectionTestUtils.setField(webhookService, "webhookSecret", secret);
-  }
+        ReflectionTestUtils.setField(webhookService, "webhookSecret", secret);
+    }
 
-  @Test
-  @DisplayName("Chữ ký HMAC SHA-256: Hợp lệ khi hash khớp")
-  void shouldVerifySignatureSuccessfully() throws Exception {
-    String payload = "{\"zen\": \"Practicality beats purity.\"}";
+    @Test
+    @DisplayName("Chß╗» k├╜ HMAC SHA-256: Hß╗úp lß╗ç khi hash khß╗¢p")
+    void shouldVerifySignatureSuccessfully() throws Exception {
+        String payload = "{\"zen\": \"Practicality beats purity.\"}";
 
-    Mac mac = Mac.getInstance("HmacSHA256");
-    mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
-    byte[] hashBytes = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
-    StringBuilder hex = new StringBuilder();
-    for (byte b : hashBytes)
-      hex.append(String.format("%02x", b));
-    String signatureHeader = "sha256=" + hex.toString();
-
-    boolean valid = webhookService.verifySignature(payload, signatureHeader);
-    assertTrue(valid, "Chữ ký phải hợp lệ khi tính đúng hash HMAC SHA-256");
-  }
-
-  @Test
-  @DisplayName("Chữ ký HMAC SHA-256: Bị từ chối khi hash sai")
-  void shouldRejectInvalidSignature() {
-    String payload = "{\"zen\": \"test\"}";
-    String invalidSignature = "sha256=1111111111111111111111111111111111111111111111111111111111111111";
-
-    boolean valid = webhookService.verifySignature(payload, invalidSignature);
-    assertFalse(valid, "Chữ ký sai phải bị từ chối");
-  }
-
-  @Test
-  @DisplayName("Xử lý sự kiện Push: Lưu danh sách commit vào bảng commits")
-  void shouldHandlePushEventAndSaveCommits() {
-    String payload = """
-        {
-          "ref": "refs/heads/main",
-          "repository": {
-            "id": 123456,
-            "full_name": "LeNgocChau9/Java_UTH"
-          },
-          "commits": [
-            {
-              "id": "c1a2b3d4e5f6",
-              "message": "feat: webhook support",
-              "timestamp": "2026-10-19T10:00:00Z",
-              "author": {
-                "name": "Chau Le",
-                "email": "chau@example.com"
-              }
-            }
-          ]
+        Mac mac = Mac.getInstance("HmacSHA256");
+        mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+        byte[] bytes = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
+        StringBuilder hex = new StringBuilder();
+        for (byte b : bytes) {
+            hex.append(String.format("%02x", b));
         }
-        """;
 
-    RepositoryEntity mockRepo = RepositoryEntity.builder()
-        .repositoryId(10L)
-        .githubRepoId(123456L)
-        .repoFullName("LeNgocChau9/Java_UTH")
-        .build();
+        String signature = "sha256=" + hex.toString();
 
-    when(repositoryRepository.findAll()).thenReturn(List.of(mockRepo));
-    when(commitRepository.findByRepositoryIdAndCommitHash(10L, "c1a2b3d4e5f6")).thenReturn(Optional.empty());
+        boolean result = webhookService.verifySignature(payload, signature);
+        assertTrue(result, "Chß╗» k├╜ hß╗úp lß╗ç phß║úi trß║ú vß╗ü true");
+    }
 
-    WebhookProcessingResult result = webhookService.processWebhook("push", payload);
+    @Test
+    @DisplayName("Chß╗» k├╜ HMAC SHA-256: Bß╗ï tß╗½ chß╗æi khi hash sai")
+    void shouldRejectInvalidSignature() {
+        String payload = "{\"hello\": \"world\"}";
+        String invalidSignature = "sha256=abcdef1234567890badhash";
 
-    assertTrue(result.success());
-    assertEquals("push", result.eventType());
-    assertEquals(1, result.affectedCount());
-    verify(commitRepository, times(1)).save(any(CommitEntity.class));
-    verify(repositoryRepository, times(1)).save(mockRepo);
-  }
+        boolean result = webhookService.verifySignature(payload, invalidSignature);
+        assertFalse(result, "Chß╗» k├╜ sai lß╗çch phß║úi trß║ú vß╗ü false");
+    }
 
-  @Test
-  @DisplayName("Xử lý sự kiện Pull Request: Lưu thông tin PR vào bảng pull_requests")
-  void shouldHandlePullRequestEventAndSavePR() {
-    String payload = """
-        {
-          "action": "opened",
-          "repository": {
-            "id": 123456,
-            "full_name": "LeNgocChau9/Java_UTH"
-          },
-          "pull_request": {
-            "id": 98765,
-            "number": 42,
-            "title": "feat: S2-05 Webhook receiver",
-            "state": "open",
-            "merged": false,
-            "head": { "ref": "feature/S2-05", "sha": "head_sha_99" },
-            "base": { "ref": "main", "sha": "base_sha_00" },
-            "user": { "login": "dev_user" },
-            "created_at": "2026-10-19T08:00:00Z"
-          }
-        }
-        """;
+    @Test
+    @DisplayName("Xß╗¡ l├╜ sß╗▒ kiß╗çn Push: L╞░u danh s├ích commits v├áo database")
+    void shouldHandlePushEventAndSaveCommits() {
+        String payload = """
+                {
+                  "repository": {
+                    "id": 123456,
+                    "full_name": "LeNgocChau9/Java_UTH"
+                  },
+                  "commits": [
+                    {
+                      "id": "c1a2b3d4e5f6",
+                      "message": "feat: commit 1",
+                      "timestamp": "2026-10-19T10:00:00Z",
+                      "author": { "name": "Admin", "email": "admin@example.com" }
+                    }
+                  ]
+                }
+                """;
 
-    RepositoryEntity mockRepo = RepositoryEntity.builder()
-        .repositoryId(10L)
-        .githubRepoId(123456L)
-        .repoFullName("LeNgocChau9/Java_UTH")
-        .build();
+        RepositoryEntity mockRepo = RepositoryEntity.builder()
+                .repositoryId(10L)
+                .githubRepoId(123456L)
+                .repoFullName("LeNgocChau9/Java_UTH")
+                .build();
 
-    when(repositoryRepository.findAll()).thenReturn(List.of(mockRepo));
-    when(pullRequestRepository.findByRepositoryIdAndPrNumber(10L, 42)).thenReturn(Optional.empty());
+        when(repositoryRepository.findAll()).thenReturn(List.of(mockRepo));
+        when(commitRepository.findByRepositoryIdAndCommitHash(10L, "c1a2b3d4e5f6")).thenReturn(Optional.empty());
 
-    WebhookProcessingResult result = webhookService.processWebhook("pull_request", payload);
+        WebhookProcessingResult result = webhookService.processWebhook("push", payload);
 
-    assertTrue(result.success());
-    assertEquals("pull_request", result.eventType());
-    assertEquals(1, result.affectedCount());
-    verify(pullRequestRepository, times(1)).save(any(PullRequestEntity.class));
-    verify(repositoryRepository, times(1)).save(mockRepo);
-  }
+        assertTrue(result.success());
+        assertEquals("push", result.eventType());
+        assertEquals(1, result.affectedCount());
+        verify(commitRepository, times(1)).save(any(CommitEntity.class));
+        verify(repositoryRepository, times(1)).save(mockRepo);
+    }
+
+    @Test
+    @DisplayName("Xß╗¡ l├╜ sß╗▒ kiß╗çn Pull Request: L╞░u PR v├á tß╗▒ ─æß╗Öng ─æß║⌐y Job qu├⌐t Drift v├áo JobQueue")
+    void shouldHandlePullRequestEventAndEnqueueDriftScanJob() {
+        String payload = """
+                {
+                  "action": "opened",
+                  "repository": {
+                    "id": 123456,
+                    "full_name": "LeNgocChau9/Java_UTH"
+                  },
+                  "pull_request": {
+                    "id": 98765,
+                    "number": 42,
+                    "title": "feat: S2-05 Webhook receiver",
+                    "state": "open",
+                    "merged": false,
+                    "head": { "ref": "feature/S2-05", "sha": "head_sha_99" },
+                    "base": { "ref": "main", "sha": "base_sha_00" },
+                    "user": { "login": "dev_user" },
+                    "created_at": "2026-10-19T08:00:00Z"
+                  }
+                }
+                """;
+
+        RepositoryEntity mockRepo = RepositoryEntity.builder()
+                .repositoryId(10L)
+                .githubRepoId(123456L)
+                .repoFullName("LeNgocChau9/Java_UTH")
+                .build();
+
+        when(repositoryRepository.findAll()).thenReturn(List.of(mockRepo));
+        when(pullRequestRepository.findByRepositoryIdAndPrNumber(10L, 42)).thenReturn(Optional.empty());
+
+        WebhookProcessingResult result = webhookService.processWebhook("pull_request", payload);
+
+        assertTrue(result.success());
+        assertEquals("pull_request", result.eventType());
+        assertEquals(1, result.affectedCount());
+        verify(pullRequestRepository, times(1)).save(any(PullRequestEntity.class));
+        verify(repositoryRepository, times(1)).save(mockRepo);
+
+        // Kiß╗âm tra ─æ├ú tß╗▒ ─æß╗Öng k├¡ch hoß║ít Job qu├⌐t Drift
+        verify(jobQueue, times(1)).enqueue(eq(GitHubWebhookServiceImpl.JOB_TYPE_PR_DRIFT_SCAN), anyString());
+    }
 }
