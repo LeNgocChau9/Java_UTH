@@ -7,6 +7,7 @@ import com.example.livingdocs_backend.application.port.RepositoryServicePort;
 import com.example.livingdocs_backend.infrastructure.github.GitHubOAuthClient;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataCommitRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
 import com.example.livingdocs_backend.infrastructure.security.UserPrincipal;
@@ -37,6 +38,7 @@ public class RepositoryController {
     private final GitHubOAuthClient gitHubOAuthClient;
     private final SpringDataGitHubConnectionRepository gitHubConnectionRepository;
     private final SpringDataRepositoryRepository repositoryRepository;
+    private final SpringDataCommitRepository commitRepository;
 
     @PostMapping
     @Operation(summary = "Thêm kho lưu trữ GitHub vào Workspace")
@@ -194,8 +196,13 @@ public class RepositoryController {
     private void autoSyncRepoIfNeverSynced(Long repositoryId, Long userId) {
         try {
             Optional<RepositoryEntity> repoOpt = repositoryRepository.findById(repositoryId);
-            if (repoOpt.isPresent() && repoOpt.get().getLastSyncedAt() == null) {
-                repositoryService.syncRepository(repositoryId, null, userId);
+            if (repoOpt.isPresent()) {
+                RepositoryEntity repo = repoOpt.get();
+                int currentCommitCount = commitRepository.findByRepositoryId(repositoryId).size();
+                boolean needsBackfill = currentCommitCount > 0 && currentCommitCount <= 115;
+                if (repo.getLastSyncedAt() == null || needsBackfill) {
+                    repositoryService.syncRepository(repositoryId, null, userId);
+                }
             }
         } catch (Exception ignored) {
         }

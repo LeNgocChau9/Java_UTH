@@ -135,7 +135,27 @@ public class GitHubClient implements GitHubClientPort {
                 return Collections.emptyList();
             }
 
-            return list.stream()
+            java.util.List<GitPullResponse> allPulls = new java.util.ArrayList<>(list);
+            int page = 2;
+            while (list.size() == 100 && page <= 10) {
+                String nextUri = UriComponentsBuilder.fromPath("/repos/{owner}/{repo}/pulls")
+                        .queryParam("state", targetState)
+                        .queryParam("per_page", 100)
+                        .queryParam("page", page)
+                        .buildAndExpand(owner, repo)
+                        .toUriString();
+                list = executeWithAuth(token, nextUri)
+                        .accept(MediaType.APPLICATION_JSON)
+                        .retrieve()
+                        .body(new ParameterizedTypeReference<List<GitPullResponse>>() {});
+                if (list == null || list.isEmpty()) {
+                    break;
+                }
+                allPulls.addAll(list);
+                page++;
+            }
+
+            return allPulls.stream()
                     .map(this::mapToPullRequestDto)
                     .toList();
         } catch (RestClientResponseException ex) {
@@ -167,7 +187,28 @@ public class GitHubClient implements GitHubClientPort {
                 return Collections.emptyList();
             }
 
-            return commits.stream()
+            java.util.List<GitCommitResponse> allCommits = new java.util.ArrayList<>(commits);
+            int page = 2;
+            while (perPage == 100 && commits.size() == 100 && page <= 10) {
+                UriComponentsBuilder nextBuilder = UriComponentsBuilder.fromPath("/repos/{owner}/{repo}/commits")
+                        .queryParam("per_page", 100)
+                        .queryParam("page", page);
+                if (StringUtils.hasText(sha)) {
+                    nextBuilder.queryParam("sha", sha);
+                }
+                String nextUri = nextBuilder.buildAndExpand(owner, repo).toUriString();
+                commits = executeWithAuth(token, nextUri)
+                        .accept(MediaType.APPLICATION_JSON)
+                        .retrieve()
+                        .body(new ParameterizedTypeReference<List<GitCommitResponse>>() {});
+                if (commits == null || commits.isEmpty()) {
+                    break;
+                }
+                allCommits.addAll(commits);
+                page++;
+            }
+
+            return allCommits.stream()
                     .map(c -> {
                         GitCommitDetail detail = c.commit();
                         List<String> parents = c.parents() != null
