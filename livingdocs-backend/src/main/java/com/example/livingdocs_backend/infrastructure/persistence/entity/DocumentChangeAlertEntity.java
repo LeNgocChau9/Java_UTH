@@ -51,6 +51,9 @@ public class DocumentChangeAlertEntity {
     @Column(name = "details", columnDefinition = "TEXT")
     private String details;
 
+    @Column(name = "draft_version_id")
+    private Long draftVersionId;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

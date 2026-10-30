@@ -7,7 +7,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import java.time.Instant;
 
 /**
- * Entity ánh xạ bảng drift_alerts trong PostgreSQL.
+ * Entity Ánh xạ bảng drift_alerts trong PostgreSQL.
  */
 @Entity
 @Table(name = "drift_alerts")
@@ -51,6 +51,9 @@ public class DriftAlertEntity {
 
     @Column(name = "change_type", length = 100)
     private String changeType;
+
+    @Column(name = "draft_version_id")
+    private Long draftVersionId;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
