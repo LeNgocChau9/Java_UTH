@@ -52,6 +52,18 @@ public class ChangelogRepositoryAdapter implements ChangelogRepositoryPort {
                 .collect(Collectors.toList());
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public org.springframework.data.domain.Page<Changelog> findWithFilters(
+            String actorRole,
+            Long repoId,
+            java.time.Instant fromDate,
+            java.time.Instant toDate,
+            org.springframework.data.domain.Pageable pageable) {
+        return springDataChangelogRepository.findWithFilters(actorRole, repoId, fromDate, toDate, pageable)
+                .map(this::toDomain);
+    }
+
     private Changelog toDomain(ChangelogEntity entity) {
         return Changelog.builder()
                 .id(entity.getId())
