@@ -396,3 +396,17 @@ div[data-nextjs-route-announcer] {
   animation: cosmicFloat 6s ease-in-out infinite;
   will-change: transform;
 }
+
+/* Đảm bảo animation xoay tròn hoạt động toàn bộ hệ thống */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite !important;
+}
