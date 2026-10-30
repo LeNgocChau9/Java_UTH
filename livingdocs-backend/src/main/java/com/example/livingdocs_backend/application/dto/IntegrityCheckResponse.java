@@ -28,4 +28,37 @@ public class IntegrityCheckResponse {
 
     @Schema(description = "Danh sách chi tiết lỗi nếu phát hiện giả mạo")
     private List<String> issues;
+
+    @Schema(description = "Chi tiết kiểm định từng mắt xích phiên bản trong chuỗi băm")
+    private List<VersionIntegrityDetail> chainDetails;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class VersionIntegrityDetail {
+        @Schema(description = "Số thứ tự phiên bản", example = "1")
+        private Integer versionNum;
+
+        @Schema(description = "Mã băm lưu trữ trong CSDL", example = "a1b2c3...")
+        private String storedHash;
+
+        @Schema(description = "Mã băm tính toán lại từ nội dung thực tế", example = "a1b2c3...")
+        private String computedHash;
+
+        @Schema(description = "Mã băm của phiên bản trước được lưu", example = "00000000...")
+        private String prevHash;
+
+        @Schema(description = "Mã băm mong đợi của phiên bản trước", example = "00000000...")
+        private String expectedPrevHash;
+
+        @Schema(description = "Nội dung phiên bản có khớp với hash hay không", example = "true")
+        private boolean contentValid;
+
+        @Schema(description = "Liên kết chuỗi băm với phiên bản trước có khớp hay không", example = "true")
+        private boolean chainValid;
+
+        @Schema(description = "Trạng thái chi tiết (VALID, CONTENT_TAMPERED, CHAIN_BROKEN, INVALID)", example = "VALID")
+        private String status;
+    }
 }

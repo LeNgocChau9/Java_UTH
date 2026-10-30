@@ -536,30 +536,35 @@ public class DocumentServiceImpl implements DocumentServicePort {
                     .valid(true)
                     .message("Tài liệu chưa có phiên bản nào để kiểm tra.")
                     .issues(List.of())
+                    .chainDetails(List.of())
                     .build();
         }
 
         List<String> issues = new ArrayList<>();
+        List<IntegrityCheckResponse.VersionIntegrityDetail> chainDetails = new ArrayList<>();
         String expectedPrevHash = HashUtils.GENESIS_HASH;
 
         for (int i = 0; i < versions.size(); i++) {
             DocumentVersion v = versions.get(i);
             int expectedVersionNum = i + 1;
+            boolean versionNumValid = (v.getVersionNum() != null && v.getVersionNum() == expectedVersionNum);
 
-            // Kiểm tra số thứ tự phiên bản
-            if (v.getVersionNum() != expectedVersionNum) {
+            // 1. Kiểm tra số thứ tự phiên bản liên tục
+            if (!versionNumValid) {
                 issues.add("Phiên bản thứ " + (i + 1) + " có version_num là " + v.getVersionNum() + " (mong đợi: "
                         + expectedVersionNum + ")");
             }
 
-            // Kiểm tra liên kết chuỗi băm prev_hash
-            if (!expectedPrevHash.equalsIgnoreCase(v.getPrevHash())) {
+            // 2. Kiểm tra liên kết chuỗi băm: prev_hash của bản hiện tại phải khớp với hash
+            // của bản trước
+            boolean chainValid = expectedPrevHash.equalsIgnoreCase(v.getPrevHash());
+            if (!chainValid) {
                 issues.add("Phiên bản v" + v.getVersionNum() + " bị đứt gãy chuỗi băm: prev_hash (" + v.getPrevHash()
                         + ") không khớp hash phiên bản trước (" + expectedPrevHash + ")");
             }
 
-            // Tính toán lại mã băm thực tế từ nội dung xem có bị tamper trực tiếp trong DB
-            // không
+            // 3. Tính toán lại mã băm SHA-256 từ nội dung thực tế để phát hiện can thiệp
+            // trực tiếp vào DB
             String roleName = v.getActorRole() != null ? v.getActorRole().name() : "DEV";
             String computedHash = HashUtils.calculateVersionHash(
                     v.getPrevHash(),
@@ -568,10 +573,31 @@ public class DocumentServiceImpl implements DocumentServicePort {
                     roleName,
                     v.getTriggerType());
 
-            if (!computedHash.equalsIgnoreCase(v.getHash())) {
+            boolean contentValid = computedHash.equalsIgnoreCase(v.getHash());
+            if (!contentValid) {
                 issues.add("Phiên bản v" + v.getVersionNum() + " có nội dung bị chỉnh sửa trái phép! Mã băm lưu trữ: "
                         + v.getHash() + ", mã băm tính lại: " + computedHash);
             }
+
+            String status = "VALID";
+            if (!contentValid && !chainValid) {
+                status = "INVALID";
+            } else if (!contentValid) {
+                status = "CONTENT_TAMPERED";
+            } else if (!chainValid) {
+                status = "CHAIN_BROKEN";
+            }
+
+            chainDetails.add(IntegrityCheckResponse.VersionIntegrityDetail.builder()
+                    .versionNum(v.getVersionNum())
+                    .storedHash(v.getHash())
+                    .computedHash(computedHash)
+                    .prevHash(v.getPrevHash())
+                    .expectedPrevHash(expectedPrevHash)
+                    .contentValid(contentValid)
+                    .chainValid(chainValid)
+                    .status(status)
+                    .build());
 
             // Cập nhật expectedPrevHash cho vòng lặp kế tiếp
             expectedPrevHash = v.getHash();
@@ -590,6 +616,7 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 .valid(isValid)
                 .message(message)
                 .issues(issues)
+                .chainDetails(chainDetails)
                 .build();
     }
 

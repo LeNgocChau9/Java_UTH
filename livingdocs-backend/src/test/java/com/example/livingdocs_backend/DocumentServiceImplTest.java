@@ -220,6 +220,12 @@ class DocumentServiceImplTest {
                 assertTrue(check.isValid());
                 assertEquals(2, check.getTotalVersions());
                 assertTrue(check.getIssues().isEmpty());
+                assertNotNull(check.getChainDetails());
+                assertEquals(2, check.getChainDetails().size());
+                assertEquals("VALID", check.getChainDetails().get(0).getStatus());
+                assertEquals("VALID", check.getChainDetails().get(1).getStatus());
+                assertTrue(check.getChainDetails().get(0).isContentValid());
+                assertTrue(check.getChainDetails().get(0).isChainValid());
         }
 
         @Test
@@ -251,6 +257,52 @@ class DocumentServiceImplTest {
                 assertEquals(1, check.getTotalVersions());
                 assertEquals(1, check.getIssues().size());
                 assertTrue(check.getIssues().get(0).contains("bị chỉnh sửa trái phép"));
+                assertEquals("CONTENT_TAMPERED", check.getChainDetails().get(0).getStatus());
+                assertFalse(check.getChainDetails().get(0).isContentValid());
+        }
+
+        @Test
+        void testVerifyIntegrity_brokenChain_detectsBrokenLink() {
+                Long docId = 50L;
+                when(documentRepositoryPort.existsById(docId)).thenReturn(true);
+
+                String v1Content = "Bản 1";
+                String v1Hash = HashUtils.calculateVersionHash(HashUtils.GENESIS_HASH, 1, v1Content, "DEV", "MANUAL");
+                DocumentVersion v1 = DocumentVersion.builder()
+                                .docId(docId)
+                                .versionNum(1)
+                                .content(v1Content)
+                                .actorRole(ActorRole.DEV)
+                                .triggerType("MANUAL")
+                                .prevHash(HashUtils.GENESIS_HASH)
+                                .hash(v1Hash)
+                                .build();
+
+                // v2 có prevHash không khớp với v1Hash (bị cắt đứt chuỗi băm)
+                String fakePrevHash = "fake_prev_hash_1234567890abcdef1234567890abcdef";
+                String v2Content = "Bản 2";
+                String v2Hash = HashUtils.calculateVersionHash(fakePrevHash, 2, v2Content, "DEV", "MANUAL");
+                DocumentVersion v2 = DocumentVersion.builder()
+                                .docId(docId)
+                                .versionNum(2)
+                                .content(v2Content)
+                                .actorRole(ActorRole.DEV)
+                                .triggerType("MANUAL")
+                                .prevHash(fakePrevHash)
+                                .hash(v2Hash)
+                                .build();
+
+                when(documentVersionRepositoryPort.findAllByDocIdOrderByVersionNumAsc(docId))
+                                .thenReturn(List.of(v1, v2));
+
+                IntegrityCheckResponse check = documentService.verifyIntegrity(docId);
+
+                assertFalse(check.isValid());
+                assertEquals(2, check.getTotalVersions());
+                assertEquals(1, check.getIssues().size());
+                assertTrue(check.getIssues().get(0).contains("bị đứt gãy chuỗi băm"));
+                assertEquals("CHAIN_BROKEN", check.getChainDetails().get(1).getStatus());
+                assertFalse(check.getChainDetails().get(1).isChainValid());
         }
 
         @Test
