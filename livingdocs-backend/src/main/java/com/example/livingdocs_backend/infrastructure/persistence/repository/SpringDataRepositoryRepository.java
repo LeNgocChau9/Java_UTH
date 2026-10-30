@@ -12,6 +12,8 @@ public interface SpringDataRepositoryRepository extends JpaRepository<Repository
 
     List<RepositoryEntity> findByWorkspaceId(Long workspaceId);
 
+    List<RepositoryEntity> findByConnectionId(Long connectionId);
+
     Optional<RepositoryEntity> findByWorkspaceIdAndGithubRepoId(Long workspaceId, Long githubRepoId);
 
     Optional<RepositoryEntity> findByWorkspaceIdAndRepoFullName(Long workspaceId, String repoFullName);

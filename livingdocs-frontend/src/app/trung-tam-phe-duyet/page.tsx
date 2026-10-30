@@ -159,7 +159,7 @@ export default function TrungTamPheDuyetManagerPage() {
         : "Từ chối tài liệu.";
 
     try {
-      await documentService.processManagerReview(selectedDocId, {
+      await documentService.reviewByManager(selectedDocId, {
         decision,
         comment: managerComment.trim() || defaultComment,
       });

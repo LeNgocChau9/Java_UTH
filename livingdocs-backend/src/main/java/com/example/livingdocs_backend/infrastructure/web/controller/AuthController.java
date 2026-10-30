@@ -8,6 +8,10 @@ import com.example.livingdocs_backend.application.dto.UserProfileResponse;
 import com.example.livingdocs_backend.application.port.AuthServicePort;
 import com.example.livingdocs_backend.infrastructure.config.GitHubOAuthProperties;
 import com.example.livingdocs_backend.infrastructure.github.GitHubOAuthClient;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -18,13 +22,18 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.Principal;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 @RestController
 @RequestMapping("/api")
@@ -35,7 +44,14 @@ public class AuthController {
     private final AuthServicePort authServicePort;
     private final GitHubOAuthClient gitHubOAuthClient;
     private final GitHubOAuthProperties gitHubOAuthProperties;
-    private final com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository gitHubConnectionRepository;
+    private final SpringDataGitHubConnectionRepository gitHubConnectionRepository;
+    private final SpringDataRepositoryRepository repositoryRepository;
+    private final com.example.livingdocs_backend.domain.repository.UserRepositoryPort userRepositoryPort;
+    private final com.example.livingdocs_backend.infrastructure.security.JwtTokenProvider jwtTokenProvider;
+
+    // Lưu tạm state -> userId/redirect trong bộ nhớ để đảm bảo không bị mất cookie khi đi qua Next.js proxy
+    private final Map<String, Long> pendingLinkUsers = new ConcurrentHashMap<>();
+    private final Map<String, String> pendingRedirects = new ConcurrentHashMap<>();
 
     @PostMapping("/auth/register")
     @Operation(summary = "Đăng ký tài khoản mới", description = "Tạo tài khoản mới với email và mật khẩu, kiểm tra trùng lặp email và cấp JWT token")
@@ -82,11 +98,14 @@ public class AuthController {
         return ResponseEntity.ok(updated);
     }
 
-    // ═══ Đăng nhập bằng GitHub OAuth2 (Authorization Code Flow) ═══
+    // ═══ Đăng nhập hoặc Liên kết bằng GitHub OAuth2 (Authorization Code Flow) ═══
 
     @GetMapping("/auth/github")
-    @Operation(summary = "Bắt đầu đăng nhập bằng GitHub", description = "Sinh state chống CSRF rồi chuyển hướng trình duyệt sang trang cho phép của GitHub.")
+    @Operation(summary = "Bắt đầu đăng nhập hoặc liên kết bằng GitHub", description = "Sinh state chống CSRF rồi chuyển hướng trình duyệt sang trang cho phép của GitHub.")
     public void githubAuthorize(@RequestParam(value = "redirect", required = false) String redirect,
+                                @RequestParam(value = "token", required = false) String token,
+                                @RequestParam(value = "mode", required = false) String mode,
+                                HttpServletRequest request,
                                 HttpServletResponse response) throws IOException {
         if (!gitHubOAuthClient.isConfigured()) {
             response.sendRedirect(gitHubOAuthProperties.getLoginUrl() + "?error=oauth_not_configured");
@@ -94,14 +113,32 @@ public class AuthController {
         }
 
         String state = UUID.randomUUID().toString();
+        String cleanRedirect = sanitizeRedirect(redirect);
+        pendingRedirects.put(state, cleanRedirect);
         addCookie(response, "ld_oauth_state", state, 600);
-        addCookie(response, "ld_oauth_redirect", sanitizeRedirect(redirect), 600);
+        addCookie(response, "ld_oauth_redirect", cleanRedirect, 600);
+
+        // Lấy token từ query param hoặc từ cookie livingdocs_access_token nếu đang ở chế độ liên kết (mode=link)
+        String resolvedToken = token;
+        if ((resolvedToken == null || resolvedToken.isBlank()) && "link".equalsIgnoreCase(mode)) {
+            resolvedToken = readCookie(request, "livingdocs_access_token");
+        }
+
+        if (resolvedToken != null && !resolvedToken.isBlank() && jwtTokenProvider.validateToken(resolvedToken)) {
+            Long linkUserId = jwtTokenProvider.getUserIdFromToken(resolvedToken);
+            if (linkUserId != null) {
+                pendingLinkUsers.put(state, linkUserId);
+                addCookie(response, "ld_oauth_link_user_id", String.valueOf(linkUserId), 600);
+            }
+        } else {
+            addCookie(response, "ld_oauth_link_user_id", "", 0);
+        }
 
         response.sendRedirect(gitHubOAuthClient.buildAuthorizeUrl(state));
     }
 
     @GetMapping("/auth/github/callback")
-    @Operation(summary = "GitHub OAuth callback", description = "Nhận code từ GitHub, trao đổi token, tạo/cập nhật người dùng rồi chuyển hướng về frontend kèm JWT.")
+    @Operation(summary = "GitHub OAuth callback", description = "Nhận code từ GitHub, trao đổi token, tạo/cập nhật người dùng hoặc liên kết rồi chuyển hướng về frontend kèm JWT.")
     public void githubCallback(@RequestParam(value = "code", required = false) String code,
                                @RequestParam(value = "state", required = false) String state,
                                @RequestParam(value = "error", required = false) String error,
@@ -110,6 +147,10 @@ public class AuthController {
         String loginUrl = gitHubOAuthProperties.getLoginUrl();
 
         if (error != null) {
+            if (state != null) {
+                pendingRedirects.remove(state);
+                pendingLinkUsers.remove(state);
+            }
             clearOAuthCookies(response);
             response.sendRedirect(loginUrl + "?error=" + urlEncode(error));
             return;
@@ -121,27 +162,92 @@ public class AuthController {
         }
 
         String cookieState = readCookie(request, "ld_oauth_state");
-        String redirectTarget = readCookie(request, "ld_oauth_redirect");
+        String memoryRedirect = pendingRedirects.remove(state);
+        Long memoryLinkUserId = pendingLinkUsers.remove(state);
+        String redirectTarget = memoryRedirect != null ? memoryRedirect : readCookie(request, "ld_oauth_redirect");
+        String linkUserIdStr = readCookie(request, "ld_oauth_link_user_id");
         clearOAuthCookies(response);
 
-        if (cookieState == null || !cookieState.equals(state)) {
+        boolean stateValid = (cookieState != null && cookieState.equals(state)) || memoryRedirect != null;
+        if (!stateValid) {
             response.sendRedirect(loginUrl + "?error=oauth_state");
             return;
         }
 
+        Long resolvedLinkUserId = memoryLinkUserId;
+        if (resolvedLinkUserId == null && linkUserIdStr != null && !linkUserIdStr.isBlank()) {
+            try {
+                resolvedLinkUserId = Long.parseLong(linkUserIdStr);
+            } catch (NumberFormatException ignored) {
+            }
+        }
+
         try {
             GitHubOAuthClient.GitHubIdentity identity = gitHubOAuthClient.fetchIdentity(code);
+
+            // Kiểm tra xem đây có phải luồng liên kết tài khoản cho người dùng đang đăng nhập không
+            if (resolvedLinkUserId != null) {
+                final Long linkUserId = resolvedLinkUserId;
+                java.util.Optional<com.example.livingdocs_backend.domain.model.User> userOpt = userRepositoryPort.findById(linkUserId);
+                if (userOpt.isPresent()) {
+                    com.example.livingdocs_backend.domain.model.User currentUser = userOpt.get();
+
+                    // 1. Lưu hoặc cập nhật kết nối GitHub cho chính tài khoản đang đăng nhập (linkUserId)
+                    Long workspaceId = 1L; // Workspace mặc định
+                    GitHubConnectionEntity conn =
+                            gitHubConnectionRepository.findByWorkspaceIdAndUserId(workspaceId, linkUserId)
+                                    .orElse(GitHubConnectionEntity.builder()
+                                            .workspaceId(workspaceId)
+                                            .userId(linkUserId)
+                                            .build());
+
+                    conn.setGithubUserId(identity.id());
+                    conn.setGithubUsername(identity.login());
+                    conn.setAccessTokenEncrypted(identity.accessToken() != null ? identity.accessToken() : "placeholder");
+                    conn.setStatus("CONNECTED");
+                    conn.setUpdatedAt(Instant.now());
+                    conn = gitHubConnectionRepository.save(conn);
+
+                    // 2. Chuyển quyền sở hữu repo và gỡ liên kết GitHub trùng lặp khỏi tài khoản cũ (nếu có)
+                    reassignAndRemoveDuplicateConnections(linkUserId, conn, identity);
+
+                    // 3. Tự động kéo danh sách Repositories từ tài khoản GitHub vừa liên kết về Workspace
+                    autoSyncGitHubRepositories(workspaceId, conn);
+
+                    // 4. Cập nhật avatar nếu người dùng chưa có
+                    if (currentUser.getAvatarUrl() == null || currentUser.getAvatarUrl().isBlank()) {
+                        currentUser.setAvatarUrl(identity.avatarUrl());
+                        userRepositoryPort.save(currentUser);
+                    }
+
+                    // 5. Cấp lại token JWT cho chính user hiện tại để bảo toàn quyền hạn (DEVELOPER, ADMIN, ...)
+                    java.util.Set<String> roleStrings = currentUser.getRoles() != null
+                            ? currentUser.getRoles().stream().map(Enum::name).collect(java.util.stream.Collectors.toSet())
+                            : java.util.Collections.singleton("ROLE_DEVELOPER");
+
+                    String newToken = jwtTokenProvider.generateToken(currentUser.getUserId(), currentUser.getEmail(), roleStrings);
+
+                    String target = sanitizeRedirect(redirectTarget);
+                    String callbackUrl = gitHubOAuthProperties.getFrontendCallbackUrl()
+                            + "?token=" + urlEncode(newToken)
+                            + "&redirect=" + urlEncode(target);
+                    response.sendRedirect(callbackUrl);
+                    return;
+                }
+            }
+
+            // Luồng thông thường: Đăng nhập bằng GitHub khi chưa có phiên đăng nhập
             GitHubProfileRequest profile = new GitHubProfileRequest(
                     identity.id(), identity.login(), identity.name(), identity.email(), identity.avatarUrl());
             AuthResponse auth = authServicePort.loginWithGithub(profile);
 
-            // Tự động lưu/cập nhật bảng github_connections cho user này
+            // Tự động lưu/cập nhật bảng github_connections và đồng bộ danh sách repo cho user này
             try {
                 Long userId = auth.getUser().getUserId();
                 Long workspaceId = 1L; // Workspace mặc định
-                com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity conn =
+                GitHubConnectionEntity conn =
                         gitHubConnectionRepository.findByWorkspaceIdAndUserId(workspaceId, userId)
-                                .orElse(com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity.builder()
+                                .orElse(GitHubConnectionEntity.builder()
                                         .workspaceId(workspaceId)
                                         .userId(userId)
                                         .build());
@@ -150,8 +256,10 @@ public class AuthController {
                 conn.setGithubUsername(identity.login());
                 conn.setAccessTokenEncrypted(identity.accessToken() != null ? identity.accessToken() : "placeholder");
                 conn.setStatus("CONNECTED");
-                conn.setUpdatedAt(java.time.Instant.now());
-                gitHubConnectionRepository.save(conn);
+                conn.setUpdatedAt(Instant.now());
+                conn = gitHubConnectionRepository.save(conn);
+
+                autoSyncGitHubRepositories(workspaceId, conn);
             } catch (Exception connEx) {
                 // Không để lỗi connection chặn đăng nhập
             }
@@ -166,6 +274,84 @@ public class AuthController {
         }
     }
 
+    private void reassignAndRemoveDuplicateConnections(Long linkUserId,
+                                                       GitHubConnectionEntity activeConn,
+                                                       GitHubOAuthClient.GitHubIdentity identity) {
+        try {
+            if (identity.id() != null) {
+                for (var oldConn : gitHubConnectionRepository.findByGithubUserId(identity.id())) {
+                    if (!linkUserId.equals(oldConn.getUserId())) {
+                        for (RepositoryEntity repo : repositoryRepository.findByConnectionId(oldConn.getConnectionId())) {
+                            repo.setConnectionId(activeConn.getConnectionId());
+                            repositoryRepository.save(repo);
+                        }
+                        gitHubConnectionRepository.delete(oldConn);
+                    }
+                }
+            }
+            if (identity.login() != null) {
+                for (var oldConn : gitHubConnectionRepository.findByGithubUsernameIgnoreCase(identity.login())) {
+                    if (!linkUserId.equals(oldConn.getUserId())) {
+                        for (RepositoryEntity repo : repositoryRepository.findByConnectionId(oldConn.getConnectionId())) {
+                            repo.setConnectionId(activeConn.getConnectionId());
+                            repositoryRepository.save(repo);
+                        }
+                        gitHubConnectionRepository.delete(oldConn);
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void autoSyncGitHubRepositories(Long workspaceId, GitHubConnectionEntity conn) {
+        if (conn == null || conn.getConnectionId() == null) {
+            return;
+        }
+        try {
+            List<GitHubOAuthClient.GitHubRepoItem> ghRepos =
+                    gitHubOAuthClient.fetchUserRepositories(conn.getAccessTokenEncrypted(), conn.getGithubUsername());
+            for (GitHubOAuthClient.GitHubRepoItem item : ghRepos) {
+                if (!StringUtils.hasText(item.fullName())) {
+                    continue;
+                }
+                String fullName = item.fullName().trim();
+                String name = StringUtils.hasText(item.name())
+                        ? item.name().trim()
+                        : (fullName.contains("/") ? fullName.substring(fullName.indexOf('/') + 1) : fullName);
+                Long ghRepoId = item.id() != null ? item.id() : (long) Math.abs(fullName.hashCode());
+
+                RepositoryEntity existing = repositoryRepository
+                        .findByWorkspaceIdAndRepoFullName(workspaceId, fullName)
+                        .orElseGet(() -> repositoryRepository
+                                .findByWorkspaceIdAndGithubRepoId(workspaceId, ghRepoId)
+                                .orElse(null));
+
+                if (existing != null) {
+                    existing.setConnectionId(conn.getConnectionId());
+                    existing.setUpdatedAt(Instant.now());
+                    repositoryRepository.save(existing);
+                } else {
+                    RepositoryEntity entity = RepositoryEntity.builder()
+                            .workspaceId(workspaceId)
+                            .connectionId(conn.getConnectionId())
+                            .githubRepoId(ghRepoId)
+                            .repoName(name)
+                            .repoFullName(fullName)
+                            .defaultBranch(StringUtils.hasText(item.defaultBranch()) ? item.defaultBranch().trim() : "main")
+                            .cloneUrl(StringUtils.hasText(item.cloneUrl()) ? item.cloneUrl().trim() : "https://github.com/" + fullName + ".git")
+                            .isActive(true)
+                            .autoDocEnabled(true)
+                            .createdAt(Instant.now())
+                            .updatedAt(Instant.now())
+                            .build();
+                    repositoryRepository.save(entity);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
     private static void addCookie(HttpServletResponse response, String name, String value, int maxAgeSeconds) {
         Cookie cookie = new Cookie(name, value);
         cookie.setHttpOnly(true);
@@ -177,6 +363,7 @@ public class AuthController {
     private static void clearOAuthCookies(HttpServletResponse response) {
         addCookie(response, "ld_oauth_state", "", 0);
         addCookie(response, "ld_oauth_redirect", "", 0);
+        addCookie(response, "ld_oauth_link_user_id", "", 0);
     }
 
     private static String readCookie(HttpServletRequest request, String name) {
