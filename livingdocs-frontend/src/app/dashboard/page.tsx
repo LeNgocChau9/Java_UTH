@@ -74,7 +74,7 @@ export default function DashboardPage() {
 
           <div className="flex items-center gap-3">
             <span className="text-xs text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 font-medium">
-              Vai trò: <strong className="text-emerald-700">{roles.join(", ") || "TECH_LEAD"}</strong>
+              Vai trò: <strong className="text-emerald-700">{Array.isArray(roles) && roles.length ? roles.join(", ") : "TECH_LEAD"}</strong>
             </span>
             <button
               onClick={loadDashboardData}
@@ -242,7 +242,7 @@ export default function DashboardPage() {
 
           {/* Trực quan hóa Biểu đồ (Visual Bar Chart) */}
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-4">
-            {trends.map((item, idx) => {
+            {(Array.isArray(trends) ? trends : []).map((item, idx) => {
               const maxDocs = 35;
               const barHeightPct = Math.min(100, (item.updatedDocs / maxDocs) * 100);
               const driftHeightPct = Math.min(100, (item.driftAlerts / 10) * 100);

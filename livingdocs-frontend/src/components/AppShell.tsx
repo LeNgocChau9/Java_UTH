@@ -17,6 +17,7 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
+  History,
   Calendar,
   Mail,
   ShieldCheck,
@@ -69,6 +70,12 @@ const NAV: NavItem[] = [
     href: "/dashboard",
     label: "Tổng quan",
     icon: <LayoutDashboard size={16} />,
+    roles: ["DEVELOPER", "STAFF", "MANAGER", "TECH_LEAD", "ADMIN"],
+  },
+  {
+    href: "/nhat-ky-thay-doi",
+    label: "Nhật ký thay đổi",
+    icon: <History size={16} />,
     roles: ["DEVELOPER", "STAFF", "MANAGER", "TECH_LEAD", "ADMIN"],
   },
   {
@@ -201,11 +208,10 @@ function SidebarNavItem({
               <Link
                 key={child.href}
                 href={child.href}
-                className={`block px-2.5 py-1.5 text-[13px] rounded-[6px] transition-colors ${
-                  currentPath === child.href
+                className={`block px-2.5 py-1.5 text-[13px] rounded-[6px] transition-colors ${currentPath === child.href
                     ? "text-[#07543f] font-semibold bg-[#eaf6ef]"
                     : "text-[#64748b] hover:text-[#17231c] hover:bg-[#edf5ef]"
-                }`}
+                  }`}
               >
                 {child.label}
               </Link>
@@ -369,7 +375,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     {
       title: "Developer",
       role: "DEVELOPER",
-      items: NAV.filter((n) => n.roles.includes("DEVELOPER") && n.href !== "/dashboard"),
+      items: NAV.filter((n) => n.roles.includes("DEVELOPER") && n.href !== "/dashboard" && n.href !== "/nhat-ky-thay-doi"),
     },
     {
       title: "Staff",
@@ -394,6 +400,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   ];
 
   const dashboardItem = NAV.find((n) => n.href === "/dashboard")!;
+  const changelogItem = NAV.find((n) => n.href === "/nhat-ky-thay-doi");
 
   const initials = (() => {
     const src = user?.fullName?.trim() || user?.email || "";
@@ -446,8 +453,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Nav items */}
       <nav style={{ flex: 1, padding: "12px 10px", overflowY: "auto" }}>
         {ready && signedIn && (
-          <div style={{ marginBottom: 6 }}>
+          <div style={{ marginBottom: 6, display: "flex", flexDirection: "column", gap: 2 }}>
             <SidebarNavItem item={dashboardItem} currentPath={pathname} />
+            {changelogItem && <SidebarNavItem item={changelogItem} currentPath={pathname} />}
           </div>
         )}
 

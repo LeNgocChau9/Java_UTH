@@ -112,6 +112,13 @@ export const documentService = {
     return res.data;
   },
 
+  processManagerReview(
+    docId: number,
+    payload: { decision: "PUBLISH" | "APPROVE" | "RETURN_STAFF" | "REJECT"; comment?: string }
+  ): Promise<DocumentItem> {
+    return this.reviewByManager(docId, payload);
+  },
+
   /**
    * Lấy nhật ký lịch sử thay đổi (Audit trail) của tài liệu
    */
