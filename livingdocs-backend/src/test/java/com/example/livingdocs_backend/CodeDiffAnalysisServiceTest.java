@@ -1,22 +1,26 @@
 package com.example.livingdocs_backend;
 
-import com.example.livingdocs_backend.application.dto.ai.AstDiffRequestDto;
-import com.example.livingdocs_backend.application.dto.ai.AstDiffResponseDto;
-import com.example.livingdocs_backend.application.service.CodeDiffAnalysisService;
-import com.example.livingdocs_backend.domain.repository.CodeEntityRepositoryPort;
-import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentChangeAlertEntity;
-import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentChangeAlertRepository;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import java.util.List;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
-import java.util.List;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import com.example.livingdocs_backend.application.dto.ai.AstDiffRequestDto;
+import com.example.livingdocs_backend.application.service.CodeDiffAnalysisService;
+import com.example.livingdocs_backend.domain.repository.CodeEntityRepositoryPort;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentChangeAlertEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentChangeAlertRepository;
 
 class CodeDiffAnalysisServiceTest {
 
@@ -32,7 +36,8 @@ class CodeDiffAnalysisServiceTest {
     void setUp() {
         MockitoAnnotations.openMocks(this);
         // Khởi tạo service ở chế độ fallback
-        codeDiffAnalysisService = new CodeDiffAnalysisService(alertRepository, codeEntityRepository, "http://localhost:8000");
+        codeDiffAnalysisService = new CodeDiffAnalysisService(alertRepository, codeEntityRepository,
+                "http://localhost:8000");
     }
 
     @Test
@@ -51,13 +56,13 @@ class CodeDiffAnalysisServiceTest {
                                 .file_path("src/main/java/com/example/UserService.java")
                                 .base_code("public class UserService { public void oldMethod() {} }")
                                 .head_code("") // file bị xóa
-                                .build()
-                ))
+                                .build()))
                 .build();
 
         when(alertRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
-        List<DocumentChangeAlertEntity> alerts = codeDiffAnalysisService.processPullRequestCodeDiff(repoId, prId, requestDto);
+        List<DocumentChangeAlertEntity> alerts = codeDiffAnalysisService.processPullRequestCodeDiff(repoId, prId,
+                requestDto);
 
         assertNotNull(alerts);
         assertFalse(alerts.isEmpty());

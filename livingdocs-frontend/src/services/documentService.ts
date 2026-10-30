@@ -6,6 +6,8 @@ import type {
   DocumentItem,
   DocumentVersionItem,
   DocumentAuditLogItem,
+  ChangelogItem,
+  PaginatedResponse,
   IntegrityCheckResult,
   RollbackResponse,
   UpdateDocumentPayload,
@@ -63,7 +65,7 @@ export const documentService = {
   },
 
   /**
-   * Gửi tài liệu để review (chuyển trạng thái từ DRAFT -> UNDER_REVIEW_STAFF)
+   * Developer gửi tài liệu lên quy trình phê duyệt
    */
   async submitForReview(docId: number): Promise<DocumentItem> {
     const res = await apiClient.post<DocumentItem>(
@@ -73,11 +75,9 @@ export const documentService = {
   },
 
   /**
-   * Staff phê duyệt hoặc từ chối tài liệu:
-   * - decision: "APPROVE" -> Chuyển sang UNDER_REVIEW_MANAGER
-   * - decision: "REJECT" -> Chuyển sang REJECTED kèm lý do/nhận xét
+   * Staff duyệt hoặc từ chối tài liệu (Cấp 1)
    */
-  async processStaffReview(
+  async reviewByStaff(
     docId: number,
     payload: { decision: "APPROVE" | "REJECT"; comment?: string }
   ): Promise<DocumentItem> {
@@ -89,12 +89,19 @@ export const documentService = {
   },
 
   /**
-   * Manager phê duyệt cấp 2, trả lại Staff hoặc từ chối tài liệu:
-   * - decision: "PUBLISH" | "APPROVE" -> Chuyển sang PUBLISHED và đẩy commit lên GitHub
-   * - decision: "RETURN_STAFF" -> Trả lại Staff (UNDER_REVIEW_STAFF)
-   * - decision: "REJECT" -> Chuyển sang REJECTED kèm lý do/nhận xét
+   * Alias tương thích cho trang Hàng đợi xem xét của Staff
    */
-  async processManagerReview(
+  async processStaffReview(
+    docId: number,
+    payload: { decision: "APPROVE" | "REJECT"; comment?: string }
+  ): Promise<DocumentItem> {
+    return this.reviewByStaff(docId, payload);
+  },
+
+  /**
+   * Manager phê duyệt tài liệu (Cấp 2)
+   */
+  async reviewByManager(
     docId: number,
     payload: { decision: "PUBLISH" | "APPROVE" | "RETURN_STAFF" | "REJECT"; comment?: string }
   ): Promise<DocumentItem> {
@@ -112,6 +119,33 @@ export const documentService = {
     const res = await apiClient.get<DocumentAuditLogItem[]>(
       `/api/documents/${docId}/audit-trail`
     );
+    return res.data;
+  },
+
+  /**
+   * Lấy danh sách changelog của một tài liệu cụ thể
+   */
+  async getDocumentChangelogs(docId: number): Promise<ChangelogItem[]> {
+    const res = await apiClient.get<ChangelogItem[]>(
+      `/api/documents/${docId}/changelogs`
+    );
+    return res.data;
+  },
+
+  /**
+   * Lấy danh sách changelog toàn hệ thống có hỗ trợ lọc và phân trang
+   */
+  async getSystemChangelogs(params?: {
+    actorRole?: string;
+    repoId?: number;
+    fromDate?: string;
+    toDate?: string;
+    page?: number;
+    size?: number;
+  }): Promise<PaginatedResponse<ChangelogItem>> {
+    const res = await apiClient.get<PaginatedResponse<ChangelogItem>>("/api/changelogs", {
+      params,
+    });
     return res.data;
   },
 
@@ -165,7 +199,6 @@ export const documentService = {
     );
     return res.data;
   },
-
 
   /**
    * Lấy danh sách toàn bộ các bộ sưu tập tài liệu

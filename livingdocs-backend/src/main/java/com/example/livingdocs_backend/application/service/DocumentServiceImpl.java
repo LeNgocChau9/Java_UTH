@@ -1,6 +1,28 @@
 package com.example.livingdocs_backend.application.service;
 
-import com.example.livingdocs_backend.application.dto.*;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
+import com.example.livingdocs_backend.application.dto.ChangelogResponse;
+import com.example.livingdocs_backend.application.dto.CreateDocumentRequest;
+import com.example.livingdocs_backend.application.dto.DocumentAuditLogResponse;
+import com.example.livingdocs_backend.application.dto.DocumentDetailResponse;
+import com.example.livingdocs_backend.application.dto.DocumentResponse;
+import com.example.livingdocs_backend.application.dto.DocumentVersionResponse;
+import com.example.livingdocs_backend.application.dto.IntegrityCheckResponse;
+import com.example.livingdocs_backend.application.dto.ManagerReviewDecisionRequest;
+import com.example.livingdocs_backend.application.dto.PublishToGitHubRequest;
+import com.example.livingdocs_backend.application.dto.PublishToGitHubResponse;
+import com.example.livingdocs_backend.application.dto.RollbackResponse;
+import com.example.livingdocs_backend.application.dto.StaffReviewDecisionRequest;
+import com.example.livingdocs_backend.application.dto.UpdateDocumentRequest;
 import com.example.livingdocs_backend.application.dto.github.GitHubPublishResultDto;
 import com.example.livingdocs_backend.application.port.AuditServicePort;
 import com.example.livingdocs_backend.application.port.DocumentServicePort;
@@ -19,31 +41,41 @@ import com.example.livingdocs_backend.domain.util.HashUtils;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class DocumentServiceImpl implements DocumentServicePort {
 
     private final DocumentRepositoryPort documentRepositoryPort;
     private final DocumentVersionRepositoryPort documentVersionRepositoryPort;
     private final AuditServicePort auditServicePort;
+    private final com.example.livingdocs_backend.application.port.ChangelogServicePort changelogServicePort;
     private final SpringDataRepositoryRepository repositoryRepository;
     private final SpringDataGitHubConnectionRepository gitHubConnectionRepository;
     private final GitHubClientPort gitHubClient;
     private final TemplateStructureCheck templateStructureCheck;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    public DocumentServiceImpl(
+            DocumentRepositoryPort documentRepositoryPort,
+            DocumentVersionRepositoryPort documentVersionRepositoryPort,
+            AuditServicePort auditServicePort,
+            com.example.livingdocs_backend.application.port.ChangelogServicePort changelogServicePort,
+            SpringDataRepositoryRepository repositoryRepository,
+            SpringDataGitHubConnectionRepository gitHubConnectionRepository,
+            GitHubClientPort gitHubClient,
+            TemplateStructureCheck templateStructureCheck) {
+        this.documentRepositoryPort = documentRepositoryPort;
+        this.documentVersionRepositoryPort = documentVersionRepositoryPort;
+        this.auditServicePort = auditServicePort;
+        this.changelogServicePort = changelogServicePort;
+        this.repositoryRepository = repositoryRepository;
+        this.gitHubConnectionRepository = gitHubConnectionRepository;
+        this.gitHubClient = gitHubClient;
+        this.templateStructureCheck = templateStructureCheck;
+    }
 
     @Override
     @Transactional
@@ -99,6 +131,16 @@ public class DocumentServiceImpl implements DocumentServicePort {
                     savedDoc.getDocId(),
                     AuditAction.DOCUMENT_CREATED,
                     "Khởi tạo tài liệu v1: \"" + savedDoc.getTitle() + "\"" + pathInfo);
+        }
+
+        // 5. Tự động ghi nhận Changelog
+        if (changelogServicePort != null) {
+            changelogServicePort.logChange(
+                    savedDoc.getDocId(),
+                    savedVersion1.getVersionId(),
+                    actorId,
+                    role.name(),
+                    "Khởi tạo tài liệu v1: \"" + savedDoc.getTitle() + "\"");
         }
 
         return toDocumentResponse(savedDoc, savedVersion1);
@@ -182,6 +224,18 @@ public class DocumentServiceImpl implements DocumentServicePort {
                     docId,
                     AuditAction.DOCUMENT_UPDATED,
                     detailBuilder.toString());
+        }
+
+        // Tự động ghi nhận Changelog
+        if (changelogServicePort != null) {
+            String summary = "Cập nhật tài liệu lên phiên bản v" + nextVersionNum + " (Tiêu đề: \""
+                    + updatedDoc.getTitle() + "\")";
+            changelogServicePort.logChange(
+                    docId,
+                    savedVersion.getVersionId(),
+                    actorId,
+                    role.name(),
+                    summary);
         }
 
         return toDocumentResponse(updatedDoc, savedVersion);
@@ -354,6 +408,20 @@ public class DocumentServiceImpl implements DocumentServicePort {
             auditServicePort.recordDocumentAction(actorId, docId, action, detailMsg);
         }
 
+        // Tự động ghi nhận Changelog khi Staff duyệt/từ chối
+        if (changelogServicePort != null) {
+            String summary = (nextStatus == DocumentStatus.REJECTED)
+                    ? "Staff đã từ chối tài liệu. Lý do: " + (comment.isEmpty() ? "Không có lý do chi tiết" : comment)
+                    : "Staff đã phê duyệt tài liệu cấp 1 (chuyển sang Manager). "
+                            + (comment.isEmpty() ? "" : "Ghi chú: " + comment);
+            changelogServicePort.logChange(
+                    docId,
+                    latest != null ? latest.getVersionId() : null,
+                    actorId,
+                    actorRole != null ? actorRole : "STAFF",
+                    summary.trim());
+        }
+
         return toDocumentResponse(saved, latest);
     }
 
@@ -426,6 +494,28 @@ public class DocumentServiceImpl implements DocumentServicePort {
                         + (!comment.isEmpty() ? comment : "Tài liệu không đạt chuẩn xuất bản.");
             }
             auditServicePort.recordDocumentAction(actorId, docId, action, detailMsg);
+        }
+
+        // Tự động ghi nhận Changelog khi Manager phê duyệt/từ chối/trả lại
+        if (changelogServicePort != null) {
+            String summary;
+            if (nextStatus == DocumentStatus.PUBLISHED) {
+                summary = "Manager đã phê duyệt xuất bản (PUBLISHED)."
+                        + (gitCommitSha != null ? " Commit SHA: " + gitCommitSha + "." : "")
+                        + (!comment.isEmpty() ? " Ghi chú: " + comment : "");
+            } else if (nextStatus == DocumentStatus.UNDER_REVIEW_STAFF) {
+                summary = "Manager yêu cầu xem xét lại (Trả lại Staff). Lý do: "
+                        + (!comment.isEmpty() ? comment : "Cần rà soát lại.");
+            } else {
+                summary = "Manager đã từ chối tài liệu. Lý do: "
+                        + (!comment.isEmpty() ? comment : "Không đạt chuẩn xuất bản.");
+            }
+            changelogServicePort.logChange(
+                    docId,
+                    latest != null ? latest.getVersionId() : null,
+                    actorId,
+                    actorRole != null ? actorRole : "MANAGER",
+                    summary.trim());
         }
 
         return toDocumentResponse(saved, latest);
@@ -572,6 +662,19 @@ public class DocumentServiceImpl implements DocumentServicePort {
                     "Khôi phục tài liệu về phiên bản v" + targetVersion + " -> Tạo phiên bản mới v" + nextVersionNum
                             + msgReason);
         }
+
+        // Tự động ghi nhận Changelog khi Khôi phục (Rollback)
+        if (changelogServicePort != null) {
+            String summary = "Khôi phục tài liệu về phiên bản v" + targetVersion + " (tạo phiên bản mới v"
+                    + nextVersionNum + ")" + msgReason;
+            changelogServicePort.logChange(
+                    docId,
+                    savedVersion.getVersionId(),
+                    actorId,
+                    role.name(),
+                    summary);
+        }
+
         String message = "Đã khôi phục thành công tài liệu về nội dung của phiên bản v" + targetVersion
                 + ", tạo phiên bản mới v" + nextVersionNum + " để bảo đảm toàn vẹn chuỗi băm lịch sử" + msgReason + ".";
 
@@ -591,7 +694,8 @@ public class DocumentServiceImpl implements DocumentServicePort {
         Document document = documentRepositoryPort.findById(docId)
                 .orElseThrow(() -> new DocumentNotFoundException(docId));
 
-        // 2. Chuyển trạng thái sang PUBLISHED tuân thủ máy trạng thái (DocumentStateMachine)
+        // 2. Chuyển trạng thái sang PUBLISHED tuân thủ máy trạng thái
+        // (DocumentStateMachine)
         // Yêu cầu tài liệu phải ở trạng thái APPROVED
         DocumentStatus currentStatus = document.getStatus() != null ? document.getStatus() : DocumentStatus.DRAFT;
         DocumentStatus nextStatus = DocumentStateMachine.transition(currentStatus, DocumentStatus.PUBLISHED);
@@ -602,7 +706,8 @@ public class DocumentServiceImpl implements DocumentServicePort {
 
         // 4. Lấy thông tin repository để xác định owner, repo, default_branch
         RepositoryEntity repository = repositoryRepository.findById(document.getRepoId())
-                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy thông tin repository với repoId: " + document.getRepoId()));
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Không tìm thấy thông tin repository với repoId: " + document.getRepoId()));
 
         String repoFullName = repository.getRepoFullName();
         if (!StringUtils.hasText(repoFullName) || !repoFullName.contains("/")) {
@@ -631,7 +736,8 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 ? request.getCommitMessage().trim()
                 : "docs: publish " + document.getTitle() + " (v" + latestVersion.getVersionNum() + ")";
 
-        // 7. Token người dùng: Nếu request có token thì dùng token trong request, nếu không lấy token đã lưu trong repository connection
+        // 7. Token người dùng: Nếu request có token thì dùng token trong request, nếu
+        // không lấy token đã lưu trong repository connection
         String token = request != null ? request.getGithubToken() : null;
         if (!StringUtils.hasText(token)) {
             token = resolveGitHubToken(repository);
@@ -640,7 +746,8 @@ public class DocumentServiceImpl implements DocumentServicePort {
             throw new IllegalArgumentException("GitHub token không được để trống khi xuất bản");
         }
 
-        // 8. Lấy SHA của file hiện tại trên GitHub (nếu file đã tồn tại thì cần SHA để update)
+        // 8. Lấy SHA của file hiện tại trên GitHub (nếu file đã tồn tại thì cần SHA để
+        // update)
         String currentSha = gitHubClient.getCurrentFileSha(token, owner, repo, targetPath);
 
         // 9. Gọi GitHub Contents API (PUT /repos/{owner}/{repo}/contents/{path})
@@ -651,12 +758,12 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 targetPath,
                 latestVersion.getContent() != null ? latestVersion.getContent() : "",
                 commitMessage,
-                currentSha
-        );
+                currentSha);
 
         LocalDateTime publishedAt = LocalDateTime.now();
 
-        // 10. Ghi nhận commit hash, commit link và publishedAt vào bảng document_versions
+        // 10. Ghi nhận commit hash, commit link và publishedAt vào bảng
+        // document_versions
         latestVersion.setCommitHash(publishResult.getCommitSha());
         latestVersion.setCommitUrl(publishResult.getCommitUrl());
         latestVersion.setPublishedAt(publishedAt);
@@ -768,6 +875,18 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 .toList();
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<ChangelogResponse> getDocumentChangelogs(Long docId) {
+        if (!documentRepositoryPort.existsById(docId)) {
+            throw new DocumentNotFoundException(docId);
+        }
+        if (changelogServicePort == null) {
+            return List.of();
+        }
+        return changelogServicePort.getChangelogsByDocument(docId);
+    }
+
     /**
      * Kích hoạt xuất bản: Đẩy commit tài liệu Markdown lên GitHub repository.
      */
@@ -839,4 +958,3 @@ public class DocumentServiceImpl implements DocumentServicePort {
         return new String[] { parts[0].trim(), parts[1].trim() };
     }
 }
-

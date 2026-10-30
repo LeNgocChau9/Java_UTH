@@ -10,13 +10,15 @@ import java.util.List;
 
 /**
  * Port giao tiếp với GitHub REST API.
- * Cung cấp các thao tác lấy danh sách file repo, thông tin PR, danh sách commit,
+ * Cung cấp các thao tác lấy danh sách file repo, thông tin PR, danh sách
+ * commit,
  * có xử lý lỗi rate limit và mapping dữ liệu domain/application.
  */
 public interface GitHubClientPort {
 
     /**
-     * Lấy toàn bộ cây thư mục/danh sách file trong repo tại một branch hoặc commit cụ thể.
+     * Lấy toàn bộ cây thư mục/danh sách file trong repo tại một branch hoặc commit
+     * cụ thể.
      */
     List<GitHubFileDto> getRepositoryTree(String token, String owner, String repo, String treeSha, boolean recursive);
 
@@ -36,16 +38,18 @@ public interface GitHubClientPort {
     List<GitHubCommitDto> listCommits(String token, String owner, String repo, String sha, int limit);
 
     /**
-     * Tạo hoặc cập nhật file trong GitHub repository (Tạo commit lên branch chỉ định).
+     * Tạo hoặc cập nhật file trong GitHub repository (Tạo commit lên branch chỉ
+     * định).
      */
-    String createOrUpdateFile(String token, String owner, String repo, String filePath, String content, String commitMessage, String branch);
+    String createOrUpdateFile(String token, String owner, String repo, String filePath, String content,
+            String commitMessage, String branch);
 
     /**
      * Tạo hoặc cập nhật một file trong GitHub repository bằng GitHub Contents API.
      */
     GitHubPublishResultDto putFileContent(String token, String owner, String repo,
-                                          String filePath, String content,
-                                          String commitMessage, String currentSha);
+            String filePath, String content,
+            String commitMessage, String currentSha);
 
     /**
      * Lấy SHA hiện tại của một file trong repo (null nếu file chưa tồn tại).

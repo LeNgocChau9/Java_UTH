@@ -38,8 +38,8 @@ export default function DashboardPage() {
         documentService.getDocuments().catch(() => [] as DocumentItem[]),
       ]);
       setStats(statsData);
-      setTrends(trendData);
-      setRecentDocs(docList || []);
+      setTrends(Array.isArray(trendData) ? trendData : []);
+      setRecentDocs(Array.isArray(docList) ? docList : []);
     } catch (err) {
       console.error("Lỗi khi tải dữ liệu dashboard:", err);
     } finally {

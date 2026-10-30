@@ -100,3 +100,24 @@ export interface DocumentAuditLogItem {
   createdAt: string;
 }
 
+export interface ChangelogItem {
+  id: number;
+  documentId: number;
+  documentTitle?: string | null;
+  repoId?: number | null;
+  versionId: number | null;
+  actorId: number | null;
+  actorRole: "AI" | "DEV" | "STAFF" | "MANAGER" | string;
+  changeSummary: string;
+  createdAt: string;
+}
+
+export interface PaginatedResponse<T> {
+  content: T[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+  first: boolean;
+  last: boolean;
+}

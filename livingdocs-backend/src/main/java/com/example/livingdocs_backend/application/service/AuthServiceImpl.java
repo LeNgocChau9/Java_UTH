@@ -97,12 +97,31 @@ public class AuthServiceImpl implements AuthServicePort {
     @Override
     public AuthResponse loginWithGithub(GitHubProfileRequest request) {
         String email = request.getEmail() != null ? request.getEmail().toLowerCase().trim() : null;
-        if (email == null || email.isBlank()) {
-            auditServicePort.recordLogin(null, email, false);
-            throw new AuthenticationException("GitHub không cung cấp email để đăng nhập");
+
+        // 1. Ưu tiên tìm người dùng đã liên kết với tài khoản GitHub này trong bảng github_connections
+        User user = null;
+        try {
+            if (request.getGithubId() != null) {
+                user = gitHubConnectionRepository.findFirstByGithubUserIdOrderByUpdatedAtDesc(request.getGithubId())
+                        .flatMap(conn -> userRepositoryPort.findById(conn.getUserId()))
+                        .orElse(null);
+            }
+            if (user == null && request.getLogin() != null && !request.getLogin().isBlank()) {
+                user = gitHubConnectionRepository.findFirstByGithubUsernameIgnoreCaseOrderByUpdatedAtDesc(request.getLogin().trim())
+                        .flatMap(conn -> userRepositoryPort.findById(conn.getUserId()))
+                        .orElse(null);
+            }
+        } catch (Exception ignored) {
         }
 
-        User user = userRepositoryPort.findByEmail(email).orElse(null);
+        // 2. Nếu chưa liên kết với user nào thì mới tìm theo email của GitHub
+        if (user == null) {
+            if (email == null || email.isBlank()) {
+                auditServicePort.recordLogin(null, email, false);
+                throw new AuthenticationException("GitHub không cung cấp email để đăng nhập");
+            }
+            user = userRepositoryPort.findByEmail(email).orElse(null);
+        }
 
         if (user == null) {
             // Người dùng mới: tạo tài khoản từ danh tính GitHub.
@@ -120,7 +139,7 @@ public class AuthServiceImpl implements AuthServicePort {
             user = userRepositoryPort.findById(user.getUserId()).orElse(user);
         } else {
             if (!"ACTIVE".equalsIgnoreCase(user.getStatus())) {
-                auditServicePort.recordLogin(user.getUserId(), email, false);
+                auditServicePort.recordLogin(user.getUserId(), user.getEmail(), false);
                 throw new AuthenticationException("Tài khoản của bạn đã bị khóa hoặc chưa kích hoạt");
             }
             // Làm mới ảnh đại diện nếu GitHub có và khác ảnh hiện tại.
@@ -130,7 +149,7 @@ public class AuthServiceImpl implements AuthServicePort {
             }
         }
 
-        auditServicePort.recordLogin(user.getUserId(), email, true);
+        auditServicePort.recordLogin(user.getUserId(), user.getEmail(), true);
 
         java.util.Set<String> roleStrings = user.getRoles() != null
                 ? user.getRoles().stream().map(Enum::name).collect(java.util.stream.Collectors.toSet())

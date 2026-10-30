@@ -15,10 +15,17 @@ public interface SpringDataGitHubConnectionRepository extends JpaRepository<GitH
 
     Optional<GitHubConnectionEntity> findFirstByWorkspaceIdOrderByCreatedAtDesc(Long workspaceId);
 
+    Optional<GitHubConnectionEntity> findFirstByGithubUserIdOrderByUpdatedAtDesc(Long githubUserId);
+
+    Optional<GitHubConnectionEntity> findFirstByGithubUsernameIgnoreCaseOrderByUpdatedAtDesc(String githubUsername);
+
+    java.util.List<GitHubConnectionEntity> findByGithubUserId(Long githubUserId);
+
+    java.util.List<GitHubConnectionEntity> findByGithubUsernameIgnoreCase(String githubUsername);
+
     java.util.List<GitHubConnectionEntity> findByWorkspaceId(Long workspaceId);
 
     java.util.List<GitHubConnectionEntity> findByUserId(Long userId);
 
     java.util.List<GitHubConnectionEntity> findAllByStatus(String status);
 }
-

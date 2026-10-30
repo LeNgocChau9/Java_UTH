@@ -2,6 +2,7 @@ package com.example.livingdocs_backend.infrastructure.github;
 
 import com.example.livingdocs_backend.domain.exception.AuthenticationException;
 import com.example.livingdocs_backend.infrastructure.config.GitHubOAuthProperties;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
@@ -13,6 +14,8 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * Client gọi GitHub OAuth2 + REST API để lấy danh tính người dùng.
@@ -26,6 +29,7 @@ public class GitHubOAuthClient {
     private static final String TOKEN_URL = "https://github.com/login/oauth/access_token";
     private static final String USER_URL = "https://api.github.com/user";
     private static final String EMAILS_URL = "https://api.github.com/user/emails";
+    private static final String USER_REPOS_URL = "https://api.github.com/user/repos?sort=updated&per_page=30&affiliation=owner,collaborator";
     private static final String API_VERSION = "2022-11-28";
 
     private final GitHubOAuthProperties config;
@@ -55,6 +59,53 @@ public class GitHubOAuthClient {
         GitHubUser user = fetchUser(accessToken);
         String email = resolveEmail(user, accessToken);
         return new GitHubIdentity(user.id(), user.login(), user.name(), email, user.avatarUrl(), accessToken);
+    }
+
+    /**
+     * Lấy danh sách Repository từ tài khoản GitHub vừa liên kết để tự động nạp vào Workspace.
+     */
+    public List<GitHubRepoItem> fetchUserRepositories(String accessToken, String githubUsername) {
+        // 1. Ưu tiên gọi /user/repos bằng OAuth access token
+        if (StringUtils.hasText(accessToken)
+                && !"placeholder".equalsIgnoreCase(accessToken)
+                && !"DUMMY_TOKEN".equalsIgnoreCase(accessToken)
+                && !accessToken.startsWith("enc:v1:")) {
+            try {
+                GitHubRepoItem[] repos = restClient.get()
+                        .uri(USER_REPOS_URL)
+                        .header("Authorization", "Bearer " + accessToken.trim())
+                        .header("Accept", "application/json")
+                        .header("X-GitHub-Api-Version", API_VERSION)
+                        .header("User-Agent", "LivingDocs-App")
+                        .retrieve()
+                        .body(GitHubRepoItem[].class);
+                if (repos != null && repos.length > 0) {
+                    return Arrays.asList(repos);
+                }
+            } catch (Exception ignored) {
+                // Rơi về phương án 2 (/users/{username}/repos) bên dưới
+            }
+        }
+
+        // 2. Fallback gọi public repos theo githubUsername
+        if (StringUtils.hasText(githubUsername)) {
+            try {
+                String publicReposUrl = "https://api.github.com/users/" + githubUsername.trim() + "/repos?sort=updated&per_page=30";
+                GitHubRepoItem[] repos = restClient.get()
+                        .uri(publicReposUrl)
+                        .header("Accept", "application/json")
+                        .header("X-GitHub-Api-Version", API_VERSION)
+                        .header("User-Agent", "LivingDocs-App")
+                        .retrieve()
+                        .body(GitHubRepoItem[].class);
+                if (repos != null && repos.length > 0) {
+                    return Arrays.asList(repos);
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
+        return Collections.emptyList();
     }
 
     private String exchangeCodeForAccessToken(String code) {
@@ -152,5 +203,14 @@ public class GitHubOAuthClient {
             String scope,
             String error,
             @JsonProperty("error_description") String errorDescription
+    ) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record GitHubRepoItem(
+            Long id,
+            String name,
+            @JsonProperty("full_name") String fullName,
+            @JsonProperty("default_branch") String defaultBranch,
+            @JsonProperty("clone_url") String cloneUrl
     ) {}
 }

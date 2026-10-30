@@ -33,6 +33,14 @@ pnpm-debug.log*
 .agents/
 skills-lock.json
 
+# Design, UML and Diagram files (KHÔNG push lên GitHub)
+*.puml
+*.plantuml
+*.drawio
+*.drawio.png
+*.drawio.svg
+*.drawio.xml
+
 # OS files
 .DS_Store
 Thumbs.db

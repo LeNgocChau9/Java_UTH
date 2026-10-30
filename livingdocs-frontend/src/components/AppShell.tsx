@@ -1647,7 +1647,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       )}
-      {/* ── MODAL XÁC NHẬN CHUYỂN HƯỚNG / ĐỔI TÀI KHOẢN GITHUB ── */}
+      {/* ── MODAL XÁC NHẬN LIÊN KẾT / ĐỔI TÀI KHOẢN GITHUB ── */}
       {showGitHubModal && (
         <div
           style={{
@@ -1704,59 +1704,135 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
               <div>
                 <h3 style={{ fontSize: 17, fontWeight: 700, color: "#0f172a", margin: 0 }}>
-                  Xác thực & Liên kết GitHub
+                  {user?.githubUsername ? "Đổi tài khoản GitHub liên kết" : "Liên kết tài khoản GitHub"}
                 </h3>
-                <p style={{ fontSize: 12, color: "#64748b", margin: "2px 0 0" }}>
-                  Tài khoản hiện tại: {user?.githubUsername ? `@${user.githubUsername}` : "Chưa liên kết"}
-                </p>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
+                  <span style={{ fontSize: 12, color: "#64748b" }}>Trạng thái:</span>
+                  {user?.githubUsername ? (
+                    <span style={{ fontSize: 11, fontWeight: 600, color: "#047857", background: "#ecfdf5", padding: "1px 8px", borderRadius: 12, border: "1px solid #a7f3d0" }}>
+                      Đang liên kết @{user.githubUsername}
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: 11, fontWeight: 600, color: "#b45309", background: "#fffbeb", padding: "1px 8px", borderRadius: 12, border: "1px solid #fde68a" }}>
+                      Chưa liên kết
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 
-            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: 14, marginBottom: 16 }}>
-              <p style={{ fontSize: 13, color: "#334155", margin: 0, lineHeight: 1.5 }}>
-                Hệ thống sẽ chuyển bạn sang <strong>GitHub</strong> để xác thực danh tính.
-              </p>
-              <div style={{ marginTop: 8, padding: "8px 10px", background: "#fef3c7", border: "1px solid #fde68a", borderRadius: 6 }}>
-                <p style={{ fontSize: 12, color: "#92400e", margin: 0, lineHeight: 1.5 }}>
-                  ⚠️ <strong>Lưu ý:</strong> Nếu muốn đổi sang tài khoản GitHub khác, hãy đảm bảo bạn đã đăng nhập tài khoản đó trên <strong>github.com</strong> trước (tránh việc GitHub tự nhận diện phiên cũ).
-                </p>
-              </div>
-            </div>
+            {user?.githubUsername ? (
+              /* Trường hợp ĐÃ LIÊN KẾT: Hướng dẫn đổi sang tài khoản khác */
+              <>
+                <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: 14, marginBottom: 16 }}>
+                  <p style={{ fontSize: 13, color: "#334155", margin: 0, lineHeight: 1.5 }}>
+                    Tài khoản của bạn hiện đang liên kết với GitHub <strong>@{user.githubUsername}</strong>.
+                  </p>
+                  <div style={{ marginTop: 8, padding: "8px 10px", background: "#fef3c7", border: "1px solid #fde68a", borderRadius: 6 }}>
+                    <p style={{ fontSize: 12, color: "#92400e", margin: 0, lineHeight: 1.5 }}>
+                      ⚠️ <strong>Lưu ý:</strong> Nếu muốn đổi sang tài khoản GitHub khác, hãy đảm bảo bạn đã đăng nhập tài khoản mới đó trên <strong>github.com</strong> trước (tránh việc GitHub tự nhận diện phiên cũ).
+                    </p>
+                  </div>
+                </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <a
-                href="https://github.com/login"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="ld-btn ld-btn-secondary w-full"
-                style={{ fontSize: 13, padding: "9px 16px", justifyContent: "center", gap: 8 }}
-              >
-                <ExternalLink size={15} />
-                Mở github.com để đổi tài khoản
-              </a>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <a
+                    href="https://github.com/login"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="ld-btn ld-btn-secondary w-full"
+                    style={{ fontSize: 13, padding: "9px 16px", justifyContent: "center", gap: 8 }}
+                  >
+                    <ExternalLink size={15} />
+                    Mở github.com để chuyển tài khoản
+                  </a>
 
-              <button
-                type="button"
-                onClick={() => {
-                  const target = typeof window !== "undefined" ? window.location.pathname : "/dashboard";
-                  window.location.assign(`/api/auth/github?redirect=${encodeURIComponent(target)}`);
-                }}
-                className="ld-btn ld-btn-primary w-full"
-                style={{ fontSize: 13, padding: "9px 16px", justifyContent: "center", gap: 8 }}
-              >
-                <Check size={16} />
-                Tiếp tục chuyển hướng liên kết
-              </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const token =
+                        typeof window !== "undefined"
+                          ? localStorage.getItem("livingdocs_access_token") ||
+                            localStorage.getItem("ld_access_token") ||
+                            ""
+                          : "";
+                      const target = typeof window !== "undefined" ? window.location.pathname : "/dashboard";
+                      window.location.assign(`/api/auth/github?mode=link&redirect=${encodeURIComponent(target)}&token=${encodeURIComponent(token)}`);
+                    }}
+                    className="ld-btn ld-btn-primary w-full"
+                    style={{ fontSize: 13, padding: "9px 16px", justifyContent: "center", gap: 8 }}
+                  >
+                    <Check size={16} />
+                    Tiếp tục xác thực & Đổi tài khoản
+                  </button>
 
-              <button
-                type="button"
-                onClick={() => setShowGitHubModal(false)}
-                className="ld-btn ld-btn-ghost w-full"
-                style={{ fontSize: 12, padding: "6px 12px", justifyContent: "center", color: "#64748b" }}
-              >
-                Hủy bỏ
-              </button>
-            </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowGitHubModal(false)}
+                    className="ld-btn ld-btn-ghost w-full"
+                    style={{ fontSize: 12, padding: "6px 12px", justifyContent: "center", color: "#64748b" }}
+                  >
+                    Hủy bỏ
+                  </button>
+                </div>
+              </>
+            ) : (
+              /* Trường hợp CHƯA LIÊN KẾT: Giao diện liên kết tài khoản cho người dùng mới */
+              <>
+                <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: 14, marginBottom: 16 }}>
+                  <p style={{ fontSize: 13, color: "#334155", margin: 0, fontWeight: 600 }}>
+                    Liên kết GitHub để mở khóa các tính năng:
+                  </p>
+                  <ul style={{ margin: "8px 0 0", paddingLeft: 18, fontSize: 12, color: "#475569", lineHeight: 1.6 }}>
+                    <li>Đồng bộ kho mã nguồn (Repositories) vào LivingDocs</li>
+                    <li>Theo dõi Pull Request, Commit và phát hiện lệch tài liệu kỹ thuật</li>
+                    <li>Nhận cảnh báo tài liệu tự động qua GitHub Webhook</li>
+                  </ul>
+                  <p style={{ fontSize: 12, color: "#64748b", margin: "10px 0 0" }}>
+                    Bấm nút bên dưới để chuyển sang GitHub cấp quyền liên kết cho tài khoản này.
+                  </p>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const token =
+                        typeof window !== "undefined"
+                          ? localStorage.getItem("livingdocs_access_token") ||
+                            localStorage.getItem("ld_access_token") ||
+                            ""
+                          : "";
+                      const target = typeof window !== "undefined" ? window.location.pathname : "/dashboard";
+                      window.location.assign(`/api/auth/github?mode=link&redirect=${encodeURIComponent(target)}&token=${encodeURIComponent(token)}`);
+                    }}
+                    className="ld-btn ld-btn-primary w-full"
+                    style={{
+                      fontSize: 13,
+                      padding: "10px 16px",
+                      justifyContent: "center",
+                      gap: 8,
+                      background: "#0f172a",
+                      color: "#ffffff",
+                    }}
+                  >
+                    <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+                      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
+                    </svg>
+                    Liên kết với tài khoản GitHub ngay
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowGitHubModal(false)}
+                    className="ld-btn ld-btn-ghost w-full"
+                    style={{ fontSize: 12, padding: "6px 12px", justifyContent: "center", color: "#64748b" }}
+                  >
+                    Để sau
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
