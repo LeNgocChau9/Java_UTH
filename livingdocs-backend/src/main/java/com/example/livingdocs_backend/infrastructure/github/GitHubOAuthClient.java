@@ -39,18 +39,25 @@ public class GitHubOAuthClient {
         return config.isConfigured();
     }
 
-    /** Sinh URL chuyển hướng trình duyệt sang trang cho phép của GitHub (luôn yêu cầu đăng nhập và cấp quyền mới). */
+    /** Sinh URL chuyển hướng trình duyệt sang trang cho phép của GitHub. */
     public String buildAuthorizeUrl(String state) {
-        return UriComponentsBuilder.fromHttpUrl(AUTHORIZE_URL)
+        return buildAuthorizeUrl(state, false);
+    }
+
+    /** Sinh URL chuyển hướng trình duyệt sang trang cho phép của GitHub (nếu forceLogin=true thì bắt buộc nhập lại user/pass GitHub). */
+    public String buildAuthorizeUrl(String state, boolean forceLogin) {
+        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(AUTHORIZE_URL)
                 .queryParam("client_id", config.getClientId())
                 .queryParam("redirect_uri", config.getRedirectUri())
                 .queryParam("scope", config.getScope())
                 .queryParam("state", state)
-                .queryParam("prompt", "login")
-                .queryParam("allow_signup", "true")
-                .build()
-                .encode()
-                .toUriString();
+                .queryParam("allow_signup", "true");
+
+        if (forceLogin) {
+            builder.queryParam("prompt", "login");
+        }
+
+        return builder.build().encode().toUriString();
     }
 
     /** Trao đổi code lấy access_token rồi đọc thông tin người dùng GitHub. */
