@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   Hash,
   Eye,
+  EyeOff,
   Archive,
   FileText,
   Sparkles,
@@ -53,7 +54,15 @@ import {
 } from "lucide-react";
 import { useSession } from "@/hooks/useSession";
 import { useRouter } from "next/navigation";
-import { refreshSession, updateCurrentUserProfile } from "@/services/authService";
+import {
+  refreshSession,
+  updateCurrentUserProfile,
+  login as loginAccount,
+  getSavedAccounts,
+  switchToSavedAccount,
+  removeSavedAccount,
+  type SavedAccountEntry,
+} from "@/services/authService";
 
 type AppRole = "DEVELOPER" | "STAFF" | "MANAGER" | "TECH_LEAD" | "ADMIN";
 
@@ -303,9 +312,63 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Modal xem chi tiết hồ sơ người dùng
+  // Modal xem chi tiết hồ sơ người dùng & Chuyển nhanh tài khoản
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showGitHubModal, setShowGitHubModal] = useState(false);
+  const [showSwitchAccountModal, setShowSwitchAccountModal] = useState(false);
+  const [savedAccounts, setSavedAccounts] = useState<SavedAccountEntry[]>([]);
+  const [switchEmail, setSwitchEmail] = useState("");
+  const [switchPassword, setSwitchPassword] = useState("");
+  const [showSwitchPassword, setShowSwitchPassword] = useState(false);
+  const [showOldPassword, setShowOldPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [switchingAccount, setSwitchingAccount] = useState(false);
+  const [switchError, setSwitchError] = useState<string | null>(null);
+
+  const openSwitchAccountModal = () => {
+    setSavedAccounts(getSavedAccounts());
+    setSwitchEmail("");
+    setSwitchPassword("");
+    setShowSwitchPassword(false);
+    setSwitchError(null);
+    setShowDetailModal(false);
+    setUserMenuOpen(false);
+    setShowSwitchAccountModal(true);
+  };
+
+  const handleQuickSwitch = (entry: SavedAccountEntry) => {
+    switchToSavedAccount(entry);
+    setShowSwitchAccountModal(false);
+    window.location.assign("/dashboard");
+  };
+
+  const handleRemoveSavedAccount = (emailOrId: string | number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    removeSavedAccount(emailOrId);
+    setSavedAccounts(getSavedAccounts());
+  };
+
+  const handleAddAndSwitchAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!switchEmail.trim() || !switchPassword) {
+      setSwitchError("Vui lòng nhập đầy đủ Email và Mật khẩu.");
+      return;
+    }
+    try {
+      setSwitchingAccount(true);
+      setSwitchError(null);
+      await loginAccount({
+        email: switchEmail.trim(),
+        password: switchPassword,
+      });
+      setShowSwitchAccountModal(false);
+      window.location.assign("/dashboard");
+    } catch (err: any) {
+      setSwitchError(err.response?.data?.message || "Email hoặc mật khẩu không chính xác!");
+    } finally {
+      setSwitchingAccount(false);
+    }
+  };
   const [bannerUrl, setBannerUrl] = useState<string>("/project-cover.png");
 
   // Modal đổi thông tin cá nhân & mật khẩu
@@ -563,6 +626,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 {roles[0]?.replace("ROLE_", "") || ""}
               </p>
             </div>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                openSwitchAccountModal();
+              }}
+              title="Chuyển nhanh tài khoản khác"
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 6,
+                border: "1px solid #cbd5e1",
+                background: "#ffffff",
+                color: "#087f5b",
+                display: "grid",
+                placeItems: "center",
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+              className="hover:bg-[#ecfdf5] hover:border-[#087f5b] transition-colors"
+            >
+              <RefreshCw size={13} />
+            </button>
           </div>
           
         </div>
@@ -1383,40 +1469,62 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </div>
               </div>
 
-              {/* Action Buttons: Đăng xuất & Đóng */}
-              <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {/* Action Buttons: Đăng xuất, Chuyển đổi tài khoản & Đóng */}
+              <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 10 }}>
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowDetailModal(false);
-                    handleLogout();
-                  }}
-                  className="ld-btn ld-btn-danger w-full"
+                  onClick={openSwitchAccountModal}
+                  className="ld-btn w-full"
                   style={{
                     fontSize: 13,
-                    padding: "8px 16px",
+                    padding: "9px 16px",
                     borderRadius: 10,
                     justifyContent: "center",
-                    gap: 6,
+                    gap: 8,
+                    background: "#ecfdf5",
+                    color: "#047857",
+                    border: "1px solid #a7f3d0",
+                    fontWeight: 700,
                   }}
                 >
-                  <LogOut size={14} />
-                  Đăng xuất
+                  <RefreshCw size={14} />
+                  Chuyển đổi tài khoản
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => setShowDetailModal(false)}
-                  className="ld-btn ld-btn-secondary w-full"
-                  style={{
-                    fontSize: 13,
-                    padding: "8px 16px",
-                    borderRadius: 10,
-                    justifyContent: "center",
-                  }}
-                >
-                  Đóng
-                </button>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDetailModal(false);
+                      handleLogout();
+                    }}
+                    className="ld-btn ld-btn-danger w-full"
+                    style={{
+                      fontSize: 13,
+                      padding: "8px 16px",
+                      borderRadius: 10,
+                      justifyContent: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <LogOut size={14} />
+                    Đăng xuất
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowDetailModal(false)}
+                    className="ld-btn ld-btn-secondary w-full"
+                    style={{
+                      fontSize: 13,
+                      padding: "8px 16px",
+                      borderRadius: 10,
+                      justifyContent: "center",
+                    }}
+                  >
+                    Đóng
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1616,25 +1724,71 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#475569", marginBottom: 4 }}>
                       Mật khẩu hiện tại
                     </label>
-                    <input
-                      type="password"
-                      value={profileOldPassword}
-                      onChange={(e) => setProfileOldPassword(e.target.value)}
-                      placeholder="Nhập mật khẩu đang dùng"
-                      className="ld-input w-full"
-                    />
+                    <div style={{ position: "relative" }}>
+                      <input
+                        type={showOldPassword ? "text" : "password"}
+                        value={profileOldPassword}
+                        onChange={(e) => setProfileOldPassword(e.target.value)}
+                        placeholder="Nhập mật khẩu đang dùng"
+                        className="ld-input w-full"
+                        style={{ paddingRight: 38 }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowOldPassword((v) => !v)}
+                        title={showOldPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                        style={{
+                          position: "absolute",
+                          right: 10,
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          border: "none",
+                          background: "transparent",
+                          color: "#64748b",
+                          cursor: "pointer",
+                          padding: 2,
+                          display: "grid",
+                          placeItems: "center",
+                        }}
+                      >
+                        {showOldPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
                   </div>
                   <div>
                     <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#475569", marginBottom: 4 }}>
                       Mật khẩu mới (tối thiểu 6 ký tự)
                     </label>
-                    <input
-                      type="password"
-                      value={profileNewPassword}
-                      onChange={(e) => setProfileNewPassword(e.target.value)}
-                      placeholder="Nhập mật khẩu mới"
-                      className="ld-input w-full"
-                    />
+                    <div style={{ position: "relative" }}>
+                      <input
+                        type={showNewPassword ? "text" : "password"}
+                        value={profileNewPassword}
+                        onChange={(e) => setProfileNewPassword(e.target.value)}
+                        placeholder="Nhập mật khẩu mới"
+                        className="ld-input w-full"
+                        style={{ paddingRight: 38 }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowNewPassword((v) => !v)}
+                        title={showNewPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                        style={{
+                          position: "absolute",
+                          right: 10,
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          border: "none",
+                          background: "transparent",
+                          color: "#64748b",
+                          cursor: "pointer",
+                          padding: 2,
+                          display: "grid",
+                          placeItems: "center",
+                        }}
+                      >
+                        {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1871,6 +2025,307 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL CHUYỂN NHANH TÀI KHOẢN KHÁC (KHÔNG CẦN ĐĂNG XUẤT) ── */}
+      {showSwitchAccountModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15, 23, 42, 0.65)",
+            backdropFilter: "blur(4px)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+          onClick={() => setShowSwitchAccountModal(false)}
+        >
+          <div
+            className="ld-card"
+            style={{
+              maxWidth: 460,
+              width: "100%",
+              padding: 24,
+              borderRadius: 16,
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+              border: "1px solid #e2e8f0",
+              background: "#ffffff",
+              position: "relative",
+              maxHeight: "90vh",
+              overflowY: "auto",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setShowSwitchAccountModal(false)}
+              className="ld-btn ld-btn-ghost"
+              style={{ position: "absolute", top: 16, right: 16, padding: 4 }}
+            >
+              <X size={18} />
+            </button>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+              <div
+                style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: 12,
+                  background: "#ecfdf5",
+                  color: "#059669",
+                  display: "grid",
+                  placeItems: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <Users size={20} />
+              </div>
+              <div>
+                <h3 style={{ fontSize: 17, fontWeight: 700, color: "#0f172a", margin: 0 }}>
+                  Chuyển Đổi Tài Khoản
+                </h3>
+              </div>
+            </div>
+
+            {/* Danh sách tài khoản đã lưu trên trình duyệt */}
+            {savedAccounts.length > 0 && (
+              <div style={{ marginBottom: 18 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "#64748b", letterSpacing: "0.04em", display: "block", marginBottom: 8 }}>
+                  Tài Khoản đã lưu ({savedAccounts.length})
+                </span>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 210, overflowY: "auto" }}>
+                  {savedAccounts.map((entry) => {
+                    const isCurrent =
+                      entry.user?.userId === user?.userId ||
+                      entry.user?.email?.toLowerCase() === user?.email?.toLowerCase();
+                    const roleBadge =
+                      Array.isArray(entry.user?.roles) && entry.user.roles.length > 0
+                        ? String(entry.user.roles[0]).replace("ROLE_", "")
+                        : "DEVELOPER";
+
+                    return (
+                      <div
+                        key={entry.user?.userId || entry.user?.email}
+                        onClick={() => {
+                          if (!isCurrent) handleQuickSwitch(entry);
+                        }}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 10,
+                          padding: "10px 12px",
+                          borderRadius: 10,
+                          border: isCurrent ? "1.5px solid #059669" : "1px solid #e2e8f0",
+                          background: isCurrent ? "#f0fdf4" : "#f8fafc",
+                          cursor: isCurrent ? "default" : "pointer",
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1 }}>
+                          {entry.user?.avatarUrl ? (
+                            <img
+                              src={entry.user.avatarUrl}
+                              alt={entry.user.fullName || "Avatar"}
+                              style={{ width: 36, height: 36, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }}
+                            />
+                          ) : (
+                            <div
+                              style={{
+                                width: 36,
+                                height: 36,
+                                borderRadius: "50%",
+                                background: "#087f5b",
+                                color: "#ffffff",
+                                display: "grid",
+                                placeItems: "center",
+                                fontSize: 13,
+                                fontWeight: 700,
+                                flexShrink: 0,
+                              }}
+                            >
+                              {(entry.user?.fullName || entry.user?.email || "U")[0]?.toUpperCase()}
+                            </div>
+                          )}
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {entry.user?.fullName || "Người dùng"}
+                              </span>
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  padding: "1px 6px",
+                                  borderRadius: 999,
+                                  background: "#ecfdf5",
+                                  color: "#047857",
+                                  border: "1px solid #a7f3d0",
+                                }}
+                              >
+                                {roleBadge}
+                              </span>
+                            </div>
+                            <span style={{ fontSize: 11, color: "#64748b", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {entry.user?.email}
+                            </span>
+                          </div>
+                        </div>
+
+                        {isCurrent ? (
+                          <span style={{ fontSize: 11, fontWeight: 700, color: "#059669", display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                            <Check size={14} /> Đang dùng
+                          </span>
+                        ) : (
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                            <span
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 600,
+                                color: "#087f5b",
+                                padding: "4px 10px",
+                                borderRadius: 6,
+                                background: "#ffffff",
+                                border: "1px solid #cbd5e1",
+                              }}
+                            >
+                              Chuyển
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => handleRemoveSavedAccount(entry.user?.email || entry.user?.userId, e)}
+                              title="Gỡ tài khoản này khỏi danh sách lưu"
+                              style={{
+                                width: 26,
+                                height: 26,
+                                borderRadius: 6,
+                                border: "none",
+                                background: "transparent",
+                                color: "#94a3b8",
+                                display: "grid",
+                                placeItems: "center",
+                                cursor: "pointer",
+                              }}
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Form đăng nhập thêm tài khoản khác trực tiếp tại chỗ */}
+            <div style={{ borderTop: "1px dashed #e2e8f0", paddingTop: 14 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", display: "block", marginBottom: 10 }}>
+                Đăng nhập thêm tài khoản khác
+              </span>
+
+              {switchError && (
+                <div
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: 8,
+                    background: "#fef2f2",
+                    color: "#b91c1c",
+                    border: "1px solid #fecaca",
+                    fontSize: 12,
+                    marginBottom: 12,
+                  }}
+                >
+                  {switchError}
+                </div>
+              )}
+
+              <form onSubmit={handleAddAndSwitchAccount} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 4 }}>
+                    Email tài khoản
+                  </label>
+                  <input
+                    type="email"
+                    value={switchEmail}
+                    onChange={(e) => setSwitchEmail(e.target.value)}
+                    placeholder="nhap-email@livingdocs.vn"
+                    className="ld-input w-full"
+                    required
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 4 }}>
+                    Mật khẩu
+                  </label>
+                  <div style={{ position: "relative" }}>
+                    <input
+                      type={showSwitchPassword ? "text" : "password"}
+                      value={switchPassword}
+                      onChange={(e) => setSwitchPassword(e.target.value)}
+                      placeholder="Nhập mật khẩu"
+                      className="ld-input w-full"
+                      style={{ paddingRight: 38 }}
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowSwitchPassword((v) => !v)}
+                      title={showSwitchPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                      style={{
+                        position: "absolute",
+                        right: 10,
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        border: "none",
+                        background: "transparent",
+                        color: "#64748b",
+                        cursor: "pointer",
+                        padding: 2,
+                        display: "grid",
+                        placeItems: "center",
+                      }}
+                    >
+                      {showSwitchPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowSwitchAccountModal(false)}
+                    className="ld-btn ld-btn-secondary"
+                    style={{ fontSize: 13, padding: "8px 14px" }}
+                  >
+                    Đóng
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={switchingAccount}
+                    className="ld-btn ld-btn-primary"
+                    style={{ fontSize: 13, padding: "8px 16px", gap: 6 }}
+                  >
+                    {switchingAccount ? (
+                      <>
+                        <RefreshCw size={14} className="animate-spin" />
+                        Đang chuyển...
+                      </>
+                    ) : (
+                      <>
+                        <KeyRound size={14} />
+                        Đăng nhập & Chuyển ngay
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       )}
