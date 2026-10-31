@@ -16,6 +16,11 @@ from app.schemas.ai_schemas import (
     GroundingEvidence,
     CodeEntityItem,
 )
+from app.core.gemini_retry import (
+    execute_with_gemini_retry,
+    GeminiQuotaExceededError,
+    GeminiServiceUnavailableError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -116,13 +121,22 @@ LƯU Ý: Viết bằng TIẾNG VIỆT chuẩn kỹ thuật phần mềm, cấu t
 """
 
         try:
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=0.2, # Giữ tính chính xác kỹ thuật cao
-                    top_p=0.9,
-                    max_output_tokens=3000,
+            def _call_gemini_doc():
+                return model.generate_content(
+                    prompt,
+                    generation_config=genai.types.GenerationConfig(
+                        temperature=0.2, # Giữ tính chính xác kỹ thuật cao
+                        top_p=0.9,
+                        max_output_tokens=3000,
+                    )
                 )
+
+            response = execute_with_gemini_retry(
+                action=_call_gemini_doc,
+                max_retries=3,
+                initial_delay=1.0,
+                backoff_factor=2.0,
+                action_name=f"DocGenerate ({active_model_name})"
             )
 
             generated_markdown = response.text if response and response.text else ""
@@ -143,6 +157,10 @@ LƯU Ý: Viết bằng TIẾNG VIỆT chuẩn kỹ thuật phần mềm, cấu t
                 grounding_evidence=grounding_evidences,
             )
 
+        except GeminiQuotaExceededError:
+            raise
+        except GeminiServiceUnavailableError:
+            raise
         except Exception as ex:
             logger.error(f"Lỗi khi gọi Google Gemini API: {ex}", exc_info=True)
             raise RuntimeError(f"Lỗi khi sinh tài liệu bằng Gemini API ({active_model_name}): {str(ex)}")

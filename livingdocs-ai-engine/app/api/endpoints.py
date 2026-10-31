@@ -24,6 +24,7 @@ from app.services.gemini_doc_service import GeminiDocService
 from app.services.gemini_drift_service import GeminiDriftService
 from app.services.gemini_rewrite_service import GeminiRewriteService
 from app.services.diff_ast_service import DiffAstService
+from app.core.gemini_retry import GeminiQuotaExceededError, GeminiServiceUnavailableError
 
 router = APIRouter(prefix="/v1", tags=["AI Engine Endpoints"])
 
@@ -121,7 +122,23 @@ async def generate_doc(request: DocGenerateRequest):
         return MockAIService.generate_doc(request)
 
     # MODE=real (Task #81): Gọi Google Gemini API thật
-    return GeminiDocService.generate_documentation(request)
+    try:
+        return GeminiDocService.generate_documentation(request)
+    except GeminiQuotaExceededError as qe:
+        raise HTTPException(
+            status_code=429,
+            detail=qe.message
+        )
+    except GeminiServiceUnavailableError as se:
+        raise HTTPException(
+            status_code=503,
+            detail=se.message
+        )
+    except Exception as ex:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Lỗi nội bộ khi sinh tài liệu: {str(ex)}"
+        )
 
 
 @router.post(
@@ -245,6 +262,16 @@ async def analyze_drift(request: DriftAnalyzeRequest):
     # Chế độ real: Gọi Gemini API thật
     try:
         return GeminiDriftService.analyze(request)
+    except GeminiQuotaExceededError as qe:
+        raise HTTPException(
+            status_code=429,
+            detail=qe.message
+        )
+    except GeminiServiceUnavailableError as se:
+        raise HTTPException(
+            status_code=503,
+            detail=se.message
+        )
     except RuntimeError as ex:
         raise HTTPException(
             status_code=503,
@@ -309,6 +336,16 @@ async def rewrite_document_suggestion(request: DocRewriteRequest):
     # Chế độ real: Gọi Gemini API thật
     try:
         return GeminiRewriteService.rewrite_document(request)
+    except GeminiQuotaExceededError as qe:
+        raise HTTPException(
+            status_code=429,
+            detail=qe.message
+        )
+    except GeminiServiceUnavailableError as se:
+        raise HTTPException(
+            status_code=503,
+            detail=se.message
+        )
     except RuntimeError as ex:
         raise HTTPException(
             status_code=503,

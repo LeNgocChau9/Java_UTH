@@ -19,6 +19,11 @@ from app.schemas.ai_schemas import (
     DriftAnalyzeResponse,
     DriftSuggestion,
 )
+from app.core.gemini_retry import (
+    execute_with_gemini_retry,
+    GeminiQuotaExceededError,
+    GeminiServiceUnavailableError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -169,27 +174,42 @@ LƯU Ý QUAN TRỌNG:
 
         for model_name in DRIFT_MODELS:
             try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                    config=genai_types.GenerateContentConfig(
-                        temperature=0.1,      # Cần chính xác kỹ thuật cao
-                        top_p=0.9,
-                        max_output_tokens=2000,
-                        response_mime_type="application/json",
-                    ),
-                )
+                def _call_gemini_drift():
+                    resp = client.models.generate_content(
+                        model=model_name,
+                        contents=prompt,
+                        config=genai_types.GenerateContentConfig(
+                            temperature=0.1,      # Cần chính xác kỹ thuật cao
+                            top_p=0.9,
+                            max_output_tokens=2000,
+                            response_mime_type="application/json",
+                        ),
+                    )
+                    txt = resp.text or "{}"
+                    return _parse_gemini_json(txt)
 
-                raw_text = response.text or "{}"
-                parsed = _parse_gemini_json(raw_text)
+                parsed = execute_with_gemini_retry(
+                    action=_call_gemini_drift,
+                    max_retries=3,
+                    initial_delay=1.0,
+                    backoff_factor=2.0,
+                    action_name=f"DriftAnalysis ({model_name})",
+                )
                 used_model = model_name
                 break
+
+            except GeminiQuotaExceededError:
+                # Quota cạn kiệt thì ném tiếp để trả 429
+                raise
             except Exception as ex:
                 logger.warning("[DriftAnalysis] Thử model %s thất bại: %s. Đang thử model kế tiếp...", model_name, ex)
                 last_error = ex
 
         if parsed is None:
-            raise RuntimeError(f"Tất cả các model Gemini đều không khả dụng: {last_error}")
+            raise GeminiServiceUnavailableError(
+                message=f"Tất cả các model Gemini đều không khả dụng sau khi đã thử lại: {last_error}",
+                raw_error=last_error
+            )
 
         # Trích xuất các trường từ JSON phản hồi
         drift_score = float(parsed.get("drift_score", 0.0))
