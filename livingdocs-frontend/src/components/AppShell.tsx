@@ -559,15 +559,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="ld-btn ld-btn-ghost w-full mt-2 text-[13px]"
-            style={{ justifyContent: "flex-start", gap: 8, paddingLeft: 8, color: "#ef4444" }}
-          >
-            <LogOut size={14} />
-            Đăng xuất
-          </button>
+          
         </div>
       )}
     </aside>
@@ -1386,8 +1378,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </div>
               </div>
 
-              {/* Close Button */}
-              <div style={{ marginTop: 18, display: "flex", justifyContent: "flex-end" }}>
+              {/* Action Buttons: Đăng xuất & Đóng */}
+              <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowDetailModal(false);
+                    handleLogout();
+                  }}
+                  className="ld-btn ld-btn-danger w-full"
+                  style={{
+                    fontSize: 13,
+                    padding: "8px 16px",
+                    borderRadius: 10,
+                    justifyContent: "center",
+                    gap: 6,
+                  }}
+                >
+                  <LogOut size={14} />
+                  Đăng xuất
+                </button>
+
                 <button
                   type="button"
                   onClick={() => setShowDetailModal(false)}
@@ -1623,33 +1634,47 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </div>
               </div>
 
-              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, paddingTop: 12, borderTop: "1px solid #e2e8f0" }}>
                 <button
                   type="button"
-                  onClick={() => setShowProfileModal(false)}
-                  className="ld-btn ld-btn-secondary"
-                  style={{ fontSize: 13, padding: "8px 16px" }}
+                  onClick={() => {
+                    setShowProfileModal(false);
+                    handleLogout();
+                  }}
+                  className="ld-btn ld-btn-ghost text-red-600 hover:bg-red-50"
+                  style={{ fontSize: 13, padding: "8px 12px", gap: 6, color: "#ef4444" }}
                 >
-                  Hủy
+                  <LogOut size={14} />
+                  Đăng xuất
                 </button>
-                <button
-                  type="submit"
-                  disabled={updatingProfile}
-                  className="ld-btn ld-btn-primary"
-                  style={{ fontSize: 13, padding: "8px 18px", gap: 6 }}
-                >
-                  {updatingProfile ? (
-                    <>
-                      <RefreshCw size={14} className="animate-spin" />
-                      Đang lưu...
-                    </>
-                  ) : (
-                    <>
-                      <Check size={14} />
-                      Lưu thay đổi
-                    </>
-                  )}
-                </button>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowProfileModal(false)}
+                    className="ld-btn ld-btn-secondary"
+                    style={{ fontSize: 13, padding: "8px 16px" }}
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={updatingProfile}
+                    className="ld-btn ld-btn-primary"
+                    style={{ fontSize: 13, padding: "8px 18px", gap: 6 }}
+                  >
+                    {updatingProfile ? (
+                      <>
+                        <RefreshCw size={14} className="animate-spin" />
+                        Đang lưu...
+                      </>
+                    ) : (
+                      <>
+                        <Check size={14} />
+                        Lưu thay đổi
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
