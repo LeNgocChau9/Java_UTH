@@ -42,6 +42,7 @@ import {
   RefreshCw,
   Edit3,
   X,
+  Link2,
 } from "lucide-react";
 
 // Cấu hình nhãn và màu sắc cho các vai trò tác nhân
@@ -161,13 +162,21 @@ function VersionHistoryDiffContent() {
       if (!silent) setLoading(true);
       else setRefreshing(true);
 
+      setVerifyingIntegrity(true);
       try {
-        const [detail, vers] = await Promise.all([
+        const [detail, vers, integrity] = await Promise.all([
           documentService.getDocumentById(id),
           documentService.getDocumentVersions(id),
+          documentService.verifyIntegrity(id).catch((err) => {
+            console.warn("Không thể tự động kiểm tra toàn vẹn chuỗi băm:", err);
+            return null;
+          }),
         ]);
 
         setDocDetail(detail);
+        if (integrity) {
+          setIntegrityResult(integrity);
+        }
 
         // Đảm bảo sắp xếp mặc định từ mới nhất (vN) đến cũ nhất (v1)
         const sorted = [...vers].sort((a, b) => b.versionNum - a.versionNum);
@@ -189,6 +198,7 @@ function VersionHistoryDiffContent() {
       } finally {
         setLoading(false);
         setRefreshing(false);
+        setVerifyingIntegrity(false);
       }
     },
     [showToast]
@@ -421,6 +431,54 @@ function VersionHistoryDiffContent() {
                     {docDetail.targetPath}
                   </span>
                 )}
+
+                {/* Nhãn trạng thái toàn vẹn chuỗi Hash (Hash Chain Integrity Badge) */}
+                {verifyingIntegrity ? (
+                  <span
+                    style={{
+                      fontSize: 11,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: "3px 8px",
+                      borderRadius: 4,
+                      background: "#f8fafc",
+                      color: "#64748b",
+                      border: "1px solid #e2e8f0",
+                    }}
+                  >
+                    <RefreshCw size={11} className="animate-spin" />
+                    Đang xác minh chuỗi băm...
+                  </span>
+                ) : integrityResult ? (
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: "3px 8px",
+                      borderRadius: 4,
+                      background: integrityResult.valid ? "#ecfdf5" : "#fef2f2",
+                      color: integrityResult.valid ? "#065f46" : "#991b1b",
+                      border: `1px solid ${integrityResult.valid ? "#a7f3d0" : "#fecaca"}`,
+                    }}
+                    title={integrityResult.message}
+                  >
+                    {integrityResult.valid ? (
+                      <>
+                        <ShieldCheck size={13} style={{ color: "#16a34a" }} />
+                        <span>Chuỗi Hash Toàn vẹn (Verified)</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShieldAlert size={13} style={{ color: "#dc2626" }} />
+                        <span>Cảnh báo: Sai lệch chuỗi Hash / Nghi can thiệp CSDL</span>
+                      </>
+                    )}
+                  </span>
+                ) : null}
               </div>
             )}
           </div>
@@ -483,21 +541,20 @@ function VersionHistoryDiffContent() {
                 toast.type === "success"
                   ? "#ecfdf5"
                   : toast.type === "error"
-                  ? "#fef2f2"
-                  : "#eff6ff",
+                    ? "#fef2f2"
+                    : "#eff6ff",
               color:
                 toast.type === "success"
                   ? "#065f46"
                   : toast.type === "error"
-                  ? "#991b1b"
-                  : "#1e40af",
-              border: `1px solid ${
-                toast.type === "success"
+                    ? "#991b1b"
+                    : "#1e40af",
+              border: `1px solid ${toast.type === "success"
                   ? "#a7f3d0"
                   : toast.type === "error"
-                  ? "#fecaca"
-                  : "#bfdbfe"
-              }`,
+                    ? "#fecaca"
+                    : "#bfdbfe"
+                }`,
             }}
           >
             {toast.type === "success" && <CheckCircle2 size={16} />}
@@ -516,49 +573,81 @@ function VersionHistoryDiffContent() {
               background: integrityResult.valid ? "#f0fdf4" : "#fef2f2",
               borderColor: integrityResult.valid ? "#bbf7d0" : "#fecaca",
               display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 12,
+              flexDirection: "column",
+              gap: 10,
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              {integrityResult.valid ? (
-                <ShieldCheck size={22} style={{ color: "#16a34a", flexShrink: 0 }} />
-              ) : (
-                <ShieldAlert size={22} style={{ color: "#dc2626", flexShrink: 0 }} />
-              )}
-              <div>
-                <h4
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: integrityResult.valid ? "#166534" : "#991b1b",
-                    margin: 0,
-                  }}
-                >
-                  {integrityResult.valid
-                    ? "✓ Chuỗi băm SHA-256 hoàn toàn hợp lệ (Anti-Tamper Passed)"
-                    : "✕ Cảnh báo: Phát hiện sai lệch chuỗi băm (Anti-Tamper Failed)"}
-                </h4>
-                <p
-                  style={{
-                    fontSize: 12,
-                    color: integrityResult.valid ? "#15803d" : "#b91c1c",
-                    margin: "2px 0 0",
-                  }}
-                >
-                  {integrityResult.message} ({integrityResult.totalVersions} phiên bản được kiểm định)
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIntegrityResult(null)}
-              className="ld-btn ld-btn-ghost ld-btn-sm"
-              style={{ color: "#64748b" }}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+              }}
             >
-              <X size={14} />
-            </button>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {integrityResult.valid ? (
+                  <ShieldCheck size={22} style={{ color: "#16a34a", flexShrink: 0 }} />
+                ) : (
+                  <ShieldAlert size={22} style={{ color: "#dc2626", flexShrink: 0 }} />
+                )}
+                <div>
+                  <h4
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: integrityResult.valid ? "#166534" : "#991b1b",
+                      margin: 0,
+                    }}
+                  >
+                    {integrityResult.valid
+                      ? "✓ Chuỗi băm SHA-256 hoàn toàn hợp lệ (Anti-Tamper Passed)"
+                      : "✕ Cảnh báo: Phát hiện sai lệch chuỗi băm / Can thiệp CSDL (Anti-Tamper Failed)"}
+                  </h4>
+                  <p
+                    style={{
+                      fontSize: 12,
+                      color: integrityResult.valid ? "#15803d" : "#b91c1c",
+                      margin: "2px 0 0",
+                    }}
+                  >
+                    {integrityResult.message} ({integrityResult.totalVersions} phiên bản được kiểm định)
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIntegrityResult(null)}
+                className="ld-btn ld-btn-ghost ld-btn-sm"
+                style={{ color: "#64748b" }}
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            {!integrityResult.valid && integrityResult.issues && integrityResult.issues.length > 0 && (
+              <div
+                style={{
+                  marginTop: 4,
+                  padding: "10px 14px",
+                  borderRadius: "var(--radius-base)",
+                  background: "#ffffff",
+                  border: "1px dashed #fca5a5",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 4,
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#991b1b" }}>
+                  Chi tiết sai lệch chuỗi băm được phát hiện:
+                </div>
+                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: "#7f1d1d" }}>
+                  {integrityResult.issues.map((issue, idx) => (
+                    <li key={idx} style={{ marginBottom: 2 }}>{issue}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
 
@@ -687,18 +776,18 @@ function VersionHistoryDiffContent() {
                           isA && isB
                             ? "#fefce8"
                             : isA
-                            ? "#fef2f2"
-                            : isB
-                            ? "#f0fdf4"
-                            : "var(--color-surface)",
+                              ? "#fef2f2"
+                              : isB
+                                ? "#f0fdf4"
+                                : "var(--color-surface)",
                         border:
                           isA && isB
                             ? "1.5px solid #facc15"
                             : isA
-                            ? "1.5px solid #f87171"
-                            : isB
-                            ? "1.5px solid #4ade80"
-                            : "1px solid var(--color-border)",
+                              ? "1.5px solid #f87171"
+                              : isB
+                                ? "1.5px solid #4ade80"
+                                : "1px solid var(--color-border)",
                         boxShadow: isA || isB ? "0 2px 6px rgba(0,0,0,0.04)" : "none",
                         transition: "all 150ms ease",
                       }}
@@ -771,53 +860,162 @@ function VersionHistoryDiffContent() {
                         </span>
                       </div>
 
-                      {/* Dòng 2: Loại kích hoạt & Chi tiết chuỗi băm */}
-                      <div style={{ fontSize: 11, color: "#64748b", marginBottom: 8 }}>
+                      {/* Dòng 2: Loại kích hoạt */}
+                      <div style={{ fontSize: 11, color: "#64748b", marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                         <span style={{ fontWeight: 500 }}>{triggerText}</span>
                       </div>
 
-                      {/* Dòng 3: Hash SHA-256 (Anti-tamper Hash Chain) */}
+                      {/* Trạng thái xác thực toàn vẹn chuỗi băm của từng mắt xích phiên bản */}
+                      {(() => {
+                        const verIntegrity = integrityResult?.chainDetails?.find((d) => d.versionNum === ver.versionNum);
+                        if (!verIntegrity) return null;
+                        if (verIntegrity.status === "VALID") {
+                          return (
+                            <div style={{ marginBottom: 6 }}>
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 600,
+                                  color: "#15803d",
+                                  background: "#dcfce7",
+                                  border: "1px solid #bbf7d0",
+                                  padding: "2px 6px",
+                                  borderRadius: 4,
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 3,
+                                }}
+                              >
+                                <ShieldCheck size={11} /> Toàn vẹn chuỗi Hash (Verified)
+                              </span>
+                            </div>
+                          );
+                        } else if (verIntegrity.status === "CONTENT_TAMPERED") {
+                          return (
+                            <div style={{ marginBottom: 6 }}>
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  color: "#991b1b",
+                                  background: "#fee2e2",
+                                  border: "1px solid #fecaca",
+                                  padding: "2px 6px",
+                                  borderRadius: 4,
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 3,
+                                }}
+                                title="Nội dung lưu trong CSDL đã bị can thiệp trực tiếp, không khớp mã băm!"
+                              >
+                                <ShieldAlert size={11} /> CSDL bị can thiệp trái phép!
+                              </span>
+                            </div>
+                          );
+                        } else if (verIntegrity.status === "CHAIN_BROKEN") {
+                          return (
+                            <div style={{ marginBottom: 6 }}>
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  color: "#b45309",
+                                  background: "#fef3c7",
+                                  border: "1px solid #fde68a",
+                                  padding: "2px 6px",
+                                  borderRadius: 4,
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 3,
+                                }}
+                                title="Liên kết prev_hash không khớp mã hash của phiên bản trước!"
+                              >
+                                <ShieldAlert size={11} /> Đứt gãy chuỗi prev_hash!
+                              </span>
+                            </div>
+                          );
+                        } else {
+                          return (
+                            <div style={{ marginBottom: 6 }}>
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  color: "#991b1b",
+                                  background: "#fee2e2",
+                                  border: "1px solid #fca5a5",
+                                  padding: "2px 6px",
+                                  borderRadius: 4,
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 3,
+                                }}
+                              >
+                                <ShieldAlert size={11} /> Không hợp lệ (Sai hash & liên kết)
+                              </span>
+                            </div>
+                          );
+                        }
+                      })()}
+
+                      {/* Dòng 3: Hash Chain SHA-256 (prev_hash -> hash) */}
                       <div
                         style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 6,
                           background: "#f8fafc",
-                          padding: "4px 8px",
+                          padding: "6px 8px",
                           borderRadius: 4,
                           fontSize: 10,
                           fontFamily: "var(--font-mono)",
                           color: "#475569",
                           marginBottom: 10,
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 4,
                         }}
                       >
-                        <div style={{ display: "flex", alignItems: "center", gap: 4, overflow: "hidden" }}>
-                          <Hash size={11} style={{ color: "#94a3b8", flexShrink: 0 }} />
+                        {/* prev_hash */}
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4 }}>
+                          <span style={{ color: "#94a3b8", display: "inline-flex", alignItems: "center", gap: 3 }}>
+                            <Link2 size={10} /> prev:
+                          </span>
                           <span
-                            title={`Mã băm hoàn chỉnh: ${ver.hash}\nPrev Hash: ${ver.prevHash}`}
-                            style={{ textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}
+                            title={`prev_hash: ${ver.prevHash || "0000000000000000000000000000000000000000000000000000000000000000"}`}
+                            style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 220 }}
                           >
-                            {ver.hash ? `${ver.hash.substring(0, 12)}...` : "Genesis"}
+                            {ver.prevHash && !ver.prevHash.startsWith("000000") ? `${ver.prevHash.substring(0, 14)}...` : "Genesis (v1)"}
                           </span>
                         </div>
 
-                        {ver.hash && (
-                          <button
-                            type="button"
-                            onClick={() => handleCopyHash(ver.hash)}
-                            style={{
-                              background: "transparent",
-                              border: "none",
-                              cursor: "pointer",
-                              padding: 2,
-                              color: copiedHash === ver.hash ? "#16a34a" : "#64748b",
-                            }}
-                            title="Sao chép toàn bộ mã băm SHA-256"
-                          >
-                            {copiedHash === ver.hash ? <Check size={12} /> : <Copy size={12} />}
-                          </button>
-                        )}
+                        {/* current hash */}
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4 }}>
+                          <span style={{ color: "#0f172a", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 3 }}>
+                            <Hash size={10} style={{ color: "#3b82f6" }} /> hash:
+                          </span>
+                          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            <span
+                              title={`Mã băm đầy đủ: ${ver.hash}`}
+                              style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 190, fontWeight: 500 }}
+                            >
+                              {ver.hash ? `${ver.hash.substring(0, 14)}...` : "Chưa có"}
+                            </span>
+                            {ver.hash && (
+                              <button
+                                type="button"
+                                onClick={() => handleCopyHash(ver.hash)}
+                                style={{
+                                  background: "transparent",
+                                  border: "none",
+                                  cursor: "pointer",
+                                  padding: 1,
+                                  color: copiedHash === ver.hash ? "#16a34a" : "#64748b",
+                                }}
+                                title="Sao chép toàn bộ mã băm SHA-256"
+                              >
+                                {copiedHash === ver.hash ? <Check size={11} /> : <Copy size={11} />}
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       </div>
 
                       {/* Dòng 4: Các nút chọn Bản A, Bản B và Hành động */}
@@ -1610,8 +1808,8 @@ function VersionHistoryDiffContent() {
                               row.type === "removed"
                                 ? "#dc2626"
                                 : row.type === "added"
-                                ? "#16a34a"
-                                : "transparent",
+                                  ? "#16a34a"
+                                  : "transparent",
                             userSelect: "none",
                             flexShrink: 0,
                             fontWeight: 700,
@@ -1639,8 +1837,8 @@ function VersionHistoryDiffContent() {
                                     token.type === "removed"
                                       ? "#fecaca"
                                       : token.type === "added"
-                                      ? "#bbf7d0"
-                                      : "transparent",
+                                        ? "#bbf7d0"
+                                        : "transparent",
                                   borderRadius: token.type !== "unchanged" ? 2 : 0,
                                   padding: token.type !== "unchanged" ? "0 2px" : 0,
                                   fontWeight: token.type !== "unchanged" ? 600 : 400,

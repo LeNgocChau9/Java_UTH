@@ -67,12 +67,24 @@ export interface UpdateDocumentPayload {
   triggerType?: string;
 }
 
+export interface VersionIntegrityDetail {
+  versionNum: number;
+  storedHash: string;
+  computedHash: string;
+  prevHash: string;
+  expectedPrevHash: string;
+  contentValid: boolean;
+  chainValid: boolean;
+  status: "VALID" | "CONTENT_TAMPERED" | "CHAIN_BROKEN" | "INVALID" | string;
+}
+
 export interface IntegrityCheckResult {
   docId: number;
   totalVersions: number;
   valid: boolean;
   message: string;
   issues: string[];
+  chainDetails?: VersionIntegrityDetail[];
 }
 
 export interface RollbackResponse {
