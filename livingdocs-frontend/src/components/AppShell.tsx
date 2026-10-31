@@ -41,6 +41,8 @@ import {
   ChevronRight,
   LogOut,
   Bell,
+  Sun,
+  Moon,
   Menu,
   X,
   User,
@@ -259,6 +261,41 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
   // Modal cảnh báo hết phiên & gia hạn quyền
+  // Quản lý theme (Tối mặc định / Sáng tuỳ chọn)
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedTheme = localStorage.getItem("ld_theme") as "dark" | "light" | null;
+      const initialTheme = savedTheme === "light" ? "light" : "dark"; // Default is dark
+      setTheme(initialTheme);
+      document.documentElement.setAttribute("data-theme", initialTheme);
+      if (initialTheme === "dark") {
+        document.documentElement.classList.add("dark");
+        document.documentElement.classList.remove("light");
+      } else {
+        document.documentElement.classList.remove("dark");
+        document.documentElement.classList.add("light");
+      }
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    const nextTheme = theme === "dark" ? "light" : "dark";
+    setTheme(nextTheme);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("ld_theme", nextTheme);
+      document.documentElement.setAttribute("data-theme", nextTheme);
+      if (nextTheme === "dark") {
+        document.documentElement.classList.add("dark");
+        document.documentElement.classList.remove("light");
+      } else {
+        document.documentElement.classList.remove("dark");
+        document.documentElement.classList.add("light");
+      }
+    }
+  };
+
   const [showSessionModal, setShowSessionModal] = useState(false);
   const [extendingSession, setExtendingSession] = useState(false);
   const [extendError, setExtendError] = useState<string | null>(null);
@@ -411,11 +448,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const Sidebar = (
     <aside
+      className="ld-sidebar transition-colors duration-200"
       style={{
         width: 240,
         minWidth: 240,
-        background: "#ffffff",
-        borderRight: "1px solid #e2e8f0",
+        background: "var(--color-surface)",
+        borderRight: "1px solid var(--color-border)",
         display: "flex",
         flexDirection: "column",
         height: "100%",
@@ -431,7 +469,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           alignItems: "center",
           gap: 10,
           padding: "16px 18px",
-          borderBottom: "1px solid #e2e8f0",
+          borderBottom: "1px solid var(--color-border)",
           flexShrink: 0,
         }}
       >
@@ -443,7 +481,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           className="rounded-lg object-contain shadow-xs"
         />
         <div className="flex flex-col">
-          <span style={{ fontWeight: 800, fontSize: 16, color: "#0f172a", lineHeight: 1.1 }}>
+          <span style={{ fontWeight: 800, fontSize: 16, color: "var(--color-text-primary)", lineHeight: 1.1 }}>
             Living<span style={{ color: "#087f5b" }}>Docs</span>
           </span>
           <span style={{ fontSize: 11, color: "#64748b", fontWeight: 500 }}>AI Documentation</span>
@@ -490,9 +528,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {ready && signedIn && (
         <div
           style={{
-            borderTop: "1px solid #e2e8f0",
+            borderTop: "1px solid var(--color-border)",
             padding: "12px",
-            background: "#f8fafc",
+            background: "var(--color-muted)",
             flexShrink: 0,
           }}
         >
@@ -545,7 +583,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 style={{
                   fontSize: 13,
                   fontWeight: 600,
-                  color: "#0f172a",
+                  color: "var(--color-text-primary)",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
                   whiteSpace: "nowrap",
@@ -633,14 +671,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* Top header bar */}
         <header
+          className="ld-header transition-colors duration-200"
           style={{
             height: 56,
             display: "flex",
             alignItems: "center",
             padding: "0 24px",
             gap: 12,
-            borderBottom: "1px solid #e2e8f0",
-            background: "#ffffff",
+            borderBottom: "1px solid var(--color-border)",
+            background: "var(--color-surface)",
             flexShrink: 0,
           }}
         >
@@ -657,7 +696,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-2">
             <Image src="/logo.png" alt="Logo" width={26} height={26} className="rounded-md" />
-            <span style={{ fontWeight: 800, fontSize: 15, color: "#0f172a" }}>
+            <span style={{ fontWeight: 800, fontSize: 15, color: "var(--color-text-primary)" }}>
               Living<span style={{ color: "#087f5b" }}>Docs</span>
             </span>
           </div>
@@ -678,6 +717,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </Link>
             </div>
           )}
+
+          {/* Theme switcher toggle button */}
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="ld-btn ld-btn-ghost rounded-lg p-2 transition-all hover:scale-105 active:scale-95 text-slate-400 hover:text-amber-400 dark:hover:text-amber-300"
+            title={theme === "dark" ? "Chuyển sang Giao diện Sáng (Light mode)" : "Chuyển sang Giao diện Tối (Dark mode - Mặc định)"}
+            aria-label="Chuyển đổi giao diện Sáng / Tối"
+          >
+            {theme === "dark" ? (
+              <Sun size={18} className="text-amber-400 animate-pulse" />
+            ) : (
+              <Moon size={18} className="text-slate-600" />
+            )}
+          </button>
 
           {/* Notifications */}
           <div style={{ position: "relative" }}>

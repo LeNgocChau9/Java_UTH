@@ -4,21 +4,21 @@
   --font-sans: var(--font-geist-sans), "Segoe UI", system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, "Cascadia Code", monospace;
 
-  /* Clean Green & White Modern Palette */
-  --color-bg:             #f7faf8;
-  --color-surface:        #ffffff;
-  --color-border:         #e4eae6;
-  --color-muted:          #f2f6f3;
+  /* Dynamic CSS Palette Variables */
+  --color-bg:             var(--theme-bg, #090e17);
+  --color-surface:        var(--theme-surface, #0f172a);
+  --color-border:         var(--theme-border, #1e293b);
+  --color-muted:          var(--theme-muted, #162032);
 
   /* Text */
-  --color-text-primary:   #17231c;
-  --color-text-secondary: #526158;
-  --color-text-disabled:  #738078;
+  --color-text-primary:   var(--theme-text-primary, #f8fafc);
+  --color-text-secondary: var(--theme-text-secondary, #94a3b8);
+  --color-text-disabled:  var(--theme-text-disabled, #64748b);
 
   /* Brand Emerald / Forest Green */
   --color-accent:         #087f5b;
   --color-accent-hover:   #066548;
-  --color-accent-subtle:  #eaf6ef;
+  --color-accent-subtle:  var(--theme-accent-subtle, rgba(8, 127, 91, 0.15));
   --color-accent-dark:    #07543f;
 
   /* Status */
@@ -27,22 +27,56 @@
   --color-danger:   #ef4444;
   --color-info:     #0284c7;
 
-  /* Radius — bo góc 6px chuẩn toàn hệ thống */
+  /* Radius — bo góc 8px chuẩn toàn hệ thống */
   --radius-base: 8px;
 }
 
-html {
+/* ──────────────────────────────────────────────
+   Dark Theme (Mặc định cho các trang làm việc sau đăng nhập)
+────────────────────────────────────────────── */
+:root,
+html,
+html.dark,
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --theme-bg: #090e17;
+  --theme-surface: #0f172a;
+  --theme-border: #1e293b;
+  --theme-muted: #162032;
+  --theme-text-primary: #f8fafc;
+  --theme-text-secondary: #94a3b8;
+  --theme-text-disabled: #64748b;
+  --theme-accent-subtle: rgba(8, 127, 91, 0.18);
+}
+
+/* ──────────────────────────────────────────────
+   Light Theme (Giữ nguyên phong cách Clean Emerald & White)
+────────────────────────────────────────────── */
+html.light,
+html[data-theme="light"] {
   color-scheme: light;
+  --theme-bg: #f7faf8;
+  --theme-surface: #ffffff;
+  --theme-border: #e4eae6;
+  --theme-muted: #f2f6f3;
+  --theme-text-primary: #17231c;
+  --theme-text-secondary: #526158;
+  --theme-text-disabled: #738078;
+  --theme-accent-subtle: #eaf6ef;
+}
+
+html {
   height: 100%;
 }
 
 body {
   min-height: 100dvh;
-  background-color: #f7faf8;
+  background-color: var(--color-bg);
   color: var(--color-text-primary);
   font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.5;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 /* Selection */
@@ -473,4 +507,138 @@ div[data-nextjs-route-announcer] {
 
 .animate-spin {
   animation: spin 1s linear infinite !important;
+}
+
+/* ──────────────────────────────────────────────
+   Dark Theme Component & Utility Overrides
+────────────────────────────────────────────── */
+html.dark .ld-card,
+html[data-theme="dark"] .ld-card {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+html.dark .ld-sidebar,
+html[data-theme="dark"] .ld-sidebar {
+  background: #0d1424 !important;
+  border-color: #1e293b !important;
+}
+
+html.dark .ld-header,
+html[data-theme="dark"] .ld-header {
+  background: #0f172a !important;
+  border-color: #1e293b !important;
+}
+
+html.dark .ld-modal,
+html[data-theme="dark"] .ld-modal {
+  background: #0f172a !important;
+  border-color: #1e293b !important;
+  color: #f8fafc !important;
+}
+
+html.dark .ld-input,
+html[data-theme="dark"] .ld-input,
+html.dark .ld-select,
+html[data-theme="dark"] .ld-select {
+  background-color: #0b1120 !important;
+  border-color: #1e293b !important;
+  color: #f8fafc !important;
+}
+
+html.dark .ld-btn-secondary,
+html[data-theme="dark"] .ld-btn-secondary {
+  background: #162032;
+  color: #f1f5f9;
+  border-color: #27354f;
+}
+html.dark .ld-btn-secondary:hover,
+html[data-theme="dark"] .ld-btn-secondary:hover {
+  background: #1e2d47;
+  border-color: #384d70;
+}
+
+html.dark .ld-btn-ghost,
+html[data-theme="dark"] .ld-btn-ghost {
+  color: #94a3b8;
+}
+html.dark .ld-btn-ghost:hover,
+html[data-theme="dark"] .ld-btn-ghost:hover {
+  background: #162032;
+  color: #f8fafc;
+}
+
+html.dark .ld-table th,
+html[data-theme="dark"] .ld-table th {
+  background: #111a2e !important;
+  border-color: #1e293b !important;
+  color: #94a3b8 !important;
+}
+
+html.dark .ld-table td,
+html[data-theme="dark"] .ld-table td {
+  border-color: #1e293b !important;
+  color: #f8fafc !important;
+}
+
+html.dark .ld-table tbody tr:hover,
+html[data-theme="dark"] .ld-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.03) !important;
+}
+
+/* Thích ứng cho các component dùng trực tiếp Tailwind bg-white, bg-slate-50, v.v. trong chế độ tối */
+html.dark .ld-app-shell .bg-white,
+html[data-theme="dark"] .ld-app-shell .bg-white {
+  background-color: #0f172a !important;
+}
+html.dark .ld-app-shell .bg-slate-50,
+html.dark .ld-app-shell .bg-slate-50\/50,
+html[data-theme="dark"] .ld-app-shell .bg-slate-50,
+html[data-theme="dark"] .ld-app-shell .bg-slate-50\/50 {
+  background-color: #090e17 !important;
+}
+html.dark .ld-app-shell .border-slate-200,
+html.dark .ld-app-shell .border-slate-300,
+html.dark .ld-app-shell .border-\[\#e2e8f0\],
+html.dark .ld-app-shell .border-\[\#e4eae6\],
+html[data-theme="dark"] .ld-app-shell .border-slate-200,
+html[data-theme="dark"] .ld-app-shell .border-slate-300,
+html[data-theme="dark"] .ld-app-shell .border-\[\#e2e8f0\],
+html[data-theme="dark"] .ld-app-shell .border-\[\#e4eae6\] {
+  border-color: #1e293b !important;
+}
+html.dark .ld-app-shell .text-slate-900,
+html.dark .ld-app-shell .text-\[\#17231c\],
+html.dark .ld-app-shell .text-\[\#0f172a\],
+html[data-theme="dark"] .ld-app-shell .text-slate-900,
+html[data-theme="dark"] .ld-app-shell .text-\[\#17231c\],
+html[data-theme="dark"] .ld-app-shell .text-\[\#0f172a\] {
+  color: #f8fafc !important;
+}
+html.dark .ld-app-shell .text-slate-500,
+html.dark .ld-app-shell .text-slate-600,
+html.dark .ld-app-shell .text-\[\#526158\],
+html.dark .ld-app-shell .text-\[\#475569\],
+html[data-theme="dark"] .ld-app-shell .text-slate-500,
+html[data-theme="dark"] .ld-app-shell .text-slate-600,
+html[data-theme="dark"] .ld-app-shell .text-\[\#526158\],
+html[data-theme="dark"] .ld-app-shell .text-\[\#475569\] {
+  color: #94a3b8 !important;
+}
+html.dark .ld-app-shell .text-slate-400,
+html[data-theme="dark"] .ld-app-shell .text-slate-400 {
+  color: #64748b !important;
+}
+html.dark .ld-app-shell .bg-slate-100,
+html[data-theme="dark"] .ld-app-shell .bg-slate-100 {
+  background-color: #162032 !important;
+}
+html.dark .ld-app-shell .bg-\[\#f7faf8\],
+html[data-theme="dark"] .ld-app-shell .bg-\[\#f7faf8\] {
+  background-color: #090e17 !important;
+}
+html.dark .ld-app-shell .bg-\[\#f8fafc\],
+html[data-theme="dark"] .ld-app-shell .bg-\[\#f8fafc\] {
+  background-color: #0d1424 !important;
 }
