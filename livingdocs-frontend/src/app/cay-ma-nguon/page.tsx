@@ -669,15 +669,6 @@ export default function SourceTreePage() {
             <div className="max-h-[620px] overflow-y-auto pr-1">
               {renderTree(treeData)}
             </div>
-
-            <div className="mt-4 rounded-lg bg-emerald-50/70 p-3 text-xs text-emerald-800   border border-emerald-100 ">
-              <div className="flex items-start gap-1.5">
-                <Sparkles size={14} className="mt-0.5 shrink-0 text-emerald-600" />
-                <div>
-                  <span className="font-semibold">Mẹo:</span> Click vào file mã nguồn bất kỳ để xem toàn bộ danh sách Class, Hàm và Phương thức đã phân tích cú pháp AST.
-                </div>
-              </div>
-            </div>
           </div>
 
           {/* CỘT PHẢI: Chi tiết AST của file được chọn (8 cols) */}
