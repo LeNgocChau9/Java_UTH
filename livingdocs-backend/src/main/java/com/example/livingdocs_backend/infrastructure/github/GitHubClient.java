@@ -582,7 +582,10 @@ public class GitHubClient implements GitHubClientPort {
         }
 
         log.error("Lỗi HTTP {} từ GitHub API khi thực hiện [{}]: {}", status.value(), operation, responseBody);
-        throw new GitHubApiException("GitHub API trả về lỗi HTTP " + status.value() + " (" + operation + "): " + responseBody, status.value(), ex);
+        if (status.value() == 401 || status.value() == 403) {
+            throw new GitHubApiException("Phiên đăng nhập đã hết hạn", status.value(), ex);
+        }
+        throw new GitHubApiException("Không thể đồng bộ dữ liệu từ GitHub lúc này. Vui lòng thử lại sau.", status.value(), ex);
     }
 
     private int parseHeaderInt(HttpHeaders headers, String headerName, int defaultValue) {

@@ -141,9 +141,23 @@ export default function RepoManagementPage() {
       }
     } catch (err: any) {
       console.error("Lỗi khi sync repository:", err);
+      const rawMsg = String(err.response?.data?.message || "");
+      const errCode = err.response?.data?.errorCode;
+      const isExpired =
+        err.response?.status === 401 ||
+        errCode === "GITHUB_TOKEN_EXPIRED" ||
+        rawMsg.toLowerCase().includes("bad credentials") ||
+        rawMsg.toLowerCase().includes("http 401") ||
+        rawMsg.toLowerCase().includes("expired") ||
+        rawMsg.toLowerCase().includes("revoked");
+      const safeText = isExpired
+        ? "Phiên đăng nhập đã hết hạn"
+        : rawMsg.includes("{") || rawMsg.toLowerCase().includes("github api")
+        ? "Đồng bộ thất bại. Vui lòng thử lại sau!"
+        : rawMsg || "Sync thất bại. Vui lòng thử lại!";
       setSyncMessage({
         id: repo.repositoryId,
-        text: err.response?.data?.message || "Sync thất bại. Vui lòng thử lại!",
+        text: safeText,
         type: "error",
       });
     } finally {

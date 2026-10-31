@@ -124,11 +124,17 @@ public class AuthController {
             resolvedToken = readCookie(request, "livingdocs_access_token");
         }
 
-        if (resolvedToken != null && !resolvedToken.isBlank() && jwtTokenProvider.validateToken(resolvedToken)) {
-            Long linkUserId = jwtTokenProvider.getUserIdFromToken(resolvedToken);
+        if (resolvedToken != null && !resolvedToken.isBlank()) {
+            Long linkUserId = null;
+            try {
+                linkUserId = jwtTokenProvider.getUserIdFromToken(resolvedToken);
+            } catch (Exception ignored) {
+            }
             if (linkUserId != null) {
                 pendingLinkUsers.put(state, linkUserId);
                 addCookie(response, "ld_oauth_link_user_id", String.valueOf(linkUserId), 600);
+            } else {
+                addCookie(response, "ld_oauth_link_user_id", "", 0);
             }
         } else {
             addCookie(response, "ld_oauth_link_user_id", "", 0);

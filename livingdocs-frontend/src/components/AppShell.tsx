@@ -283,9 +283,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       window.location.reload();
     } catch {
       // Nếu không gia hạn được ngầm (ví dụ token cũ/GitHub OAuth cần cấp lại), chuyển hướng đăng nhập lại GitHub để lấy token tươi mới
-      clearSession();
+      const currentToken = typeof window !== "undefined" ? localStorage.getItem("livingdocs_access_token") || "" : "";
+      const target = typeof window !== "undefined" ? window.location.pathname : "/dashboard";
       setShowSessionModal(false);
-      router.push("/login?expired=true");
+      if (currentToken) {
+        window.location.assign(`/api/auth/github?mode=link&redirect=${encodeURIComponent(target)}&token=${encodeURIComponent(currentToken)}`);
+      } else {
+        setShowGitHubModal(true);
+      }
     } finally {
       setExtendingSession(false);
     }

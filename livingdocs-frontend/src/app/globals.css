@@ -301,13 +301,8 @@ a {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    scroll-behavior: auto !important;
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+  html {
+    scroll-behavior: auto;
   }
 }
 .ld-stat-label {
@@ -436,7 +431,7 @@ div[data-nextjs-route-announcer] {
 
 .rainbow-orbit:hover::before {
   opacity: 1;
-  animation: rotateRainbow 2s linear infinite;
+  animation: rotateRainbow 2s linear infinite !important;
 }
 
 /* Loại bỏ hoàn toàn viền 7 màu cho các phần tử không mong muốn (như logo) */

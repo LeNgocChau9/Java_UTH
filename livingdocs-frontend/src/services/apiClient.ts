@@ -17,14 +17,14 @@ export const apiClient = axios.create({
 
 /**
  * Xóa toàn bộ dấu vết phiên đăng nhập phía client (localStorage + cookie).
- * Dùng chung cho interceptor 401 và nút "Đăng xuất" để luôn nhất quán.
+ * Dùng chung cho nút "Đăng xuất" để luôn nhất quán.
  */
 export function clearAuthStorage() {
   if (typeof window === "undefined") return;
 
   window.localStorage.removeItem(ACCESS_TOKEN_KEY);
   window.localStorage.removeItem(USER_PROFILE_KEY);
-  // Xóa cookie token (ghi đè Max-Age=0) — đảm bảo không còn sót sau khi 401.
+  // Xóa cookie token (ghi đè Max-Age=0)
   document.cookie = `${ACCESS_TOKEN_COOKIE}=; Path=/; SameSite=Lax; Max-Age=0`;
 }
 
@@ -80,6 +80,18 @@ apiClient.interceptors.response.use(
     }
 
     const requestUrl = originalRequest.url || "";
+    const responseData = error.response?.data as { message?: string; errorCode?: string } | undefined;
+    const errorMessage = (responseData?.message || "").toLowerCase();
+
+    // Nếu lỗi 401 đến từ GitHub API (token GitHub hết hạn/revoked), tuyệt đối KHÔNG xóa phiên đăng nhập LivingDocs
+    const isGitHubTokenError =
+      responseData?.errorCode === "GITHUB_TOKEN_EXPIRED" ||
+      errorMessage.includes("github api") ||
+      errorMessage.includes("bad credentials");
+
+    if (isGitHubTokenError) {
+      return Promise.reject(error);
+    }
 
     // Bỏ qua các URL đăng nhập, làm mới token hoặc preview
     const isAuthRoute =
@@ -93,9 +105,8 @@ apiClient.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    // Nếu request này đã từng thử retry 1 lần mà vẫn 401 -> phiên thực sự hết hạn
+    // Nếu request này đã từng thử retry 1 lần mà vẫn 401 -> hiện modal gia hạn nhưng giữ nguyên token/profile để gia hạn hoặc cấp lại quyền GitHub
     if (originalRequest._retry) {
-      clearAuthStorage();
       window.dispatchEvent(new CustomEvent("livingdocs:session_expired"));
       return Promise.reject(error);
     }
@@ -120,8 +131,6 @@ apiClient.interceptors.response.use(
     // Nếu trên máy client chưa từng có token thì không cần refresh
     if (!currentToken) {
       isRefreshing = false;
-      clearAuthStorage();
-      window.dispatchEvent(new CustomEvent("livingdocs:session_expired"));
       return Promise.reject(error);
     }
 
@@ -157,7 +166,7 @@ apiClient.interceptors.response.use(
       return apiClient(originalRequest);
     } catch (refreshErr) {
       processQueue(refreshErr, null);
-      clearAuthStorage();
+      // KHÔNG gọi clearAuthStorage() ở đây để giữ nguyên tài khoản đăng nhập cho nút "Gia hạn phiên & Cấp quyền"
       window.dispatchEvent(new CustomEvent("livingdocs:session_expired"));
       return Promise.reject(refreshErr);
     } finally {

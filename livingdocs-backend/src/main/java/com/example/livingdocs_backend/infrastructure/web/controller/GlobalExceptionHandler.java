@@ -135,11 +135,22 @@ public class GlobalExceptionHandler {
         if (status == null) {
             status = HttpStatus.INTERNAL_SERVER_ERROR;
         }
+        // Không trả về HTTP 401 cho lỗi từ GitHub API để tránh Frontend hiểu nhầm là hết phiên đăng nhập JWT của LivingDocs
+        boolean isExpiredOrUnauthorized = (ex.getStatusCode() == 401 || ex.getStatusCode() == 403);
+        if (status == HttpStatus.UNAUTHORIZED) {
+            status = HttpStatus.BAD_GATEWAY;
+        }
+
+        String safeMessage = isExpiredOrUnauthorized
+                ? "Phiên đăng nhập đã hết hạn"
+                : "Không thể đồng bộ dữ liệu từ GitHub lúc này. Vui lòng thử lại sau.";
 
         Map<String, Object> error = new HashMap<>();
         error.put("status", status.value());
+        error.put("githubStatus", ex.getStatusCode());
         error.put("error", status.getReasonPhrase());
-        error.put("message", ex.getMessage());
+        error.put("errorCode", isExpiredOrUnauthorized ? "GITHUB_TOKEN_EXPIRED" : "GITHUB_API_ERROR");
+        error.put("message", safeMessage);
         error.put("timestamp", Instant.now().toString());
         return ResponseEntity.status(status).body(error);
     }
@@ -170,10 +181,8 @@ public class GlobalExceptionHandler {
         Map<String, Object> error = new HashMap<>();
         error.put("status", HttpStatus.INTERNAL_SERVER_ERROR.value());
         error.put("error", "Internal Server Error");
-        error.put("message", ex.getMessage() != null ? ex.getMessage() : ex.toString());
-        error.put("exceptionClass", ex.getClass().getName());
+        error.put("message", "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.");
         error.put("timestamp", Instant.now().toString());
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
     }
 }
-
