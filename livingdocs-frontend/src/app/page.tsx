@@ -354,7 +354,7 @@ export default function AstroshipLivingDocsHomePage() {
       <header className="fixed top-0 left-0 right-0 z-50 w-full bg-black/90 border-b border-white/10 shadow-lg">
         <div className="mx-auto max-w-7xl px-6 py-3.5 flex flex-col lg:flex-row justify-between items-center gap-4">
           <div className="flex w-full lg:w-auto items-center justify-between">
-            <Link href="/" className="text-2xl font-bold tracking-tight text-white flex items-center gap-2.5 group">
+            <Link href="/" className="no-rainbow text-2xl font-bold tracking-tight text-white flex items-center gap-2.5 group">
               <Image src="/logo.png" alt="LivingDocs Logo" width={32} height={32} className="rounded object-contain" />
               <span>Living<span className="transition-colors group-hover:text-amber-300">Docs</span></span>
             </Link>
@@ -396,7 +396,7 @@ export default function AstroshipLivingDocsHomePage() {
             </Link>
             <Link
               href="/login"
-              className="rounded-full text-center transition-all px-6 py-2.5 bg-white text-black hover:bg-amber-300 hover:text-black text-sm font-semibold inline-block hover:scale-105 active:scale-95 duration-200 shadow-md"
+              className="rainbow-orbit rounded-full text-center transition-all px-6 py-2.5 bg-white text-black hover:bg-amber-300 hover:text-black text-sm font-semibold inline-block hover:scale-105 active:scale-95 duration-200 shadow-md"
             >
               Đăng nhập
             </Link>
@@ -415,13 +415,13 @@ export default function AstroshipLivingDocsHomePage() {
             <div className="mt-8 flex flex-wrap gap-4">
               <Link
                 href="/yeu-cau-sinh-tai-lieu"
-                className="rounded-full px-6 py-3 bg-white text-black hover:bg-amber-300 hover:text-black font-semibold text-sm transition-all hover:scale-105 active:scale-95 shadow-[0_4px_20px_rgba(0,0,0,0.5)]"
+                className="rainbow-orbit rounded-full px-6 py-3 bg-white text-black hover:bg-amber-300 hover:text-black font-semibold text-sm transition-all hover:scale-105 active:scale-95 shadow-[0_4px_20px_rgba(0,0,0,0.5)]"
               >
                 Tạo tài liệu bằng AI
               </Link>
               <Link
                 href="/dashboard"
-                className="rounded-full px-6 py-3 bg-black/50 border border-white/20 text-white hover:border-amber-400 hover:text-amber-300 font-semibold text-sm transition-all hover:scale-105 active:scale-95"
+                className="rainbow-orbit rounded-full px-6 py-3 bg-black/50 border border-white/20 text-white hover:border-amber-400 hover:text-amber-300 font-semibold text-sm transition-all hover:scale-105 active:scale-95"
               >
                 Vào Dashboard
               </Link>
@@ -573,13 +573,13 @@ export default function AstroshipLivingDocsHomePage() {
               <div className="flex flex-wrap gap-4 mt-8 justify-center">
                 <Link
                   href="/yeu-cau-sinh-tai-lieu"
-                  className="rounded-full px-7 py-3.5 bg-white text-black hover:bg-amber-300 hover:text-black font-semibold text-sm transition-all hover:scale-105 active:scale-95 inline-block"
+                  className="rainbow-orbit rounded-full px-7 py-3.5 bg-white text-black hover:bg-amber-300 hover:text-black font-semibold text-sm transition-all hover:scale-105 active:scale-95 inline-block"
                 >
                   Tạo tài liệu bằng AI
                 </Link>
                 <Link
                   href="/login"
-                  className="rounded-full px-7 py-3.5 bg-transparent border border-white/40 text-white hover:border-amber-400 hover:text-amber-300 font-semibold text-sm transition-all hover:scale-105 active:scale-95 inline-block"
+                  className="rainbow-orbit rounded-full px-7 py-3.5 bg-transparent border border-white/40 text-white hover:border-amber-400 hover:text-amber-300 font-semibold text-sm transition-all hover:scale-105 active:scale-95 inline-block"
                 >
                   Đăng nhập hệ thống
                 </Link>
@@ -595,7 +595,7 @@ export default function AstroshipLivingDocsHomePage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10 lg:gap-12">
             {/* Cột 1: Thương hiệu & Giới thiệu & Đăng ký nhận tin */}
             <div className="space-y-4">
-              <Link href="/" className="inline-flex items-center gap-2.5 text-xl font-bold text-white group">
+              <Link href="/" className="no-rainbow inline-flex items-center gap-2.5 text-xl font-bold text-white group">
                 <Image src="/logo.png" alt="LivingDocs Logo" width={32} height={32} className="rounded object-contain" />
                 <span className="text-white">LivingDocs</span>
               </Link>
@@ -778,7 +778,7 @@ export default function AstroshipLivingDocsHomePage() {
         <button
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
           aria-label="Cuộn lên đầu trang"
-          className="w-11 h-11 rounded-full bg-amber-400 text-black flex flex-col items-center justify-center font-bold text-[10px] shadow-[0_4px_16px_rgba(245,158,11,0.4)] hover:bg-amber-300 hover:scale-105 active:scale-95 transition-all group cursor-pointer"
+          className="rainbow-orbit w-11 h-11 rounded-full bg-amber-400 text-black flex flex-col items-center justify-center font-bold text-[10px] shadow-[0_4px_16px_rgba(245,158,11,0.4)] hover:bg-amber-300 hover:scale-105 active:scale-95 transition-all group cursor-pointer"
           title="Cuộn lên đầu trang"
         >
           <ArrowUp className="w-4 h-4 stroke-[2.5] group-hover:-translate-y-0.5 transition-transform" />
@@ -791,10 +791,10 @@ export default function AstroshipLivingDocsHomePage() {
             setIsFeedbackOpen(true);
             setIsChatOpen(false);
           }}
-          className="flex flex-col items-center justify-center gap-1 group cursor-pointer transition-transform hover:scale-110 active:scale-95"
+          className="no-rainbow flex flex-col items-center justify-center gap-1 group cursor-pointer transition-transform hover:scale-110 active:scale-95"
           title="Gửi góp ý của bạn"
         >
-          <div className="w-11 h-11 rounded-full bg-amber-400 text-black flex items-center justify-center shadow-lg group-hover:bg-amber-300 transition-colors">
+          <div className="rainbow-orbit w-11 h-11 rounded-full bg-amber-400 text-black flex items-center justify-center shadow-lg group-hover:bg-amber-300 transition-colors">
             <MessageCircle className="w-5 h-5" fill="currentColor" />
           </div>
           <span className="text-[10px] font-bold text-amber-400 tracking-tight leading-none group-hover:text-amber-300 drop-shadow">
@@ -808,10 +808,10 @@ export default function AstroshipLivingDocsHomePage() {
             setIsChatOpen((prev) => !prev);
             setIsFeedbackOpen(false);
           }}
-          className="flex flex-col items-center justify-center gap-1 group cursor-pointer transition-transform hover:scale-110 active:scale-95"
+          className="no-rainbow flex flex-col items-center justify-center gap-1 group cursor-pointer transition-transform hover:scale-110 active:scale-95"
           title="Chat với Trợ lý Hỗ trợ AI"
         >
-          <div className="w-11 h-11 rounded-full bg-amber-400 text-black flex items-center justify-center shadow-lg group-hover:bg-amber-300 transition-colors">
+          <div className="rainbow-orbit w-11 h-11 rounded-full bg-amber-400 text-black flex items-center justify-center shadow-lg group-hover:bg-amber-300 transition-colors">
             <Headphones className="w-5 h-5 stroke-[2.4]" />
           </div>
           <span className="text-[10px] font-bold text-amber-400 tracking-tight leading-none group-hover:text-amber-300 drop-shadow">
