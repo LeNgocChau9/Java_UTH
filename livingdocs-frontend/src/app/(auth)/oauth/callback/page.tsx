@@ -47,10 +47,16 @@ function CallbackContent() {
         saveToken(token);
         const { data } = await apiClient.get<UserProfile>("/api/me");
         saveProfile(data);
+
+        const isRenewed = params.get("githubRenewed") === "true";
+        if (isRenewed && typeof window !== "undefined") {
+          sessionStorage.setItem("livingdocs:github_renew_success", "true");
+        }
+
         router.replace(redirect);
         router.refresh();
       } catch {
-        setError("Không thể hoàn tất đăng nhập bằng GitHub. Vui lòng thử lại.");
+        setError("Không thể hoàn tất gia hạn quyền GitHub. Vui lòng thử lại.");
       }
     })();
   }, [params, router]);

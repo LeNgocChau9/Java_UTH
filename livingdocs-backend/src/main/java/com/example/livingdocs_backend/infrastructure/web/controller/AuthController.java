@@ -236,6 +236,7 @@ public class AuthController {
                     String target = sanitizeRedirect(redirectTarget);
                     String callbackUrl = gitHubOAuthProperties.getFrontendCallbackUrl()
                             + "?token=" + urlEncode(newToken)
+                            + "&githubRenewed=true"
                             + "&redirect=" + urlEncode(target);
                     response.sendRedirect(callbackUrl);
                     return;

@@ -40,6 +40,13 @@ export default function RepoManagementPage() {
 
   // Sync state
   const [syncingId, setSyncingId] = useState<number | null>(null);
+  const [globalNotice, setGlobalNotice] = useState<{
+    text: string;
+    type: "success" | "error";
+    actionLabel?: string;
+    action?: () => void;
+  } | null>(null);
+
   const [syncMessage, setSyncMessage] = useState<{
     id: number;
     text: string;
@@ -94,6 +101,16 @@ export default function RepoManagementPage() {
 
   useEffect(() => {
     loadRepositories();
+    if (typeof window !== "undefined") {
+      const renewed = sessionStorage.getItem("livingdocs:github_renew_success");
+      if (renewed) {
+        sessionStorage.removeItem("livingdocs:github_renew_success");
+        setGlobalNotice({
+          text: "Gia hạn phiên GitHub thành công! Kết nối tài khoản đã được đồng bộ tươi mới.",
+          type: "success",
+        });
+      }
+    }
   }, []);
 
   // Khi chọn repo thì tải PRs & Commits
@@ -150,16 +167,25 @@ export default function RepoManagementPage() {
         rawMsg.toLowerCase().includes("http 401") ||
         rawMsg.toLowerCase().includes("expired") ||
         rawMsg.toLowerCase().includes("revoked");
-      const safeText = isExpired
-        ? "Phiên đăng nhập đã hết hạn"
-        : rawMsg.includes("{") || rawMsg.toLowerCase().includes("github api")
-        ? "Đồng bộ thất bại. Vui lòng thử lại sau!"
-        : rawMsg || "Sync thất bại. Vui lòng thử lại!";
-      setSyncMessage({
-        id: repo.repositoryId,
-        text: safeText,
-        type: "error",
-      });
+
+      if (isExpired) {
+        setSyncMessage({
+          id: repo.repositoryId,
+          text: "Phiên kết nối GitHub đã hết hạn. Vui lòng bấm 'Gia hạn phiên' để tiếp tục đồng bộ!",
+          type: "error",
+        });
+        // Bắn event để hiển thị modal gia hạn phiên
+        window.dispatchEvent(new CustomEvent("livingdocs:session_expired"));
+      } else {
+        const safeText = rawMsg.includes("{") || rawMsg.toLowerCase().includes("github api")
+          ? "Đồng bộ thất bại. Vui lòng thử lại sau!"
+          : rawMsg || "Sync thất bại. Vui lòng thử lại!";
+        setSyncMessage({
+          id: repo.repositoryId,
+          text: safeText,
+          type: "error",
+        });
+      }
     } finally {
       setSyncingId(null);
     }
@@ -237,6 +263,46 @@ export default function RepoManagementPage() {
           <Plus size={16} /> Thêm Repository
         </button>
       </div>
+
+      {/* Banner thông báo trạng thái toàn trang (khi gia hạn thành công hoặc gặp sự cố) */}
+      {globalNotice && (
+        <div
+          style={{
+            marginBottom: 20,
+            padding: "12px 18px",
+            borderRadius: 10,
+            fontSize: 13,
+            fontWeight: 500,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            background: globalNotice.type === "success" ? "#ecfdf5" : "#fef2f2",
+            color: globalNotice.type === "success" ? "#065f46" : "#991b1b",
+            border: `1px solid ${globalNotice.type === "success" ? "#a7f3d0" : "#fecaca"}`,
+            boxShadow: "0 1px 3px rgba(0, 0, 0, 0.05)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span>{globalNotice.type === "success" ? "✓" : "⚠"}</span>
+            <span>{globalNotice.text}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setGlobalNotice(null)}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "inherit",
+              fontSize: 18,
+              cursor: "pointer",
+              lineHeight: 1,
+              padding: "0 4px",
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {/* Grid 2 cột: Cột trái Danh sách repo - Cột phải Chi tiết Tab */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: 20, alignItems: "start" }}>
