@@ -363,25 +363,25 @@ export default function AstroshipLivingDocsHomePage() {
           <nav className="flex items-center gap-1 sm:gap-3 md:gap-5 text-[15px] sm:text-base text-slate-200 font-medium">
             <a
               href="#features"
-              className="px-3.5 py-1.5 rounded-lg hover:text-amber-300 hover:bg-white/5 transition-all duration-200"
+              className="rainbow-orbit px-3.5 py-1.5 rounded-lg hover:text-amber-300 hover:bg-white/5 transition-all duration-200"
             >
               Tính năng
             </a>
             <Link
               href="/yeu-cau-sinh-tai-lieu"
-              className="px-3.5 py-1.5 rounded-lg hover:text-amber-300 hover:bg-white/5 transition-all duration-200"
+              className="rainbow-orbit px-3.5 py-1.5 rounded-lg hover:text-amber-300 hover:bg-white/5 transition-all duration-200"
             >
               Tạo tài liệu AI
             </Link>
             <Link
               href="/hang-doi-xem-xet"
-              className="px-3.5 py-1.5 rounded-lg hover:text-amber-300 hover:bg-white/5 transition-all duration-200"
+              className="rainbow-orbit px-3.5 py-1.5 rounded-lg hover:text-amber-300 hover:bg-white/5 transition-all duration-200"
             >
               Hàng đợi Thẩm định
             </Link>
             <Link
               href="/trung-tam-phe-duyet"
-              className="px-3.5 py-1.5 rounded-lg hover:text-amber-300 hover:bg-white/5 transition-all duration-200"
+              className="rainbow-orbit px-3.5 py-1.5 rounded-lg hover:text-amber-300 hover:bg-white/5 transition-all duration-200"
             >
               Trung tâm Phê duyệt
             </Link>
@@ -390,7 +390,7 @@ export default function AstroshipLivingDocsHomePage() {
           <div className="flex items-center gap-3">
             <Link
               href="/dashboard"
-              className="hidden sm:inline-flex items-center text-sm font-semibold text-slate-200 hover:text-amber-300 px-3.5 py-2 rounded-lg hover:bg-white/5 transition-colors"
+              className="rainbow-orbit hidden sm:inline-flex items-center text-sm font-semibold text-slate-200 hover:text-amber-300 px-3.5 py-2 rounded-lg hover:bg-white/5 transition-colors"
             >
               Dashboard
             </Link>
