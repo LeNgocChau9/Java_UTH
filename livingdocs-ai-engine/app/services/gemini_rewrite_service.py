@@ -27,6 +27,12 @@ from app.schemas.ai_schemas import (
     DocRewriteResponse,
     DocSectionDiffItem,
 )
+from app.core.gemini_retry import (
+    execute_with_gemini_retry,
+    GeminiQuotaExceededError,
+    GeminiServiceUnavailableError,
+    is_quota_exceeded_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -140,26 +146,42 @@ Trả về DUY NHẤT một JSON object hợp lệ (không kèm markdown code fe
 
         for model_name in REWRITE_MODELS:
             try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                    config=genai_types.GenerateContentConfig(
-                        temperature=0.15,  # Giữ tính chính xác và bám sát ngữ cảnh cao
-                        top_p=0.9,
-                        max_output_tokens=4000,
-                        response_mime_type="application/json",
-                    ),
+                def _call_gemini_rewrite():
+                    resp = client.models.generate_content(
+                        model=model_name,
+                        contents=prompt,
+                        config=genai_types.GenerateContentConfig(
+                            temperature=0.15,  # Giữ tính chính xác và bám sát ngữ cảnh cao
+                            top_p=0.9,
+                            max_output_tokens=4000,
+                            response_mime_type="application/json",
+                        ),
+                    )
+                    txt = resp.text or "{}"
+                    return _parse_gemini_json(txt)
+
+                parsed = execute_with_gemini_retry(
+                    action=_call_gemini_rewrite,
+                    max_retries=3,
+                    initial_delay=1.0,
+                    backoff_factor=2.0,
+                    action_name=f"DocRewrite ({model_name})",
                 )
-                raw_text = response.text or "{}"
-                parsed = _parse_gemini_json(raw_text)
                 used_model = model_name
                 break
+
+            except GeminiQuotaExceededError:
+                # Quota cạn kiệt thì re-raise ngay để trả thông báo 429 tiếng Việt chuẩn xác
+                raise
             except Exception as ex:
                 logger.warning("[DocRewrite] Thử model %s thất bại: %s. Thử model tiếp theo...", model_name, ex)
                 last_error = ex
 
         if parsed is None:
-            raise RuntimeError(f"Tất cả các model Gemini đều không khả dụng: {last_error}")
+            raise GeminiServiceUnavailableError(
+                message=f"Tất cả các model Gemini đều không khả dụng sau khi đã thử lại: {last_error}",
+                raw_error=last_error
+            )
 
         updated_doc = parsed.get("updated_doc", "").strip()
         if not updated_doc:
