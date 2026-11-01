@@ -1,5 +1,7 @@
 package com.example.livingdocs_backend.application.service;
 
+import com.example.livingdocs_backend.application.dto.ai.AiDriftAnalyzeRequestDto;
+import com.example.livingdocs_backend.application.dto.ai.AiDriftAnalyzeResponseDto;
 import com.example.livingdocs_backend.application.dto.ai.AstDiffRequestDto;
 import com.example.livingdocs_backend.application.dto.ai.AstDiffResponseDto;
 import com.example.livingdocs_backend.application.dto.drift.AffectedDocumentResultDto;
@@ -7,22 +9,15 @@ import com.example.livingdocs_backend.application.dto.drift.PrDriftAnalysisResul
 import com.example.livingdocs_backend.application.port.CodeDiffAnalysisServicePort;
 import com.example.livingdocs_backend.application.port.DocDriftDetectionServicePort;
 import com.example.livingdocs_backend.application.port.GitHubClientPort;
-import com.example.livingdocs_backend.infrastructure.persistence.entity.DocCodeLinkEntity;
-import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentChangeAlertEntity;
-import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentEntity;
-import com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity;
-import com.example.livingdocs_backend.infrastructure.persistence.entity.PullRequestEntity;
-import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
-import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocCodeLinkRepository;
-import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentChangeAlertRepository;
-import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentRepository;
-import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository;
-import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataPullRequestRepository;
-import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
-import lombok.RequiredArgsConstructor;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.*;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.*;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestClient;
 
 import java.time.Instant;
 import java.util.*;
@@ -30,23 +25,63 @@ import java.util.*;
 /**
  * Service thực thi thuật toán:
  * 1. Tìm tài liệu bị ảnh hưởng qua bảng doc_code_links khi các hàm/class Java thay đổi.
- * 2. Tạo bản ghi vào bảng document_change_alerts (drift_alerts) với các mức độ nghiêm trọng.
- * 3. Tự động comment cảnh báo sai lệch trực tiếp lên Pull Request qua GitHub REST API.
- * TV2 - LivingDocs S2 Task.
+ * 2. Phân tích ngữ nghĩa Drift sâu hơn qua AI Engine (/v1/drift/analyze) dùng Google Gemini.
+ * 3. Tạo bản ghi vào bảng document_change_alerts (drift_alerts) với các mức độ nghiêm trọng chính xác từ AI.
+ * 4. Tự động comment cảnh báo sai lệch trực tiếp lên Pull Request qua GitHub REST API.
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class DocDriftDetectionService implements DocDriftDetectionServicePort {
 
     private final CodeDiffAnalysisServicePort codeDiffAnalysisService;
     private final SpringDataDocCodeLinkRepository docCodeLinkRepository;
     private final SpringDataDocumentRepository documentRepository;
+    private final SpringDataDocumentVersionRepository documentVersionRepository;
     private final SpringDataDocumentChangeAlertRepository alertRepository;
     private final SpringDataRepositoryRepository repositoryRepository;
     private final SpringDataPullRequestRepository pullRequestRepository;
     private final SpringDataGitHubConnectionRepository connectionRepository;
     private final GitHubClientPort gitHubClient;
+    private final RestClient restClient;
+
+    @Autowired
+    public DocDriftDetectionService(
+            CodeDiffAnalysisServicePort codeDiffAnalysisService,
+            SpringDataDocCodeLinkRepository docCodeLinkRepository,
+            SpringDataDocumentRepository documentRepository,
+            SpringDataDocumentVersionRepository documentVersionRepository,
+            SpringDataDocumentChangeAlertRepository alertRepository,
+            SpringDataRepositoryRepository repositoryRepository,
+            SpringDataPullRequestRepository pullRequestRepository,
+            SpringDataGitHubConnectionRepository connectionRepository,
+            GitHubClientPort gitHubClient,
+            @Value("${ai.engine.url:http://localhost:8000}") String aiEngineUrl
+    ) {
+        this.codeDiffAnalysisService = codeDiffAnalysisService;
+        this.docCodeLinkRepository = docCodeLinkRepository;
+        this.documentRepository = documentRepository;
+        this.documentVersionRepository = documentVersionRepository;
+        this.alertRepository = alertRepository;
+        this.repositoryRepository = repositoryRepository;
+        this.pullRequestRepository = pullRequestRepository;
+        this.connectionRepository = connectionRepository;
+        this.gitHubClient = gitHubClient;
+        this.restClient = RestClient.builder().baseUrl(aiEngineUrl).build();
+    }
+
+    public DocDriftDetectionService(
+            CodeDiffAnalysisServicePort codeDiffAnalysisService,
+            SpringDataDocCodeLinkRepository docCodeLinkRepository,
+            SpringDataDocumentRepository documentRepository,
+            SpringDataDocumentChangeAlertRepository alertRepository,
+            SpringDataRepositoryRepository repositoryRepository,
+            SpringDataPullRequestRepository pullRequestRepository,
+            SpringDataGitHubConnectionRepository connectionRepository,
+            GitHubClientPort gitHubClient
+    ) {
+        this(codeDiffAnalysisService, docCodeLinkRepository, documentRepository, null,
+                alertRepository, repositoryRepository, pullRequestRepository, connectionRepository, gitHubClient, "http://localhost:8000");
+    }
 
     @Override
     public List<AffectedDocumentResultDto> findAffectedDocuments(Long repositoryId, AstDiffRequestDto diffRequest) {
@@ -143,7 +178,7 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
         Optional<PullRequestEntity> prOpt = pullRequestRepository.findByRepositoryIdAndPrNumber(repositoryId, prNumber);
         Long prId = prOpt.map(PullRequestEntity::getPrId).orElse(null);
 
-        // 3. Tạo bản ghi vào bảng document_change_alerts (drift_alerts) với mức độ nghiêm trọng
+        // 3. Tạo bản ghi vào bảng document_change_alerts (drift_alerts) với phân tích AI ngữ nghĩa nếu có
         Instant now = Instant.now();
         List<DocumentChangeAlertEntity> savedAlerts = new ArrayList<>();
 
@@ -154,16 +189,32 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
                 default -> "SEMANTIC";
             };
 
+            String severity = item.severity();
+            String details = String.format("Tài liệu '%s' bị ảnh hưởng do hàm '%s' (%s) tại '%s': %s",
+                    item.documentTitle(), item.methodName(), item.changeType(), item.relatedFilePath(), item.details());
+
+            // Gọi AI Semantic Drift (/v1/drift/analyze) để đánh giá ngữ nghĩa chuyên sâu bằng Gemini
+            AiDriftAnalyzeResponseDto aiDrift = analyzeDriftWithAi(item, diffRequest, prNumber, repositoryId);
+            if (aiDrift != null && aiDrift.getSeverity() != null) {
+                severity = aiDrift.getSeverity();
+                if (aiDrift.getClassification() != null) {
+                    classification = aiDrift.getClassification();
+                }
+                if (aiDrift.getExplanation() != null && !aiDrift.getExplanation().isBlank()) {
+                    details = String.format("[%s] %s | AI Giải thích: %s",
+                            aiDrift.getSeverity(), details, aiDrift.getExplanation());
+                }
+            }
+
             DocumentChangeAlertEntity alert = DocumentChangeAlertEntity.builder()
                     .repositoryId(repositoryId)
                     .documentId(item.documentId())
                     .sourcePrId(prId)
                     .sourceCommit(diffRequest.head_commit_hash())
                     .classification(classification)
-                    .severity(item.severity())
+                    .severity(severity)
                     .status("OPEN")
-                    .details(String.format("Tài liệu '%s' bị ảnh hưởng do hàm '%s' (%s) tại '%s': %s",
-                            item.documentTitle(), item.methodName(), item.changeType(), item.relatedFilePath(), item.details()))
+                    .details(details)
                     .createdAt(now)
                     .build();
 
@@ -211,6 +262,44 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
                 .status("SUCCESS")
                 .message("Phát hiện " + affectedDocs.size() + " tài liệu bị ảnh hưởng. Đã đăng cảnh báo lên PR #" + prNumber)
                 .build();
+    }
+
+    /**
+     * Gọi AI Engine (/v1/drift/analyze) để phân tích sai lệch ngữ nghĩa qua Gemini.
+     */
+    private AiDriftAnalyzeResponseDto analyzeDriftWithAi(AffectedDocumentResultDto item, AstDiffRequestDto diffRequest, int prNumber, Long repositoryId) {
+        try {
+            String currentDoc = "";
+            if (documentVersionRepository != null && item.documentId() != null) {
+                currentDoc = documentVersionRepository.findTopByDocIdOrderByVersionNumDesc(item.documentId())
+                        .map(DocumentVersionEntity::getContent)
+                        .orElse("");
+            }
+
+            String diffSnippet = item.details() != null ? item.details() : "Diff for method: " + item.methodName();
+
+            AiDriftAnalyzeRequestDto request = AiDriftAnalyzeRequestDto.builder()
+                    .code_diff(diffSnippet)
+                    .current_doc(currentDoc)
+                    .entity_name(item.methodName() != null ? item.methodName() : item.className())
+                    .entity_type("METHOD")
+                    .file_path(item.relatedFilePath())
+                    .document_id(item.documentId())
+                    .repository_id(repositoryId)
+                    .pr_number(prNumber)
+                    .commit_hash(diffRequest.head_commit_hash())
+                    .build();
+
+            return restClient.post()
+                    .uri("/v1/drift/analyze")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(request)
+                    .retrieve()
+                    .body(AiDriftAnalyzeResponseDto.class);
+        } catch (Exception ex) {
+            log.warn("[DocDrift] Bỏ qua AI semantic drift cho docId={} do: {}", item.documentId(), ex.getMessage());
+            return null;
+        }
     }
 
     private String buildPrDriftCommentMarkdown(int prNumber, List<AffectedDocumentResultDto> affectedDocs, AstDiffRequestDto diffRequest) {

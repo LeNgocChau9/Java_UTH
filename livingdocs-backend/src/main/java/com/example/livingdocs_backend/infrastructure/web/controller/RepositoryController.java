@@ -103,6 +103,17 @@ public class RepositoryController {
         return ResponseEntity.ok(repositoryService.getRepoCommits(id));
     }
 
+    @GetMapping("/{id}/tree")
+    @Operation(summary = "Lấy cây thư mục và danh sách file thực tế từ GitHub API")
+    public ResponseEntity<List<com.example.livingdocs_backend.application.dto.github.GitHubFileDto>> getRepositoryTree(
+            @PathVariable("id") Long id,
+            @RequestParam(value = "sha", required = false) String sha,
+            @AuthenticationPrincipal UserPrincipal userPrincipal
+    ) {
+        Long userId = userPrincipal != null ? userPrincipal.getUserId() : 1L;
+        return ResponseEntity.ok(repositoryService.getRepositoryTree(id, sha, userId));
+    }
+
     @PostMapping("/connections/{connectionId}/verify")
     @Operation(summary = "Kiểm tra tính hợp lệ của GitHub Access Token và bắn cảnh báo nếu hết hạn/bị revoke")
     public ResponseEntity<com.example.livingdocs_backend.application.dto.github.GitHubConnectionStatusResponse> verifyConnection(

@@ -1,6 +1,10 @@
 package com.example.livingdocs_backend.infrastructure.web.controller;
 
 import com.example.livingdocs_backend.application.dto.*;
+import com.example.livingdocs_backend.application.dto.ai.AiDocGenerateRequestDto;
+import com.example.livingdocs_backend.application.dto.ai.AiDocGenerateResponseDto;
+import com.example.livingdocs_backend.application.port.AiDocumentationServicePort;
+
 import com.example.livingdocs_backend.application.port.DocumentServicePort;
 import com.example.livingdocs_backend.infrastructure.security.UserPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
@@ -24,6 +28,7 @@ import java.util.Map;
 public class DocumentController {
 
     private final DocumentServicePort documentServicePort;
+    private final AiDocumentationServicePort aiDocumentationServicePort;
 
     @PostMapping
     @Operation(summary = "Tạo tài liệu mới", description = "Tạo mới tài liệu và tự động tạo phiên bản v1 kèm chuỗi băm khởi tạo (Genesis Hash).")
@@ -202,5 +207,14 @@ public class DocumentController {
         String auth = userPrincipal.getAuthorities().iterator().next().getAuthority();
         return auth.startsWith("ROLE_") ? auth.substring(5) : auth;
     }
-}
 
+    @PostMapping("/generate-ai")
+    @Operation(summary = "Sinh tai lieu ky thuat bang AI Engine Gemini", description = "Goi AI Engine (/v1/docs/generate) ket hop cau truc AST va template de tao Markdown tai lieu chuyen sau.")
+    public ResponseEntity<AiDocGenerateResponseDto> generateAiDocumentation(
+            @RequestBody AiDocGenerateRequestDto request
+    ) {
+        AiDocGenerateResponseDto response = aiDocumentationServicePort.generateDocumentation(request);
+        return ResponseEntity.ok(response);
+    }
+
+}

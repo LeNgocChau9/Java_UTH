@@ -42,6 +42,9 @@ interface CodeEntityOption {
   commitHash: string;
   startLine: number;
   endLine: number;
+  parameters?: string | null;
+  javadoc?: string | null;
+  annotations?: string[];
 }
 
 interface GeneratedDocResult {
@@ -154,32 +157,39 @@ export default function YeuCauSinhPage() {
     try {
       let generatedMarkdown = "";
 
-      // 1. First try calling doc template preview API
+      // 1. Ưu tiên gọi AI Engine (/api/documents/generate-ai) để Gemini 2.5 Flash sinh Markdown thật từ AST
       try {
-        const previewRes = await apiClient.post<{ markdown: string }>(
-          `/api/templates/${templateId}/preview`,
-          {
-            className,
-            packageName: selectedFile.substring(0, selectedFile.lastIndexOf("/")).replace(/^.*java\/?/, "").replace(/\//g, ".") || "com.example.service",
-            description: note || `Tài liệu kỹ thuật tự động sinh cho ${className}`,
-            methods: selectedFileEntities
-              .filter((ent) => ent.entityType === "METHOD" || ent.methodName)
-              .map((ent) => ({
-                name: ent.methodName || "handle",
-                returnType: "void",
-                description: `Thực thi logic ${ent.methodName || "nghiệp vụ"}`,
-                parameters: (ent.signature || "").includes("(")
-                  ? (ent.signature || "").split("(")[1].replace(")", "").split(",").filter(Boolean).map((p, idx) => ({
-                      name: p.trim().split(" ")[1] || `param${idx + 1}`,
-                      type: p.trim().split(" ")[0] || "String",
-                    }))
-                  : [],
-              })),
-          }
-        );
-        generatedMarkdown = previewRes.data.markdown;
+        const aiRes = await apiClient.post<{
+          status: string;
+          mode: string;
+          generated_content: string;
+          confidence_score: number;
+        }>("/api/documents/generate-ai", {
+          template_type: selectedTemplate?.type || "API_REFERENCE",
+          file_path: selectedFile,
+          class_name: className,
+          entities: selectedFileEntities.map((ent) => ({
+            entity_type: ent.entityType || "METHOD",
+            class_name: ent.className || className,
+            method_name: ent.methodName,
+            signature: ent.signature,
+            return_type: "void",
+            parameters: ent.parameters,
+            start_line: ent.startLine,
+            end_line: ent.endLine,
+            doc_status: ent.docStatus,
+            javadoc: ent.javadoc,
+            annotations: ent.annotations || [],
+          })),
+        });
+
+        if (aiRes.data?.generated_content) {
+          generatedMarkdown = aiRes.data.generated_content;
+        } else {
+          throw new Error("Phản hồi AI trống");
+        }
       } catch {
-        // Fallback if preview fails: generate Markdown directly from AST & Template metadata
+        // Fallback nếu AI Engine chưa bật: sinh Markdown trực tiếp từ cấu trúc AST và template
         generatedMarkdown = `# Tài liệu Kỹ thuật: ${className}
 > **Mẫu tài liệu:** ${selectedTemplate?.name ?? "API Reference"}  
 > **File nguồn:** \`${selectedFile}\`  

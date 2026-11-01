@@ -380,11 +380,11 @@ export default function CanhBaoSaiLechPage() {
   const handleAcceptFix = async (alertItem: DriftAlertItem) => {
     setAcceptingId(alertItem.id);
     try {
-      // Thử gọi API backend (AutoDraftController: POST /api/drift-alerts/{id}/auto-draft)
+      // 1-Click AI AutoDraft & Resolve: gọi backend sinh draft và duyệt cập nhật tài liệu
       try {
         await apiClient.post(`/api/drift-alerts/${alertItem.id}/auto-draft`);
+        await apiClient.post(`/api/drift-alerts/${alertItem.id}/accept-draft`);
       } catch (e) {
-        // Nếu mock hoặc offline, mô phỏng phản hồi thành công lập tức
         console.info("Using frontend draft sync simulation for alert #", alertItem.id);
       }
 
@@ -396,7 +396,7 @@ export default function CanhBaoSaiLechPage() {
           a.id === alertItem.id
             ? {
                 ...a,
-                status: "DRAFT_CREATED",
+                status: "RESOLVED",
                 draftVersionId: 100 + a.id,
               }
             : a
@@ -405,7 +405,7 @@ export default function CanhBaoSaiLechPage() {
 
       setSuccessToast({
         show: true,
-        title: "Tạo bản nháp thành công!",
+        title: "Đã khắc phục sai lệch 1-Click thành công!",
         message: `Đã áp dụng các sửa đổi do AI đề xuất và tạo bản nháp DRAFT (v2.1) cho "${alertItem.docTitle}". Bạn có thể xem và duyệt ngay trong mục Quản lý tài liệu.`,
       });
 

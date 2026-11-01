@@ -23,6 +23,7 @@ import org.springframework.util.StringUtils;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Collections;
 import java.util.Optional;
 
 @Slf4j
@@ -147,6 +148,28 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
     @Transactional(readOnly = true)
     public List<CommitEntity> getRepoCommits(Long repositoryId) {
         return commitRepository.findByRepositoryIdOrderByCommittedAtDesc(repositoryId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<GitHubFileDto> getRepositoryTree(Long repositoryId, String treeSha, Long currentUserId) {
+        RepositoryEntity repo = repositoryRepository.findById(repositoryId)
+                .orElseThrow(() -> new GitHubApiException("Không tìm thấy repository với ID: " + repositoryId, 404));
+
+        String[] parts = parseOwnerAndRepo(repo.getRepoFullName());
+        String owner = parts[0];
+        String repoName = parts[1];
+
+        String token = resolveTokenForSync(repo, null, currentUserId);
+        String sha = StringUtils.hasText(treeSha) ? treeSha.trim() : repo.getDefaultBranch();
+
+        log.info("Lấy cây thư mục từ GitHub cho [{}] @{}", repo.getRepoFullName(), sha);
+        try {
+            return gitHubClient.getRepositoryTree(token, owner, repoName, sha, true);
+        } catch (Exception ex) {
+            log.warn("Không thể lấy cây Git tree từ GitHub API cho {}: {}. Trả về rỗng.", repo.getRepoFullName(), ex.getMessage());
+            return Collections.emptyList();
+        }
     }
 
 

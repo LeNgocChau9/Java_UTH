@@ -51,6 +51,11 @@ public interface RepositoryServicePort {
     List<com.example.livingdocs_backend.infrastructure.persistence.entity.CommitEntity> getRepoCommits(Long repositoryId);
 
     /**
+     * Lấy cây thư mục và danh sách toàn bộ file thực tế trong kho lưu trữ từ GitHub Git Trees API.
+     */
+    List<com.example.livingdocs_backend.application.dto.github.GitHubFileDto> getRepositoryTree(Long repositoryId, String treeSha, Long currentUserId);
+
+    /**
      * Kiểm tra tính hợp lệ của GitHub token kết nối chỉ định.
      * Cập nhật trạng thái trong github_connections (EXPIRED, REVOKED, CONNECTED)
      * và bắn cảnh báo tới người dùng (ghi AuditLog & trả về thông điệp cảnh báo).
