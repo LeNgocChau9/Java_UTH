@@ -436,11 +436,11 @@ export default function SourceTreePage() {
         const files = Array.from(new Set(data.map((e) => e.filePath).filter(Boolean)));
         const allCandidateFiles = realFiles.length > 0 ? realFiles : files;
         if (allCandidateFiles.length > 0) {
-          setSelectedFile(allCandidateFiles[0]);
+          const preferredFile = allCandidateFiles.find(f => f.endsWith(".java")) || allCandidateFiles.find(f => f.endsWith(".py")) || allCandidateFiles[0]; setSelectedFile(preferredFile);
         }
       } else {
         if (realFiles.length > 0) {
-          setSelectedFile(realFiles[0]);
+          const preferredFile2 = realFiles.find(f => f.endsWith(".java")) || realFiles.find(f => f.endsWith(".py")) || realFiles[0]; setSelectedFile(preferredFile2);
         } else {
           setSelectedFile("");
         }
@@ -524,12 +524,12 @@ export default function SourceTreePage() {
           const entityFiles = Array.from(new Set(data.map((e) => e.filePath).filter(Boolean)));
           const allCandidateFiles = realFiles.length > 0 ? realFiles : entityFiles;
           if (allCandidateFiles.length > 0 && !allCandidateFiles.includes(selectedFile)) {
-            setSelectedFile(allCandidateFiles[0]);
+            const preferredFile = allCandidateFiles.find(f => f.endsWith(".java")) || allCandidateFiles.find(f => f.endsWith(".py")) || allCandidateFiles[0]; setSelectedFile(preferredFile);
           }
         } else {
           setRepoEntities([]);
           if (realFiles.length > 0) {
-            setSelectedFile(realFiles[0]);
+            const preferredFile2 = realFiles.find(f => f.endsWith(".java")) || realFiles.find(f => f.endsWith(".py")) || realFiles[0]; setSelectedFile(preferredFile2);
           } else {
             setSelectedFile("");
           }
@@ -567,33 +567,8 @@ export default function SourceTreePage() {
         } else if (DEMO_SAMPLES_ENTITIES[selectedFile]) {
           setEntities(DEMO_SAMPLES_ENTITIES[selectedFile]);
         } else {
-          const fileName = selectedFile.split("/").pop() || "Application.java";
-          const simpleName = fileName.replace(".java", "");
-          setEntities([
-            {
-              repositoryId: selectedRepo?.repositoryId || 1,
-              filePath: selectedFile,
-              entityType: "CLASS",
-              className: simpleName,
-              signature: `public class ${simpleName}`,
-              startLine: 1,
-              endLine: 45,
-              docStatus: "DOCUMENTED",
-              javadoc: `Class thành phần chính trong hệ thống ${selectedRepo?.repoName || "Project"}.`,
-            },
-            {
-              repositoryId: selectedRepo?.repositoryId || 1,
-              filePath: selectedFile,
-              entityType: "METHOD",
-              className: simpleName,
-              methodName: "execute",
-              signature: `public void execute()`,
-              returnType: "void",
-              startLine: 12,
-              endLine: 25,
-              docStatus: "UNDOCUMENTED",
-            },
-          ]);
+          // Nếu file chưa được bóc tách AST hoặc không phải file code (như .sql, .env, .md)
+          setEntities([]);
         }
       } catch {
         setEntities(DEMO_SAMPLES_ENTITIES[selectedFile] || []);
