@@ -52,6 +52,15 @@ export interface CreateRepoPayload {
   githubToken?: string;
 }
 
+export interface GitHubFileItem {
+  path: string;
+  mode?: string;
+  type: string; // "blob" hoặc "tree"
+  sha?: string;
+  size?: number;
+  url?: string;
+}
+
 export interface SyncResult {
   repositoryId: number;
   repoFullName: string;
@@ -93,6 +102,13 @@ export const repoService = {
 
   async getRepoCommits(id: number): Promise<CommitItem[]> {
     const res = await apiClient.get<CommitItem[]>(`/api/repos/${id}/commits`);
+    return res.data;
+  },
+
+  async getRepositoryTree(id: number, sha?: string): Promise<GitHubFileItem[]> {
+    const res = await apiClient.get<GitHubFileItem[]>(`/api/repos/${id}/tree`, {
+      params: sha ? { sha } : undefined,
+    });
     return res.data;
   },
 };

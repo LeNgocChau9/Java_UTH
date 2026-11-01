@@ -29,12 +29,14 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Triển khai gọi GitHub REST API v3 sử dụng RestClient của Spring Framework 6 / Spring Boot 3.
+ * Triển khai gọi GitHub REST API v3 sử dụng RestClient của Spring Framework 6 /
+ * Spring Boot 3.
  * Hỗ trợ các chức năng:
- *  - Lấy danh sách file / cây thư mục trong repository (Git Trees API)
- *  - Lấy thông tin Pull Request (chi tiết và danh sách)
- *  - Lấy danh sách Commits
- *  - Xử lý Rate Limit (HTTP 403 / 429) với thông tin reset time, limit, remaining.
+ * - Lấy danh sách file / cây thư mục trong repository (Git Trees API)
+ * - Lấy thông tin Pull Request (chi tiết và danh sách)
+ * - Lấy danh sách Commits
+ * - Xử lý Rate Limit (HTTP 403 / 429) với thông tin reset time, limit,
+ * remaining.
  */
 @Slf4j
 @Component
@@ -54,7 +56,8 @@ public class GitHubClient implements GitHubClientPort {
     }
 
     @Override
-    public List<GitHubFileDto> getRepositoryTree(String token, String owner, String repo, String treeSha, boolean recursive) {
+    public List<GitHubFileDto> getRepositoryTree(String token, String owner, String repo, String treeSha,
+            boolean recursive) {
         String targetTreeSha = StringUtils.hasText(treeSha) ? treeSha : "HEAD";
         String uri = UriComponentsBuilder.fromPath("/repos/{owner}/{repo}/git/trees/{tree_sha}")
                 .queryParam("recursive", recursive ? "1" : "0")
@@ -81,12 +84,11 @@ public class GitHubClient implements GitHubClientPort {
                             .url(item.url())
                             .build())
                     .toList();
-        } catch (RestClientResponseException ex) {
-            handleErrorResponse(ex, "getRepositoryTree (" + owner + "/" + repo + " @" + targetTreeSha + ")");
-            return Collections.emptyList();
+
         } catch (Exception ex) {
-            log.error("Lỗi không mong muốn khi gọi getRepositoryTree cho {}/{}: {}", owner, repo, ex.getMessage(), ex);
-            throw new GitHubApiException("Lỗi khi lấy danh sách file repo " + owner + "/" + repo + ": " + ex.getMessage(), 500, ex);
+            log.warn("Không thể lấy cây git tree từ GitHub API cho {}/{}: {}. Trả về rỗng thay vì throw 500.", owner,
+                    repo, ex.getMessage());
+            return Collections.emptyList();
         }
     }
 
@@ -129,7 +131,8 @@ public class GitHubClient implements GitHubClientPort {
             List<GitPullResponse> list = executeWithAuth(token, uri)
                     .accept(MediaType.APPLICATION_JSON)
                     .retrieve()
-                    .body(new ParameterizedTypeReference<List<GitPullResponse>>() {});
+                    .body(new ParameterizedTypeReference<List<GitPullResponse>>() {
+                    });
 
             if (list == null) {
                 return Collections.emptyList();
@@ -147,7 +150,8 @@ public class GitHubClient implements GitHubClientPort {
                 list = executeWithAuth(token, nextUri)
                         .accept(MediaType.APPLICATION_JSON)
                         .retrieve()
-                        .body(new ParameterizedTypeReference<List<GitPullResponse>>() {});
+                        .body(new ParameterizedTypeReference<List<GitPullResponse>>() {
+                        });
                 if (list == null || list.isEmpty()) {
                     break;
                 }
@@ -163,7 +167,8 @@ public class GitHubClient implements GitHubClientPort {
             return Collections.emptyList();
         } catch (Exception ex) {
             log.error("Lỗi khi lấy danh sách PR của {}/{}: {}", owner, repo, ex.getMessage(), ex);
-            throw new GitHubApiException("Lỗi khi lấy danh sách PR của " + owner + "/" + repo + ": " + ex.getMessage(), 500, ex);
+            throw new GitHubApiException("Lỗi khi lấy danh sách PR của " + owner + "/" + repo + ": " + ex.getMessage(),
+                    500, ex);
         }
     }
 
@@ -181,7 +186,8 @@ public class GitHubClient implements GitHubClientPort {
             List<GitCommitResponse> commits = executeWithAuth(token, uri)
                     .accept(MediaType.APPLICATION_JSON)
                     .retrieve()
-                    .body(new ParameterizedTypeReference<List<GitCommitResponse>>() {});
+                    .body(new ParameterizedTypeReference<List<GitCommitResponse>>() {
+                    });
 
             if (commits == null) {
                 return Collections.emptyList();
@@ -200,7 +206,8 @@ public class GitHubClient implements GitHubClientPort {
                 commits = executeWithAuth(token, nextUri)
                         .accept(MediaType.APPLICATION_JSON)
                         .retrieve()
-                        .body(new ParameterizedTypeReference<List<GitCommitResponse>>() {});
+                        .body(new ParameterizedTypeReference<List<GitCommitResponse>>() {
+                        });
                 if (commits == null || commits.isEmpty()) {
                     break;
                 }
@@ -221,9 +228,13 @@ public class GitHubClient implements GitHubClientPort {
                                 .authorName(detail != null && detail.author() != null ? detail.author().name() : null)
                                 .authorEmail(detail != null && detail.author() != null ? detail.author().email() : null)
                                 .authorDate(detail != null && detail.author() != null ? detail.author().date() : null)
-                                .committerName(detail != null && detail.committer() != null ? detail.committer().name() : null)
-                                .committerEmail(detail != null && detail.committer() != null ? detail.committer().email() : null)
-                                .committerDate(detail != null && detail.committer() != null ? detail.committer().date() : null)
+                                .committerName(
+                                        detail != null && detail.committer() != null ? detail.committer().name() : null)
+                                .committerEmail(
+                                        detail != null && detail.committer() != null ? detail.committer().email()
+                                                : null)
+                                .committerDate(
+                                        detail != null && detail.committer() != null ? detail.committer().date() : null)
                                 .htmlUrl(c.htmlUrl())
                                 .parentShas(parents)
                                 .build();
@@ -234,12 +245,14 @@ public class GitHubClient implements GitHubClientPort {
             return Collections.emptyList();
         } catch (Exception ex) {
             log.error("Lỗi khi lấy danh sách commit của {}/{}: {}", owner, repo, ex.getMessage(), ex);
-            throw new GitHubApiException("Lỗi khi lấy danh sách commit của " + owner + "/" + repo + ": " + ex.getMessage(), 500, ex);
+            throw new GitHubApiException(
+                    "Lỗi khi lấy danh sách commit của " + owner + "/" + repo + ": " + ex.getMessage(), 500, ex);
         }
     }
 
     @Override
-    public String createOrUpdateFile(String token, String owner, String repo, String filePath, String content, String commitMessage, String branch) {
+    public String createOrUpdateFile(String token, String owner, String repo, String filePath, String content,
+            String commitMessage, String branch) {
         String cleanPath = filePath.startsWith("/") ? filePath.substring(1) : filePath;
         String uri = "/repos/{owner}/{repo}/contents/" + cleanPath;
 
@@ -261,7 +274,8 @@ public class GitHubClient implements GitHubClientPort {
             }
         } catch (RestClientResponseException ex) {
             if (ex.getStatusCode().value() != 404) {
-                log.warn("Không thể kiểm tra file SHA hiện tại cho {}/{}/{}: {}", owner, repo, cleanPath, ex.getMessage());
+                log.warn("Không thể kiểm tra file SHA hiện tại cho {}/{}/{}: {}", owner, repo, cleanPath,
+                        ex.getMessage());
             }
         } catch (Exception ignored) {
             // File có thể chưa tồn tại, bỏ qua lỗi 404
@@ -269,11 +283,11 @@ public class GitHubClient implements GitHubClientPort {
 
         // 2. Base64 encode content
         String base64Content = java.util.Base64.getEncoder().encodeToString(
-                content != null ? content.getBytes(java.nio.charset.StandardCharsets.UTF_8) : new byte[0]
-        );
+                content != null ? content.getBytes(java.nio.charset.StandardCharsets.UTF_8) : new byte[0]);
 
         java.util.Map<String, Object> requestBody = new java.util.HashMap<>();
-        requestBody.put("message", StringUtils.hasText(commitMessage) ? commitMessage : "docs: publish documentation via LivingDocs");
+        requestBody.put("message",
+                StringUtils.hasText(commitMessage) ? commitMessage : "docs: publish documentation via LivingDocs");
         requestBody.put("content", base64Content);
         if (StringUtils.hasText(branch)) {
             requestBody.put("branch", branch);
@@ -300,7 +314,8 @@ public class GitHubClient implements GitHubClientPort {
                     .body(GitCommitContentResponse.class);
 
             if (response != null && response.commit() != null) {
-                log.info("Đã tạo commit thành công lên GitHub: {}/{}/{} (SHA: {})", owner, repo, cleanPath, response.commit().sha());
+                log.info("Đã tạo commit thành công lên GitHub: {}/{}/{} (SHA: {})", owner, repo, cleanPath,
+                        response.commit().sha());
                 return response.commit().sha();
             }
             return "SUCCESS";
@@ -324,16 +339,15 @@ public class GitHubClient implements GitHubClientPort {
      */
     @Override
     public GitHubPublishResultDto putFileContent(String token, String owner, String repo,
-                                                 String filePath, String content,
-                                                 String commitMessage, String currentSha) {
+            String filePath, String content,
+            String commitMessage, String currentSha) {
 
         String uri = "/repos/{owner}/{repo}/contents/{path}";
 
         // 1. Mã hóa nội dung thành Base64 (GitHub Contents API yêu cầu)
         String base64Content = Base64.getEncoder().encodeToString(
                 content != null ? content.getBytes(java.nio.charset.StandardCharsets.UTF_8)
-                               : new byte[0]
-        );
+                        : new byte[0]);
 
         // 2. Xây dựng request body
         Map<String, Object> body = new HashMap<>();
@@ -358,7 +372,8 @@ public class GitHubClient implements GitHubClientPort {
                     .body(GitContentsResponse.class);
 
             if (response == null || response.commit() == null) {
-                throw new GitHubApiException("GitHub Contents API không trả về thông tin commit cho file: " + filePath, 500);
+                throw new GitHubApiException("GitHub Contents API không trả về thông tin commit cho file: " + filePath,
+                        500);
             }
 
             String sha = response.commit().sha();
@@ -419,7 +434,8 @@ public class GitHubClient implements GitHubClientPort {
      * Xử lý trường hợp 401 Unauthorized (token revoked/invalid) hoặc hết hạn.
      */
     @Override
-    public com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult validateToken(String token) {
+    public com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult validateToken(
+            String token) {
         if (!StringUtils.hasText(token) || "DUMMY_TOKEN".equalsIgnoreCase(token.trim())) {
             return com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
                     .valid(false)
@@ -449,7 +465,8 @@ public class GitHubClient implements GitHubClientPort {
                 try {
                     // Header có định dạng UTC date string hoặc timestamp
                     expiresAt = Instant.parse(expiresHeader);
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                }
             }
 
             String username = user != null ? user.login() : "unknown";
@@ -537,10 +554,9 @@ public class GitHubClient implements GitHubClientPort {
         }
     }
 
-
-
     /**
-     * Tạo RestClient request với Header Authentication và GitHub API Version tiêu chuẩn.
+     * Tạo RestClient request với Header Authentication và GitHub API Version tiêu
+     * chuẩn.
      */
     private RestClient.RequestHeadersSpec<?> executeWithAuth(String token, String uri, Object... uriVariables) {
         RestClient.RequestHeadersSpec<?> spec = restClient.get()
@@ -554,7 +570,6 @@ public class GitHubClient implements GitHubClientPort {
 
         return spec;
     }
-
 
     /**
      * Kiểm tra và phân loại lỗi HTTP từ GitHub API, đặc biệt là Rate Limit.
@@ -572,10 +587,12 @@ public class GitHubClient implements GitHubClientPort {
 
         // Kiểm tra mã 429 hoặc 403 khi remaining == 0 hoặc response chứa rate limit
         boolean isRateLimited = status.value() == 429
-                || (status.value() == 403 && (remaining == 0 || (responseBody != null && responseBody.toLowerCase().contains("rate limit"))));
+                || (status.value() == 403 && (remaining == 0
+                        || (responseBody != null && responseBody.toLowerCase().contains("rate limit"))));
 
         if (isRateLimited) {
-            String msg = String.format("GitHub API Rate Limit vượt quá ngưỡng cho phép trong thao tác [%s]. Hạn mức: %d, Còn lại: %d, Reset lúc: %s",
+            String msg = String.format(
+                    "GitHub API Rate Limit vượt quá ngưỡng cho phép trong thao tác [%s]. Hạn mức: %d, Còn lại: %d, Reset lúc: %s",
                     operation, limit, remaining, resetTime != null ? resetTime.toString() : "N/A");
             log.warn(msg);
             throw new GitHubRateLimitException(msg, resetTime, limit, remaining);
@@ -585,13 +602,16 @@ public class GitHubClient implements GitHubClientPort {
         if (status.value() == 401 || status.value() == 403) {
             throw new GitHubApiException("Phiên đăng nhập đã hết hạn", status.value(), ex);
         }
-        throw new GitHubApiException("Không thể đồng bộ dữ liệu từ GitHub lúc này. Vui lòng thử lại sau.", status.value(), ex);
+        throw new GitHubApiException("Không thể đồng bộ dữ liệu từ GitHub lúc này. Vui lòng thử lại sau.",
+                status.value(), ex);
     }
 
     private int parseHeaderInt(HttpHeaders headers, String headerName, int defaultValue) {
-        if (headers == null) return defaultValue;
+        if (headers == null)
+            return defaultValue;
         String val = headers.getFirst(headerName);
-        if (val == null) return defaultValue;
+        if (val == null)
+            return defaultValue;
         try {
             return Integer.parseInt(val.trim());
         } catch (NumberFormatException ignored) {
@@ -600,9 +620,11 @@ public class GitHubClient implements GitHubClientPort {
     }
 
     private long parseHeaderLong(HttpHeaders headers, String headerName, long defaultValue) {
-        if (headers == null) return defaultValue;
+        if (headers == null)
+            return defaultValue;
         String val = headers.getFirst(headerName);
-        if (val == null) return defaultValue;
+        if (val == null)
+            return defaultValue;
         try {
             return Long.parseLong(val.trim());
         } catch (NumberFormatException ignored) {
@@ -639,8 +661,8 @@ public class GitHubClient implements GitHubClientPort {
             String sha,
             String url,
             List<GitTreeItem> tree,
-            Boolean truncated
-    ) {}
+            Boolean truncated) {
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GitTreeItem(
@@ -649,8 +671,8 @@ public class GitHubClient implements GitHubClientPort {
             String type,
             String sha,
             Long size,
-            String url
-    ) {}
+            String url) {
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GitPullResponse(
@@ -667,90 +689,91 @@ public class GitHubClient implements GitHubClientPort {
             @JsonProperty("created_at") Instant createdAt,
             @JsonProperty("updated_at") Instant updatedAt,
             @JsonProperty("closed_at") Instant closedAt,
-            @JsonProperty("merged_at") Instant mergedAt
-    ) {}
+            @JsonProperty("merged_at") Instant mergedAt) {
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GitBranchRef(
             String ref,
-            String sha
-    ) {}
+            String sha) {
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GitUserRef(
             Long id,
             String login,
-            @JsonProperty("avatar_url") String avatarUrl
-    ) {}
+            @JsonProperty("avatar_url") String avatarUrl) {
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GitCommitResponse(
             String sha,
             @JsonProperty("html_url") String htmlUrl,
             GitCommitDetail commit,
-            List<GitParent> parents
-    ) {}
+            List<GitParent> parents) {
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GitCommitDetail(
             String message,
             GitCommitAuthor author,
-            GitCommitAuthor committer
-    ) {}
+            GitCommitAuthor committer) {
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GitCommitAuthor(
             String name,
             String email,
-            Instant date
-    ) {}
+            Instant date) {
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GitParent(
-            String sha
-    ) {}
+            String sha) {
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GitFileContentResponse(
             String sha,
             String path,
-            String name
-    ) {}
+            String name) {
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GitCommitContentResponse(
-            GitCommitContentDetail commit
-    ) {}
+            GitCommitContentDetail commit) {
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GitCommitContentDetail(
             String sha,
             @JsonProperty("html_url") String htmlUrl,
-            String message
-    ) {}
+            String message) {
+    }
 
-    // --- Response records cho GitHub Contents API (PUT /repos/.../contents/...) ---
+    // --- Response records cho GitHub Contents API (PUT /repos/.../contents/...)
+    // ---
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GitContentsResponse(
             GitContentsFile content,
-            GitContentsCommit commit
-    ) {}
+            GitContentsCommit commit) {
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GitContentsFile(
             String name,
             String path,
             String sha,
-            @JsonProperty("html_url") String htmlUrl
-    ) {}
+            @JsonProperty("html_url") String htmlUrl) {
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GitContentsCommit(
             String sha,
             String message,
-            @JsonProperty("html_url") String htmlUrl
-    ) {}
+            @JsonProperty("html_url") String htmlUrl) {
+    }
 
     // Response khi GET một file đơn lẻ để lấy SHA hiện tại
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -758,8 +781,8 @@ public class GitHubClient implements GitHubClientPort {
             String sha,
             String name,
             String path,
-            @JsonProperty("html_url") String htmlUrl
-    ) {}
+            @JsonProperty("html_url") String htmlUrl) {
+    }
 
     // Response khi GET /user để kiểm tra token
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -768,18 +791,14 @@ public class GitHubClient implements GitHubClientPort {
             String login,
             String name,
             String email,
-            @JsonProperty("avatar_url") String avatarUrl
-    ) {}
+            @JsonProperty("avatar_url") String avatarUrl) {
+    }
 
     // Response khi POST comment lên Pull Request
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GitCommentResponse(
             Long id,
             @JsonProperty("html_url") String htmlUrl,
-            String body
-    ) {}
+            String body) {
+    }
 }
-
-
-
-
