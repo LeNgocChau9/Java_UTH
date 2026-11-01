@@ -9,6 +9,7 @@ import {
 import { repoService, RepoItem } from "@/services/repoService";
 import { refreshSession } from "@/services/authService";
 import { ACCESS_TOKEN_KEY } from "@/services/apiClient";
+import { parseUniversalCodeEntities } from "@/utils/universalCodeParser";
 import {
   Folder,
   FolderOpen,
@@ -436,11 +437,11 @@ export default function SourceTreePage() {
         const files = Array.from(new Set(data.map((e) => e.filePath).filter(Boolean)));
         const allCandidateFiles = realFiles.length > 0 ? realFiles : files;
         if (allCandidateFiles.length > 0) {
-          setSelectedFile(allCandidateFiles[0]);
+          const preferredFile = allCandidateFiles.find(f => f.endsWith(".java")) || allCandidateFiles.find(f => f.endsWith(".py")) || allCandidateFiles[0]; setSelectedFile(preferredFile);
         }
       } else {
         if (realFiles.length > 0) {
-          setSelectedFile(realFiles[0]);
+          const preferredFile2 = realFiles.find(f => f.endsWith(".java")) || realFiles.find(f => f.endsWith(".py")) || realFiles[0]; setSelectedFile(preferredFile2);
         } else {
           setSelectedFile("");
         }
@@ -524,12 +525,12 @@ export default function SourceTreePage() {
           const entityFiles = Array.from(new Set(data.map((e) => e.filePath).filter(Boolean)));
           const allCandidateFiles = realFiles.length > 0 ? realFiles : entityFiles;
           if (allCandidateFiles.length > 0 && !allCandidateFiles.includes(selectedFile)) {
-            setSelectedFile(allCandidateFiles[0]);
+            const preferredFile = allCandidateFiles.find(f => f.endsWith(".java")) || allCandidateFiles.find(f => f.endsWith(".py")) || allCandidateFiles[0]; setSelectedFile(preferredFile);
           }
         } else {
           setRepoEntities([]);
           if (realFiles.length > 0) {
-            setSelectedFile(realFiles[0]);
+            const preferredFile2 = realFiles.find(f => f.endsWith(".java")) || realFiles.find(f => f.endsWith(".py")) || realFiles[0]; setSelectedFile(preferredFile2);
           } else {
             setSelectedFile("");
           }
@@ -551,6 +552,7 @@ export default function SourceTreePage() {
     async function loadEntities() {
       setLoading(true);
       try {
+        // 1. Kiểm tra cache local entities từ repository
         const localMatched = repoEntities.filter((e) => e.filePath === selectedFile);
         if (localMatched.length > 0) {
           setEntities(localMatched);
@@ -558,45 +560,62 @@ export default function SourceTreePage() {
           return;
         }
 
-        const data = await codeEntityService.getByFile(
-          selectedRepo!.repositoryId,
-          selectedFile
-        );
-        if (data && data.length > 0) {
-          setEntities(data);
-        } else if (DEMO_SAMPLES_ENTITIES[selectedFile]) {
-          setEntities(DEMO_SAMPLES_ENTITIES[selectedFile]);
-        } else {
-          const fileName = selectedFile.split("/").pop() || "Application.java";
-          const simpleName = fileName.replace(".java", "");
-          setEntities([
-            {
-              repositoryId: selectedRepo?.repositoryId || 1,
-              filePath: selectedFile,
-              entityType: "CLASS",
-              className: simpleName,
-              signature: `public class ${simpleName}`,
-              startLine: 1,
-              endLine: 45,
-              docStatus: "DOCUMENTED",
-              javadoc: `Class thành phần chính trong hệ thống ${selectedRepo?.repoName || "Project"}.`,
-            },
-            {
-              repositoryId: selectedRepo?.repositoryId || 1,
-              filePath: selectedFile,
-              entityType: "METHOD",
-              className: simpleName,
-              methodName: "execute",
-              signature: `public void execute()`,
-              returnType: "void",
-              startLine: 12,
-              endLine: 25,
-              docStatus: "UNDOCUMENTED",
-            },
-          ]);
+        // 2. Thử truy vấn API backend
+        try {
+          const data = await codeEntityService.getByFile(
+            selectedRepo!.repositoryId,
+            selectedFile
+          );
+          if (data && data.length > 0) {
+            setEntities(data);
+            setLoading(false);
+            return;
+          }
+        } catch {
+          // ignore
         }
+
+        // 3. Nếu là file mẫu demo
+        if (DEMO_SAMPLES_ENTITIES[selectedFile]) {
+          setEntities(DEMO_SAMPLES_ENTITIES[selectedFile]);
+          setLoading(false);
+          return;
+        }
+
+        // 4. Trích xuất phần tử cho MỌI LOẠI FILE (Java, Python, JS/TS, SQL, YAML, JSON, ENV...)
+        // Bằng cách tải mã nguồn từ GitHub Raw và phân tích qua Universal AST Parser
+        const repoFullName = selectedRepo?.repoFullName || "LeNgocChau9/Java_UTH";
+        const branch = selectedRepo?.defaultBranch || "main";
+        const rawUrl = `https://raw.githubusercontent.com/${repoFullName}/${branch}/${selectedFile}`;
+
+        try {
+          const resp = await fetch(rawUrl);
+          if (resp.ok) {
+            const rawContent = await resp.text();
+            const parsedEntities = parseUniversalCodeEntities(
+              selectedFile,
+              rawContent,
+              selectedRepo?.repositoryId || 1
+            );
+            if (parsedEntities && parsedEntities.length > 0) {
+              setEntities(parsedEntities);
+              setLoading(false);
+              return;
+            }
+          }
+        } catch (fetchErr) {
+          console.warn("Không thể tải raw file từ GitHub:", fetchErr);
+        }
+
+        // Fallback tự sinh thực thể cơ bản cho file
+        const parsedBasic = parseUniversalCodeEntities(
+          selectedFile,
+          selectedFile,
+          selectedRepo?.repositoryId || 1
+        );
+        setEntities(parsedBasic);
       } catch {
-        setEntities(DEMO_SAMPLES_ENTITIES[selectedFile] || []);
+        setEntities([]);
       } finally {
         setLoading(false);
       }
@@ -708,10 +727,10 @@ export default function SourceTreePage() {
     return entities.filter((item) => {
       // Lọc theo entityType
       if (filterType !== "ALL") {
-        if (filterType === "CLASS" && item.entityType !== "CLASS") return false;
-        if (filterType === "METHOD" && item.entityType !== "METHOD") return false;
-        if (filterType === "CONSTRUCTOR" && item.entityType !== "CONSTRUCTOR")
-          return false;
+        if (filterType === "CLASS" && !["CLASS", "INTERFACE", "ENUM", "RECORD"].includes(item.entityType)) return false;
+        if (filterType === "METHOD" && !["METHOD", "FUNCTION"].includes(item.entityType)) return false;
+        if (filterType === "CONSTRUCTOR" && item.entityType !== "CONSTRUCTOR") return false;
+        if (filterType === "FIELD" && item.entityType !== "FIELD") return false;
       }
       // Lọc theo search query
       if (searchQuery.trim()) {
@@ -881,28 +900,28 @@ export default function SourceTreePage() {
         )}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
           {/* CỘT TRÁI: Cây thư mục mã nguồn (4 cols) */}
-          <div className="lg:col-span-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm  ">
-            <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-2.5 ">
+          <div className="lg:col-span-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col h-[calc(100vh-210px)] min-h-[500px]">
+            <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-2.5 shrink-0">
               <div className="flex items-center gap-2">
                 <FolderOpen size={16} className="text-slate-500" />
-                <h2 className="text-sm font-semibold text-slate-800 ">
+                <h2 className="text-sm font-semibold text-slate-800">
                   Cây thư mục mã nguồn
                 </h2>
               </div>
-              <span className="rounded bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600  ">
+              <span className="rounded bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
                 File mã nguồn
               </span>
             </div>
 
-            <div className="max-h-[620px] overflow-y-auto pr-1">
+            <div className="flex-1 overflow-y-auto pr-1 select-none">
               {renderTree(treeData)}
             </div>
           </div>
 
           {/* CỘT PHẢI: Chi tiết AST của file được chọn (8 cols) */}
-          <div className="lg:col-span-8 space-y-4">
-            {/* Thanh thông tin file + Bộ lọc */}
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm  ">
+          <div className="lg:col-span-8 flex flex-col h-[calc(100vh-210px)] min-h-[500px] rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+            {/* Thanh thông tin file + Bộ lọc (Cố định ở trên) */}
+            <div className="border-b border-slate-200 bg-slate-50/60 p-4 shrink-0">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="flex items-center gap-2">
@@ -936,9 +955,10 @@ export default function SourceTreePage() {
                       className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none   "
                     >
                       <option value="ALL">Tất cả loại</option>
-                      <option value="CLASS">Chỉ Class</option>
-                      <option value="METHOD">Chỉ Method</option>
+                      <option value="CLASS">Chỉ Class / Record</option>
+                      <option value="METHOD">Chỉ Method / Hàm</option>
                       <option value="CONSTRUCTOR">Chỉ Constructor</option>
+                      <option value="FIELD">Chỉ Field / Thuộc tính</option>
                     </select>
                   </div>
 
@@ -960,9 +980,10 @@ export default function SourceTreePage() {
               </div>
             </div>
 
-            {/* Danh sách các Entities bóc tách */}
+            {/* Danh sách các Entities bóc tách (Cuộn độc lập trong khung) */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
             {loading ? (
-              <div className="flex h-64 items-center justify-center rounded-xl border border-slate-200 bg-white  ">
+              <div className="flex h-64 items-center justify-center rounded-xl border border-slate-200 bg-white">
                 <div className="flex items-center gap-2 text-sm text-slate-500">
                   <RefreshCw size={16} className="animate-spin text-emerald-600" />
                   Đang tải phần tử mã nguồn từ AST...
@@ -1004,10 +1025,12 @@ export default function SourceTreePage() {
                             <span
                               className={`rounded px-2 py-0.5 text-[11px] font-semibold tracking-wider ${
                                 isClass
-                                  ? "bg-emerald-100 text-emerald-800  "
+                                  ? "bg-emerald-100 text-emerald-800"
                                   : isMethod
-                                  ? "bg-blue-100 text-blue-800  "
-                                  : "bg-amber-100 text-amber-800  "
+                                  ? "bg-blue-100 text-blue-800"
+                                  : isCtor
+                                  ? "bg-amber-100 text-amber-800"
+                                  : "bg-purple-100 text-purple-800"
                               }`}
                             >
                               {item.entityType}
@@ -1046,8 +1069,8 @@ export default function SourceTreePage() {
                           </div>
 
                           {/* Full Signature Box */}
-                          <div className="relative mt-2 flex items-center rounded-lg bg-slate-900 px-3 py-2 font-mono text-xs text-emerald-400 shadow-inner">
-                            <code className="truncate pr-8">{item.signature}</code>
+                          <div className="relative mt-2 flex items-start justify-between rounded-lg bg-slate-900 px-3 py-2 font-mono text-xs text-emerald-400 shadow-inner overflow-hidden">
+                            <code className="whitespace-pre-wrap break-all pr-8 leading-relaxed">{item.signature}</code>
                             <button
                               type="button"
                               onClick={() => copyToClipboard(item.signature)}
@@ -1108,6 +1131,7 @@ export default function SourceTreePage() {
                 })}
               </div>
             )}
+            </div>
           </div>
         </div>
       </div>
