@@ -57,6 +57,14 @@ public interface GitHubClientPort {
     String getCurrentFileSha(String token, String owner, String repo, String filePath);
 
     /**
+     * Lấy nội dung văn bản (UTF-8) của một file từ GitHub Contents API tại một branch hoặc ref.
+     * Trả về null nếu file không tồn tại hoặc không thể đọc.
+     */
+    default String getFileContent(String token, String owner, String repo, String filePath, String ref) {
+        return null;
+    }
+
+    /**
      * Đăng bình luận (Comment) lên Pull Request qua GitHub REST API.
      */
     Long createPullRequestComment(String token, String owner, String repo, int prNumber, String body);

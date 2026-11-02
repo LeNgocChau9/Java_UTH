@@ -428,6 +428,36 @@ public class GitHubClient implements GitHubClientPort {
         }
     }
 
+    @Override
+    public String getFileContent(String token, String owner, String repo, String filePath, String ref) {
+        if (!StringUtils.hasText(filePath)) {
+            return null;
+        }
+        String cleanPath = filePath.startsWith("/") ? filePath.substring(1) : filePath;
+        try {
+            UriComponentsBuilder builder = UriComponentsBuilder.fromPath("/repos/{owner}/{repo}/contents/{path}");
+            if (StringUtils.hasText(ref)) {
+                builder.queryParam("ref", ref.trim());
+            }
+            String uri = builder.buildAndExpand(owner, repo, cleanPath).toUriString();
+
+            GitSingleFileResponse resp = executeWithAuth(token, uri)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .retrieve()
+                    .body(GitSingleFileResponse.class);
+
+            if (resp != null && StringUtils.hasText(resp.content())) {
+                String normalized = resp.content().replaceAll("\\s+", "");
+                byte[] decoded = Base64.getDecoder().decode(normalized);
+                return new String(decoded, java.nio.charset.StandardCharsets.UTF_8);
+            }
+            return null;
+        } catch (Exception ex) {
+            log.debug("Không thể tải nội dung file '{}' từ GitHub {}/{}: {}", cleanPath, owner, repo, ex.getMessage());
+            return null;
+        }
+    }
+
     /**
      * Kiểm tra tính hợp lệ của access token kết nối GitHub.
      * Gọi GET /user để xác thực token.
@@ -775,12 +805,14 @@ public class GitHubClient implements GitHubClientPort {
             @JsonProperty("html_url") String htmlUrl) {
     }
 
-    // Response khi GET một file đơn lẻ để lấy SHA hiện tại
+    // Response khi GET một file đơn lẻ để lấy SHA hiện tại hoặc nội dung
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GitSingleFileResponse(
             String sha,
             String name,
             String path,
+            String content,
+            String encoding,
             @JsonProperty("html_url") String htmlUrl) {
     }
 
