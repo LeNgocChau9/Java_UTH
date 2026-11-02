@@ -6,11 +6,23 @@ import lombok.Builder;
 import java.util.List;
 
 /**
- * Response DTO nhận về từ AI Engine (/v1/docs/generate) chứa Markdown do Google Gemini sinh.
+ * Response DTO nhận về từ API điều phối sinh tài liệu AI (/api/documents/generate-ai)
+ * chứa cả thông tin tài liệu DRAFT đã tạo trong CSDL và kết quả Markdown từ AI Engine (/v1/docs/generate).
  */
 @Builder
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record AiDocGenerateResponseDto(
+        Long docId,
+        Long repoId,
+        String title,
+        String targetPath,
+        String scope,
+        String documentStatus,
+        Integer currentVersion,
+        String content,
+        String contentHash,
+        String sourceCommit,
+        Integer linkedEntitiesCount,
         String status,
         String mode,
         String template_type,
@@ -30,4 +42,3 @@ public record AiDocGenerateResponseDto(
             String commit_hash
     ) {}
 }
-
