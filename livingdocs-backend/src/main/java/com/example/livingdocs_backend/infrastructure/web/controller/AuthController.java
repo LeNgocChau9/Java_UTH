@@ -46,6 +46,7 @@ public class AuthController {
     private final GitHubOAuthProperties gitHubOAuthProperties;
     private final SpringDataGitHubConnectionRepository gitHubConnectionRepository;
     private final SpringDataRepositoryRepository repositoryRepository;
+    private final com.example.livingdocs_backend.application.port.RepositoryServicePort repositoryServicePort;
     private final com.example.livingdocs_backend.domain.repository.UserRepositoryPort userRepositoryPort;
     private final com.example.livingdocs_backend.infrastructure.security.JwtTokenProvider jwtTokenProvider;
 
@@ -219,6 +220,7 @@ public class AuthController {
 
                     // 3. Tự động kéo danh sách Repositories từ tài khoản GitHub vừa liên kết về Workspace
                     autoSyncGitHubRepositories(workspaceId, conn);
+                    syncAllWorkspaceRepositories(workspaceId, linkUserId);
 
                     // 4. Cập nhật avatar nếu người dùng chưa có
                     if (currentUser.getAvatarUrl() == null || currentUser.getAvatarUrl().isBlank()) {
@@ -400,5 +402,18 @@ public class AuthController {
 
     private static String urlEncode(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    private void syncAllWorkspaceRepositories(Long workspaceId, Long userId) {
+        try {
+            List<RepositoryEntity> repos = repositoryRepository.findByWorkspaceId(workspaceId);
+            for (RepositoryEntity repo : repos) {
+                try {
+                    repositoryServicePort.syncRepository(repo.getRepositoryId(), null, userId);
+                } catch (Exception ignored) {
+                }
+            }
+        } catch (Exception ignored) {
+        }
     }
 }

@@ -410,15 +410,14 @@ div[data-nextjs-route-announcer] {
   padding: 2.5px; /* Độ dày viền */
   background: conic-gradient(
     from var(--rainbow-angle),
-    #ff0055,
-    #ff5500,
-    #ffcc00,
-    #00ff66,
-    #00ccff,
-    #7700ff,
-    #ff00aa,
-    #ff0055
+    #ef4444,
+    #f97316,
+    #fb923c,
+    #dc2626,
+    #ffedd5,
+    #ef4444
   );
+  filter: drop-shadow(0 0 6px rgba(249, 115, 22, 0.45));
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);

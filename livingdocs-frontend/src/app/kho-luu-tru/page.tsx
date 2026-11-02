@@ -105,6 +105,7 @@ export default function RepoManagementPage() {
       const renewed = sessionStorage.getItem("livingdocs:github_renew_success");
       if (renewed) {
         sessionStorage.removeItem("livingdocs:github_renew_success");
+        loadRepositories().then(() => { if (selectedRepo) { handleSync(selectedRepo); } });
         setGlobalNotice({
           text: "Gia hạn phiên GitHub thành công! Kết nối tài khoản đã được đồng bộ tươi mới.",
           type: "success",

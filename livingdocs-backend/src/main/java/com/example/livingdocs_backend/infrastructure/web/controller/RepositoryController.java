@@ -209,9 +209,10 @@ public class RepositoryController {
             Optional<RepositoryEntity> repoOpt = repositoryRepository.findById(repositoryId);
             if (repoOpt.isPresent()) {
                 RepositoryEntity repo = repoOpt.get();
-                int currentCommitCount = commitRepository.findByRepositoryId(repositoryId).size();
-                boolean needsBackfill = currentCommitCount > 0 && currentCommitCount <= 115;
-                if (repo.getLastSyncedAt() == null || needsBackfill) {
+                // Đồng bộ nếu chưa từng sync hoặc đã quá 3 phút kể từ lần sync trước
+                boolean isStale = repo.getLastSyncedAt() == null ||
+                        repo.getLastSyncedAt().isBefore(java.time.Instant.now().minus(java.time.Duration.ofMinutes(3)));
+                if (isStale) {
                     repositoryService.syncRepository(repositoryId, null, userId);
                 }
             }

@@ -288,6 +288,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       setExtendingSession(true);
       setExtendError(null);
       await refreshSession();
+      if (typeof window !== "undefined") { sessionStorage.setItem("livingdocs:github_renew_success", "true"); }
       setShowSessionModal(false);
       window.location.reload();
     } catch {
