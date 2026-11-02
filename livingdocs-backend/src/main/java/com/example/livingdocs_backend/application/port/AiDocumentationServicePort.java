@@ -5,8 +5,16 @@ import com.example.livingdocs_backend.application.dto.ai.AiDocGenerateResponseDt
 
 public interface AiDocumentationServicePort {
     /**
-     * Gửi yêu cầu sang AI Engine (/v1/docs/generate) để Gemini sinh tài liệu Markdown chuẩn.
+     * Điều phối sinh tài liệu AI theo 3 phạm vi (FILE, PACKAGE, REPOSITORY),
+     * gọi FastAPI (/v1/docs/generate), lưu vào bảng documents, document_versions (trạng thái DRAFT)
+     * và lưu liên kết vào bảng doc_code_links.
      */
-    AiDocGenerateResponseDto generateDocumentation(AiDocGenerateRequestDto request);
-}
+    AiDocGenerateResponseDto generateDocumentation(AiDocGenerateRequestDto request, Long actorId, String actorRole);
 
+    /**
+     * Phiên bản mặc định khi không truyền thông tin người dùng.
+     */
+    default AiDocGenerateResponseDto generateDocumentation(AiDocGenerateRequestDto request) {
+        return generateDocumentation(request, null, "AI");
+    }
+}
