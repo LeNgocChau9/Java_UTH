@@ -209,11 +209,17 @@ public class DocumentController {
     }
 
     @PostMapping("/generate-ai")
-    @Operation(summary = "Sinh tai lieu ky thuat bang AI Engine Gemini", description = "Goi AI Engine (/v1/docs/generate) ket hop cau truc AST va template de tao Markdown tai lieu chuyen sau.")
+    @Operation(
+            summary = "Điều phối sinh tài liệu AI theo 3 phạm vi (FILE, PACKAGE, REPOSITORY)",
+            description = "Hỗ trợ 3 phạm vi (FILE, PACKAGE, REPOSITORY): lấy mã nguồn/AST, gọi FastAPI (/v1/docs/generate), lưu vào bảng documents & document_versions (trạng thái DRAFT) và lưu liên kết vào bảng doc_code_links."
+    )
     public ResponseEntity<AiDocGenerateResponseDto> generateAiDocumentation(
-            @RequestBody AiDocGenerateRequestDto request
+            @RequestBody AiDocGenerateRequestDto request,
+            @AuthenticationPrincipal UserPrincipal userPrincipal
     ) {
-        AiDocGenerateResponseDto response = aiDocumentationServicePort.generateDocumentation(request);
+        Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
+        String actorRole = extractRole(userPrincipal);
+        AiDocGenerateResponseDto response = aiDocumentationServicePort.generateDocumentation(request, actorId, actorRole);
         return ResponseEntity.ok(response);
     }
 
