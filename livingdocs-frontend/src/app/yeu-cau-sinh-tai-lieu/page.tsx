@@ -55,14 +55,18 @@ interface GeneratedDocResult {
   currentVersion: number;
   sourceCommit: string;
   content: string;
+  scope?: string;
+  linkedEntitiesCount?: number;
 }
 
+type ScopeType = "FILE" | "PACKAGE" | "REPOSITORY";
 type Step = "idle" | "generating" | "generated" | "submitting" | "done" | "error";
 
 export default function YeuCauSinhPage() {
   const [repo, setRepo] = useState("");
   const [branch, setBranch] = useState("main");
   const [templateId, setTemplateId] = useState<string>("1");
+  const [scopeType, setScopeType] = useState<ScopeType>("FILE");
   const [scope, setScope] = useState("");
   const [note, setNote] = useState("");
   const [step, setStep] = useState<Step>("idle");
@@ -135,8 +139,27 @@ export default function YeuCauSinhPage() {
   // Unique Java file paths from code entities
   const availableFiles = Array.from(new Set(codeEntities.map((e) => e.filePath)));
 
-  // Filter entities belonging to selected file for verification evidence
-  const selectedFileEntities = codeEntities.filter((e) => !scope || e.filePath === scope);
+  // Unique package / folder paths from code entities
+  const availablePackages = Array.from(
+    new Set(
+      availableFiles
+        .map((fp) => {
+          const idx = fp.lastIndexOf("/");
+          return idx > 0 ? fp.slice(0, idx) : "";
+        })
+        .filter(Boolean)
+    )
+  );
+
+  // Filter entities belonging to selected scope for verification evidence
+  const selectedFileEntities = codeEntities.filter((e) => {
+    if (scopeType === "REPOSITORY") return true;
+    if (scopeType === "PACKAGE") {
+      const pkgPrefix = scope || availablePackages[0] || "";
+      return !pkgPrefix || e.filePath.startsWith(pkgPrefix);
+    }
+    return !scope || e.filePath === scope;
+  });
 
   async function handleGenerate(e: React.FormEvent) {
     e.preventDefault();
@@ -149,25 +172,60 @@ export default function YeuCauSinhPage() {
     setStep("generating");
     setGeneratedDoc(null);
 
-    const selectedFile = scope || availableFiles[0] || "src/main/java/com/example/MainService.java";
+    const selectedRepoItem = repositories.find((r) => String(r.repositoryId) === String(repo));
+    const selectedTarget =
+      scopeType === "REPOSITORY"
+        ? selectedRepoItem?.repoFullName || "README.md"
+        : scopeType === "PACKAGE"
+          ? scope || availablePackages[0] || "src/main/java"
+          : scope || availableFiles[0] || "src/main/java/com/example/MainService.java";
+
     const selectedTemplate = templates.find((t) => String(t.id) === String(templateId));
-    const className = selectedFileEntities.find((ent) => ent.className)?.className ||
-      selectedFile.split("/").pop()?.replace(".java", "") || "AppService";
+    const className =
+      scopeType === "REPOSITORY"
+        ? selectedRepoItem?.repoName || "RepositorySystem"
+        : scopeType === "PACKAGE"
+          ? selectedTarget.split("/").pop() || "ModulePackage"
+          : selectedFileEntities.find((ent) => ent.className)?.className ||
+            selectedTarget.split("/").pop()?.replace(".java", "") ||
+            "AppService";
 
     try {
       let generatedMarkdown = "";
+      let createdDocId: number | undefined;
+      let createdTitle = "";
+      let createdTargetPath = "";
+      let createdStatus = "DRAFT";
+      let createdVersion = 1;
+      let createdSourceCommit = selectedFileEntities[0]?.commitHash || "b39f1c7e9a";
+      let linkedCount = selectedFileEntities.length;
 
-      // 1. Ưu tiên gọi AI Engine (/api/documents/generate-ai) để Gemini 2.5 Flash sinh Markdown thật từ AST
+      // 1. Gọi API Điều phối Sinh tài liệu AI (/api/documents/generate-ai) theo 3 phạm vi (FILE, PACKAGE, REPOSITORY)
       try {
         const aiRes = await apiClient.post<{
+          docId?: number;
+          title?: string;
+          targetPath?: string;
+          scope?: string;
+          documentStatus?: string;
+          currentVersion?: number;
+          sourceCommit?: string;
+          linkedEntitiesCount?: number;
           status: string;
           mode: string;
           generated_content: string;
           confidence_score: number;
         }>("/api/documents/generate-ai", {
+          repository_id: Number(repo),
+          scope: scopeType,
+          target_path: selectedTarget,
+          file_path: selectedTarget,
+          branch,
+          template_id: Number(templateId),
           template_type: selectedTemplate?.type || "API_REFERENCE",
-          file_path: selectedFile,
           class_name: className,
+          note: note.trim() || undefined,
+          save_document: true,
           entities: selectedFileEntities.map((ent) => ({
             entity_type: ent.entityType || "METHOD",
             class_name: ent.className || className,
@@ -185,23 +243,31 @@ export default function YeuCauSinhPage() {
 
         if (aiRes.data?.generated_content) {
           generatedMarkdown = aiRes.data.generated_content;
+          createdDocId = aiRes.data.docId;
+          createdTitle = aiRes.data.title || "";
+          createdTargetPath = aiRes.data.targetPath || "";
+          createdStatus = aiRes.data.documentStatus || "DRAFT";
+          createdVersion = aiRes.data.currentVersion || 1;
+          if (aiRes.data.sourceCommit) createdSourceCommit = aiRes.data.sourceCommit;
+          if (typeof aiRes.data.linkedEntitiesCount === "number") linkedCount = aiRes.data.linkedEntitiesCount;
         } else {
           throw new Error("Phản hồi AI trống");
         }
       } catch {
         // Fallback nếu AI Engine chưa bật: sinh Markdown trực tiếp từ cấu trúc AST và template
-        generatedMarkdown = `# Tài liệu Kỹ thuật: ${className}
+        generatedMarkdown = `# Tài liệu Kỹ thuật (${scopeType}): ${className}
+> **Phạm vi sinh tài liệu:** \`${scopeType}\`  
 > **Mẫu tài liệu:** ${selectedTemplate?.name ?? "API Reference"}  
-> **File nguồn:** \`${selectedFile}\`  
+> **Đích nguồn:** \`${selectedTarget}\`  
 > **Nhánh mã nguồn:** \`${branch}\`  
 > **Độ tin cậy AI:** 98.5%
 
 ---
 
 ## 1. Tổng quan & Trách nhiệm thành phần
-Lớp \`${className}\` là thành phần phụ trách xử lý logic nghiệp vụ chính của module, được bóc tách từ cây cú pháp trừu tượng (AST Tree-sitter) trên file nguồn \`${selectedFile}\`.
+Thành phần \`${className}\` (phạm vi \`${scopeType}\`) được tổng hợp từ cây cú pháp trừu tượng (AST Tree-sitter) tại \`${selectedTarget}\`.
 
-## 2. Bảng kê Phương thức & Đặc tả Kỹ thuật
+## 2. Bảng kê Thực thể & Đặc tả Kỹ thuật
 | Tên phương thức / Chữ ký | Loại | Vị trí dòng | Trạng thái tài liệu |
 | :--- | :--- | :--- | :--- |
 ${selectedFileEntities.map((ent) => `| \`${ent.methodName || ent.signature || ent.className}\` | \`${ent.entityType}\` | L${ent.startLine}-L${ent.endLine} | ${ent.docStatus} |`).join("\n")}
@@ -211,9 +277,6 @@ ${selectedFileEntities.map((ent) => `| \`${ent.methodName || ent.signature || en
 // Ví dụ khởi tạo và sử dụng ${className}
 @Autowired
 private ${className} targetService;
-
-// Gọi phương thức chính:
-// targetService.execute();
 \`\`\`
 
 ## 4. Xác minh Bằng chứng Nguồn (Grounding Evidence)
@@ -222,30 +285,37 @@ private ${className} targetService;
 `;
       }
 
-      // 2. Create document record in database
-      const createRes = await apiClient.post<{ docId: number; id?: number; title: string; targetPath: string; status: string }>(
-        "/api/documents",
-        {
-          repoId: Number(repo),
-          title: `Tài liệu - ${className} (${selectedTemplate?.name || "Tự động"})`,
-          targetPath: `${selectedFile}.md`,
-          content: generatedMarkdown,
-          actorRole: "AI",
-          triggerType: "AI_GENERATION",
-          templateId: Number(templateId),
-        }
-      );
+      // 2. Nếu backend chưa tạo bản ghi document (fallback), gọi POST /api/documents
+      if (!createdDocId) {
+        const createRes = await apiClient.post<{ docId: number; id?: number; title: string; targetPath: string; status: string }>(
+          "/api/documents",
+          {
+            repoId: Number(repo),
+            title: `Tài liệu (${scopeType}) - ${className} (${selectedTemplate?.name || "Tự động"})`,
+            targetPath: scopeType === "REPOSITORY" ? "README.md" : `${selectedTarget}.md`,
+            content: generatedMarkdown,
+            actorRole: "AI",
+            triggerType: `AI_GENERATION_${scopeType}`,
+            templateId: Number(templateId),
+          }
+        );
 
-      const createdDocId = createRes.data.docId ?? createRes.data.id;
+        createdDocId = createRes.data.docId ?? createRes.data.id;
+        createdTitle = createRes.data.title;
+        createdTargetPath = createRes.data.targetPath;
+        createdStatus = createRes.data.status || "DRAFT";
+      }
 
       setGeneratedDoc({
-        docId: createdDocId,
-        title: createRes.data.title || `Tài liệu - ${className}`,
-        targetPath: createRes.data.targetPath || `${selectedFile}.md`,
-        status: createRes.data.status || "DRAFT",
-        currentVersion: 1,
-        sourceCommit: selectedFileEntities[0]?.commitHash || "b39f1c7e9a",
+        docId: createdDocId!,
+        title: createdTitle || `Tài liệu - ${className}`,
+        targetPath: createdTargetPath || `${selectedTarget}.md`,
+        status: createdStatus,
+        currentVersion: createdVersion,
+        sourceCommit: createdSourceCommit,
         content: generatedMarkdown,
+        scope: scopeType,
+        linkedEntitiesCount: linkedCount,
       });
 
       setStep("generated");
@@ -415,24 +485,147 @@ private ${className} targetService;
                   </div>
                 </div>
 
-                {/* Chọn file mã nguồn */}
+                {/* Chọn Phạm vi sinh tài liệu (FILE, PACKAGE, REPOSITORY) */}
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 500, color: "#475569", display: "block", marginBottom: 8 }}>
+                    Phạm vi sinh tài liệu AI *
+                  </label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                    {[
+                      {
+                        value: "FILE" as ScopeType,
+                        label: "1. Theo File (FILE)",
+                        desc: "Sinh tài liệu chi tiết cho 1 file nguồn",
+                      },
+                      {
+                        value: "PACKAGE" as ScopeType,
+                        label: "2. Theo Module (PACKAGE)",
+                        desc: "Quét toàn bộ file trong package",
+                      },
+                      {
+                        value: "REPOSITORY" as ScopeType,
+                        label: "3. Toàn Repo (REPOSITORY)",
+                        desc: "Sinh README / Kiến trúc hệ thống",
+                      },
+                    ].map((opt) => (
+                      <label
+                        key={opt.value}
+                        style={{
+                          display: "flex",
+                          alignItems: "flex-start",
+                          gap: 8,
+                          padding: "10px 12px",
+                          borderRadius: 6,
+                          border: `1px solid ${scopeType === opt.value ? "#0f766e" : "#dfe7e4"}`,
+                          background: scopeType === opt.value ? "#f0fdf4" : "#ffffff",
+                          cursor: "pointer",
+                          transition: "all 150ms",
+                        }}
+                      >
+                        <input
+                          type="radio"
+                          name="scopeTypeSelection"
+                          value={opt.value}
+                          checked={scopeType === opt.value}
+                          onChange={() => {
+                            setScopeType(opt.value);
+                            if (opt.value === "FILE") {
+                              setScope(availableFiles[0] || "");
+                            } else if (opt.value === "PACKAGE") {
+                              setScope(availablePackages[0] || "src/main/java");
+                            } else {
+                              const currentRepo = repositories.find((r) => String(r.repositoryId) === String(repo));
+                              setScope(currentRepo?.repoFullName || "README.md");
+                            }
+                          }}
+                          style={{ marginTop: 3, accentColor: "#0f766e" }}
+                        />
+                        <div>
+                          <p
+                            style={{
+                              fontSize: 12.5,
+                              fontWeight: scopeType === opt.value ? 600 : 500,
+                              color: scopeType === opt.value ? "#0f766e" : "#0f172a",
+                              margin: 0,
+                            }}
+                          >
+                            {opt.label}
+                          </p>
+                          <p style={{ fontSize: 11, color: "#64748b", margin: "2px 0 0" }}>
+                            {opt.desc}
+                          </p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Chọn file / package / toàn repo mã nguồn */}
                 <div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                     <label style={{ fontSize: 12, fontWeight: 500, color: "#475569" }}>
-                      Chọn file mã nguồn cần tạo tài liệu *
+                      {scopeType === "FILE"
+                        ? "Chọn file mã nguồn cần tạo tài liệu *"
+                        : scopeType === "PACKAGE"
+                          ? "Chọn Package / Thư mục mô-đun cần tổng hợp *"
+                          : "Đích sinh tài liệu toàn Repository *"}
                     </label>
                     {loadingEntities ? (
                       <span style={{ fontSize: 11, color: "#0f766e", display: "flex", alignItems: "center", gap: 4 }}>
-                        <RefreshCw size={11} className="animate-spin" /> Đang tải file...
+                        <RefreshCw size={11} className="animate-spin" /> Đang tải dữ liệu...
                       </span>
                     ) : (
                       <span style={{ fontSize: 11, color: "#64748b" }}>
-                        {availableFiles.length} file sẵn sàng
+                        {scopeType === "PACKAGE"
+                          ? `${availablePackages.length} package sẵn sàng`
+                          : `${availableFiles.length} file sẵn sàng`}
                       </span>
                     )}
                   </div>
 
-                  {availableFiles.length > 0 ? (
+                  {scopeType === "REPOSITORY" ? (
+                    <input
+                      className="ld-input"
+                      value={
+                        scope ||
+                        repositories.find((r) => String(r.repositoryId) === String(repo))?.repoFullName ||
+                        "README.md"
+                      }
+                      onChange={(e) => setScope(e.target.value)}
+                      placeholder="Toàn bộ Repository (README.md / docs/ARCHITECTURE.md)"
+                    />
+                  ) : scopeType === "PACKAGE" ? (
+                    availablePackages.length > 0 ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        <select
+                          className="ld-select"
+                          style={{ width: "100%" }}
+                          value={scope}
+                          onChange={(e) => setScope(e.target.value)}
+                        >
+                          {availablePackages.map((pkg) => (
+                            <option key={pkg} value={pkg}>
+                              {pkg}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          className="ld-input"
+                          value={scope}
+                          onChange={(e) => setScope(e.target.value)}
+                          placeholder="Hoặc nhập đường dẫn package (vd: src/main/java/com/example/service)..."
+                        />
+                      </div>
+                    ) : (
+                      <input
+                        className="ld-input"
+                        value={scope}
+                        onChange={(e) => setScope(e.target.value)}
+                        placeholder="vd: src/main/java/com/example/livingdocs_backend/application/service"
+                        required
+                      />
+                    )
+                  ) : availableFiles.length > 0 ? (
                     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                       <select
                         className="ld-select"
