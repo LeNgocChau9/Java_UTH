@@ -22,6 +22,7 @@ from typing import List, Dict, Any
 from google import genai
 from google.genai import types as genai_types
 from app.core.config import get_settings
+from app.core.gemini_key_manager import GeminiKeyManager
 from app.schemas.ai_schemas import (
     DocRewriteRequest,
     DocRewriteResponse,
@@ -60,14 +61,7 @@ class GeminiRewriteService:
 
     @staticmethod
     def _build_client() -> genai.Client:
-        settings = get_settings()
-        api_key = settings.gemini_api_key or os.getenv("GEMINI_API_KEY", "")
-        if not api_key:
-            raise ValueError(
-                "GEMINI_API_KEY không tìm thấy trong .env. "
-                "Vui lòng kiểm tra file livingdocs-ai-engine/.env"
-            )
-        return genai.Client(api_key=api_key)
+        return GeminiKeyManager.get_active_client()
 
     @staticmethod
     def _build_prompt(request: DocRewriteRequest) -> str:
@@ -129,7 +123,6 @@ Trả về DUY NHẤT một JSON object hợp lệ (không kèm markdown code fe
         """
         Thực thi phân tích và viết lại tài liệu bằng Google Gemini API.
         """
-        client = cls._build_client()
         prompt = cls._build_prompt(request)
 
         logger.info(
@@ -147,6 +140,7 @@ Trả về DUY NHẤT một JSON object hợp lệ (không kèm markdown code fe
         for model_name in REWRITE_MODELS:
             try:
                 def _call_gemini_rewrite():
+                    client = cls._build_client()
                     resp = client.models.generate_content(
                         model=model_name,
                         contents=prompt,

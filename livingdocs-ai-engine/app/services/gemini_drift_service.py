@@ -14,6 +14,7 @@ import logging
 from google import genai
 from google.genai import types as genai_types
 from app.core.config import get_settings
+from app.core.gemini_key_manager import GeminiKeyManager
 from app.schemas.ai_schemas import (
     DriftAnalyzeRequest,
     DriftAnalyzeResponse,
@@ -84,14 +85,7 @@ class GeminiDriftService:
 
     @staticmethod
     def _build_client() -> genai.Client:
-        settings = get_settings()
-        api_key = settings.gemini_api_key or os.getenv("GEMINI_API_KEY", "")
-        if not api_key:
-            raise ValueError(
-                "GEMINI_API_KEY không tìm thấy trong .env. "
-                "Kiểm tra lại file livingdocs-ai-engine/.env"
-            )
-        return genai.Client(api_key=api_key)
+        return GeminiKeyManager.get_active_client()
 
     @staticmethod
     def _build_prompt(request: DriftAnalyzeRequest) -> str:
@@ -158,7 +152,6 @@ LƯU Ý QUAN TRỌNG:
         """
         Phân tích sai lệch tài liệu ngữ nghĩa bằng Gemini API có cơ chế fallback model.
         """
-        client = cls._build_client()
         prompt = cls._build_prompt(request)
 
         logger.info(
@@ -175,6 +168,7 @@ LƯU Ý QUAN TRỌNG:
         for model_name in DRIFT_MODELS:
             try:
                 def _call_gemini_drift():
+                    client = cls._build_client()
                     resp = client.models.generate_content(
                         model=model_name,
                         contents=prompt,

@@ -3,7 +3,7 @@ from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    mode: str = "mock"
+    mode: str = "real"
     host: str = "0.0.0.0"
     port: int = 8000
     gemini_api_key: str = ""

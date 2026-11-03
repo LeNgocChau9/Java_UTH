@@ -15,6 +15,7 @@ export interface CodeEntityDto {
   commitHash?: string;
   docStatus: "DOCUMENTED" | "UNDOCUMENTED" | "DRIFTED" | string;
   javadoc?: string;
+  annotations?: string[];
   createdAt?: string;
   updatedAt?: string;
 }

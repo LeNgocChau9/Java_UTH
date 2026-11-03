@@ -18,8 +18,7 @@ from app.schemas.ai_schemas import (
     DocRewriteResponse,
     DocSectionDiffItem,
 )
-from app.services.mock_ai_service import MockAIService
-from app.services.tree_sitter_ast_parser import parse_java_with_treesitter
+from app.services.tree_sitter_ast_parser import parse_multilingual_ast, parse_java_with_treesitter
 from app.services.gemini_doc_service import GeminiDocService
 from app.services.gemini_drift_service import GeminiDriftService
 from app.services.gemini_rewrite_service import GeminiRewriteService
@@ -31,36 +30,30 @@ router = APIRouter(prefix="/v1", tags=["AI Engine Endpoints"])
 @router.post(
     "/ast/extract",
     response_model=AstExtractResponse,
-    summary="Trích xuất phần tử mã nguồn Java (AST bằng Tree-sitter)",
-    description="Nhận vào mã nguồn file Java, trả về JSON đầy đủ: Class name, Method name, Signature, Params, Return type, Javadoc, Start/End Line."
+    summary="Trích xuất phần tử mã nguồn đa ngôn ngữ (Java, Python, TypeScript, SQL)",
+    description="Nhận vào mã nguồn file (Java, Python, TypeScript/JavaScript, SQL DDL), trả về JSON đầy đủ: Class, Method/Function, Constructor, Field/Table, Signature, Params, Return type, Javadoc/Docstring, Start/End Line."
 )
 async def extract_ast(request: AstExtractRequest):
-    settings = get_settings()
-
-    # Chế độ mock: trả về dữ liệu mẫu giả lập
-    if settings.mode.lower() == "mock":
-        return MockAIService.extract_ast(request)
-
-    # Chế độ real: Bóc tách bằng Tree-sitter Java chuẩn
-    parsed = parse_java_with_treesitter(request.file_path, request.source_code)
+    # Bóc tách đa ngôn ngữ bằng Tree-sitter chuẩn (100% Real AST Parser)
+    parsed = parse_multilingual_ast(request.file_path, request.source_code)
 
     if parsed.get("parse_error"):
         raise HTTPException(
             status_code=422,
-            detail=f"Lỗi phân tích cú pháp AST Java (Tree-sitter): {parsed['parse_error']}"
+            detail=f"Lỗi phân tích cú pháp AST đa ngôn ngữ (Tree-sitter): {parsed['parse_error']}"
         )
 
     entities: list[CodeEntityItem] = []
 
-    # 1. Thêm entity CLASS / INTERFACE / ENUM / RECORD
-    if parsed.get("class_name"):
+    # 1. Thêm entity CLASS / INTERFACE / ENUM / RECORD / SCHEMA / MODULE
+    if parsed.get("class_name") and parsed.get("class_type") != "MODULE":
         c_type = parsed.get("class_type", "CLASS")
         c_name = parsed["class_name"]
-        mods_str = " ".join(parsed.get("modifiers", [])) or "public"
-        c_annotations = parsed.get("annotations", [])
-        ann_prefix = f"{' '.join(c_annotations)} " if c_annotations else ""
-        c_sig = f"{ann_prefix}{mods_str} {c_type.lower()} {c_name}"
+        mods_str = " ".join(parsed.get("modifiers", [])) or ("public" if c_type in ("CLASS", "INTERFACE", "RECORD", "ENUM") else "")
+        mods_part = f"{mods_str} " if mods_str else ""
+        c_sig = f"{mods_part}{c_type.lower()} {c_name}".strip()
         class_javadoc = parsed.get("javadoc")
+        c_annotations = parsed.get("annotations", [])
 
         entities.append(CodeEntityItem(
             entity_type=c_type,
@@ -76,28 +69,51 @@ async def extract_ast(request: AstExtractRequest):
             annotations=c_annotations
         ))
 
-    # 2. Thêm các METHOD và CONSTRUCTOR bóc tách chi tiết
+    # 2. Thêm các METHOD, FUNCTION, CONSTRUCTOR, TABLE, VIEW
     for m in parsed.get("methods", []):
         params_list = m.get("parameters", [])
         params_str_parts = []
         for p in params_list:
-            p_ann = f"{' '.join(p['annotations'])} " if p.get("annotations") else ""
-            params_str_parts.append(f"{p_ann}{p['type']} {p['name']}")
+            if isinstance(p, dict):
+                p_ann = f"{' '.join(p.get('annotations', []))} " if p.get("annotations") else ""
+                p_type = p.get("type", "")
+                p_name = p.get("name", "")
+                params_str_parts.append(f"{p_ann}{p_type} {p_name}".strip())
+            else:
+                params_str_parts.append(str(p))
         params_str = ", ".join(params_str_parts)
         m_javadoc = m.get("javadoc")
 
         entities.append(CodeEntityItem(
-            entity_type=m["entity_type"],
-            class_name=m["class_name"],
-            method_name=m["method_name"],
-            signature=m["signature"],
+            entity_type=m.get("entity_type", "METHOD"),
+            class_name=m.get("class_name"),
+            method_name=m.get("method_name"),
+            signature=m.get("signature", ""),
             return_type=m.get("return_type"),
             parameters=params_str if params_str else None,
-            start_line=m["start_line"],
-            end_line=m["end_line"],
+            start_line=m.get("start_line", 1),
+            end_line=m.get("end_line", 1),
             doc_status="DOCUMENTED" if m_javadoc else "UNDOCUMENTED",
             javadoc=m_javadoc,
             annotations=m.get("annotations", [])
+        ))
+
+    # 3. Thêm các FIELD (thuộc tính Class, DTO, Entity)
+    for f in parsed.get("fields", []):
+        f_javadoc = f.get("javadoc")
+        f_ann = f.get("annotations", [])
+        entities.append(CodeEntityItem(
+            entity_type="FIELD",
+            class_name=f.get("class_name"),
+            method_name=f.get("method_name"),
+            signature=f.get("signature", ""),
+            return_type=f.get("return_type"),
+            parameters=None,
+            start_line=f.get("start_line", 1),
+            end_line=f.get("end_line", 1),
+            doc_status="DOCUMENTED" if f_javadoc or f_ann else "UNDOCUMENTED",
+            javadoc=f_javadoc,
+            annotations=f_ann
         ))
 
     return AstExtractResponse(
@@ -117,11 +133,7 @@ async def extract_ast(request: AstExtractRequest):
     description="Nhận vào thông tin file, mẫu tài liệu (API_REFERENCE, README...) và trả về nội dung Markdown kèm bằng chứng xác thực."
 )
 async def generate_doc(request: DocGenerateRequest):
-    settings = get_settings()
-    if settings.mode.lower() == "mock":
-        return MockAIService.generate_doc(request)
-
-    # MODE=real (Task #81): Gọi Google Gemini API thật
+    # Gọi Google Gemini API thật để sinh tài liệu kỹ thuật
     try:
         return GeminiDocService.generate_documentation(request)
     except GeminiQuotaExceededError as qe:

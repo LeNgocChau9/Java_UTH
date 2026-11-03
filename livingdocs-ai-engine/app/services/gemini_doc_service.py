@@ -1,15 +1,15 @@
 """
 gemini_doc_service.py
 Module kết nối trực tiếp với Google Gemini API thật để tự động sinh tài liệu kỹ thuật
-từ cấu trúc AST và Template (Task #81 - Sprint 3).
+từ cấu trúc AST và Template (Sử dụng google-genai SDK mới nhất và Multi-Key Pool).
 """
 
-import os
 import json
 import logging
 from typing import List, Optional
-import google.generativeai as genai
-from app.core.config import get_settings
+from google import genai
+from google.genai import types as genai_types
+from app.core.gemini_key_manager import GeminiKeyManager
 from app.schemas.ai_schemas import (
     DocGenerateRequest,
     DocGenerateResponse,
@@ -24,49 +24,30 @@ from app.core.gemini_retry import (
 
 logger = logging.getLogger(__name__)
 
-# Danh sách các model Gemini ưu tiên theo thứ tự
-GEMINI_MODELS = [
+# Danh sách các model Gemini ưu tiên theo thứ tự tốc độ và độ ổn định
+DOC_MODELS = [
     "gemini-1.5-flash",
     "gemini-flash-latest",
     "gemini-2.5-flash",
+    "gemini-3.5-flash",
     "gemini-3.8-flash",
-    "gemini-1.5-flash-8b",
+    "gemini-flash-lite-latest",
 ]
 
 
 class GeminiDocService:
 
-    @staticmethod
-    def _get_configured_model():
-        settings = get_settings()
-        api_key = settings.gemini_api_key or os.getenv("GEMINI_API_KEY", "")
-        if not api_key:
-            raise ValueError("GEMINI_API_KEY không được tìm thấy trong file .env hoặc cấu hình hệ thống.")
-
-        genai.configure(api_key=api_key)
-
-        for model_name in GEMINI_MODELS:
-            try:
-                model = genai.GenerativeModel(model_name)
-                return model, model_name
-            except Exception as e:
-                logger.warning(f"Không thể khởi tạo model {model_name}: {e}")
-
-        # Fallback về gemini-3.8-flash mặc định
-        return genai.GenerativeModel("gemini-3.8-flash"), "gemini-3.8-flash"
-
     @classmethod
     def generate_documentation(cls, request: DocGenerateRequest) -> DocGenerateResponse:
         """
         Sinh tài liệu Markdown hoàn chỉnh từ cấu trúc AST và template bằng Google Gemini API.
+        Tự động xoay API Key nếu gặp lỗi hạn mức Quota (429).
         """
-        model, active_model_name = cls._get_configured_model()
-
         target_name = request.class_name or (
-            request.entities[0].class_name if request.entities and request.entities[0].class_name else "JavaComponent"
+            request.entities[0].class_name if request.entities and request.entities[0].class_name else "CodeComponent"
         )
 
-        # 1. Định dạng thông tin AST thành bảng dữ liệu kỹ thuật
+        # 1. Định dạng thông tin AST thành bảng dữ liệu kỹ thuật gọn gàng (tiết kiệm token)
         entities_summary = []
         grounding_evidences: List[GroundingEvidence] = []
 
@@ -79,6 +60,7 @@ class GeminiDocService:
                     "return_type": e.return_type or "void",
                     "parameters": e.parameters or "None",
                     "lines": f"{e.start_line} -> {e.end_line}",
+                    "annotations": e.annotations or [],
                     "javadoc": e.javadoc or "Chưa có",
                 })
 
@@ -93,9 +75,9 @@ class GeminiDocService:
                     )
                 )
 
-        # 2. Xây dựng Prompt kỹ thuật chặt chẽ
+        # 2. Xây dựng Prompt kỹ thuật chặt chẽ, tối ưu token
         prompt = f"""Bạn là chuyên gia kiến trúc phần mềm và kỹ sư viết tài liệu kỹ thuật cao cấp (Technical Writer) cho hệ thống LivingDocs.
-Nhiệm vụ của bạn là đọc cấu trúc AST đã bóc tách từ file Java và sinh ra một bản tài liệu kỹ thuật hoàn chỉnh bằng định dạng MARKDOWN chuyên nghiệp.
+Nhiệm vụ của bạn là đọc cấu trúc AST đã bóc tách từ file mã nguồn và sinh ra một bản tài liệu kỹ thuật hoàn chỉnh bằng định dạng MARKDOWN chuyên nghiệp.
 
 ### THÔNG TIN ĐẦU VÀO:
 - Tên lớp/thành phần chính: {target_name}
@@ -109,39 +91,57 @@ Nhiệm vụ của bạn là đọc cấu trúc AST đã bóc tách từ file Ja
 2. **Thẻ metadata blockquote (>)**:
    - Mẫu áp dụng: {request.template_type}
    - File mã nguồn: {request.file_path}
-   - Model thực hiện: Google Gemini ({active_model_name})
-3. **Mục 1. Tổng quan & Mục đích thiết kế**: Mô tả ngắn gọn trách nhiệm nghiệp vụ của class trong kiến trúc hệ thống.
-4. **Mục 2. Chi tiết các Phương thức & API (Có BẢNG THÔNG SỐ RÕ RÀNG)**:
-   - Tạo bảng Markdown gồm các cột: `Tên phương thức`, `Kiểu trả về`, `Tham số`, `Vị trí dòng`, `Mô tả chức năng`.
-   - Đối với mỗi phương thức quan trọng, viết phân tích sâu: mục đích, tham số đầu vào, kết quả trả về và các ngoại lệ/xử lý lỗi (nếu có).
+   - Tác nhân sinh: LivingDocs AI Engine (Google Gemini)
+3. **Mục 1. Tổng quan & Mục đích thiết kế**: Mô tả ngắn gọn trách nhiệm nghiệp vụ của class/module trong kiến trúc hệ thống.
+4. **Mục 2. Chi tiết các Phần tử, Phương thức & API (CÓ BẢNG THÔNG SỐ RÕ RÀNG)**:
+   - Tạo bảng Markdown gồm các cột: `Phần tử`, `Loại`, `Kiểu dữ liệu / Chữ ký`, `Vị trí dòng`, `Mô tả chức năng`.
+   - Đối với mỗi phương thức hoặc thuộc tính quan trọng, viết phân tích sâu: mục đích, tham số đầu vào, kết quả trả về và ràng buộc.
 5. **Mục 3. Hướng dẫn Tích hợp & Sử dụng (Code snippet minh họa nếu phù hợp)**.
 6. **Mục 4. Bằng chứng xác thực nguồn (Grounding & Verification)**: Liệt kê các phần tử đã được xác thực từ AST.
 
 LƯU Ý: Viết bằng TIẾNG VIỆT chuẩn kỹ thuật phần mềm, cấu trúc rõ ràng, sử dụng bảng biểu và code block định dạng đẹp. Không thêm các lời giải thích thừa ngoài nội dung Markdown.
 """
 
-        try:
-            def _call_gemini_doc():
-                return model.generate_content(
-                    prompt,
-                    generation_config=genai.types.GenerationConfig(
-                        temperature=0.2, # Giữ tính chính xác kỹ thuật cao
-                        top_p=0.9,
-                        max_output_tokens=3000,
-                    )
-                )
+        def _call_gemini_doc():
+            client = GeminiKeyManager.get_active_client()
+            last_err = None
 
-            response = execute_with_gemini_retry(
+            for model_name in DOC_MODELS:
+                try:
+                    resp = client.models.generate_content(
+                        model=model_name,
+                        contents=prompt,
+                        config=genai_types.GenerateContentConfig(
+                            temperature=0.2,
+                            top_p=0.9,
+                            max_output_tokens=3000,
+                        ),
+                    )
+                    return resp, model_name
+                except Exception as ex:
+                    last_err = ex
+                    err_str = str(ex).lower()
+                    # Nếu là lỗi model không tồn tại hoặc tạm thời quá tải 503 -> thử model tiếp theo
+                    if any(k in err_str for k in ("not found", "503", "unavailable", "overloaded")):
+                        logger.warning(f"Model {model_name} gặp sự cố, thử model tiếp theo: {ex}")
+                        continue
+                    # Nếu là lỗi 429 Quota -> ném để execute_with_gemini_retry xoay key
+                    raise ex
+
+            raise last_err or RuntimeError("Tất cả các model Gemini đều không khả dụng.")
+
+        try:
+            response, active_model_name = execute_with_gemini_retry(
                 action=_call_gemini_doc,
                 max_retries=3,
                 initial_delay=1.0,
                 backoff_factor=2.0,
-                action_name=f"DocGenerate ({active_model_name})"
+                action_name="DocGenerate"
             )
 
             generated_markdown = response.text if response and response.text else ""
 
-            # Tính toán điểm tin cậy (confidence score) dựa trên tỷ lệ entity có javadoc và độ đầy đủ
+            # Tính toán điểm tin cậy dựa trên tỷ lệ entity có tài liệu và xác thực AST
             total_count = len(request.entities) if request.entities else 1
             documented_count = sum(1 for e in request.entities if e.javadoc) if request.entities else 0
             base_score = 0.88 + min(0.10, (documented_count / total_count) * 0.10)
@@ -163,4 +163,4 @@ LƯU Ý: Viết bằng TIẾNG VIỆT chuẩn kỹ thuật phần mềm, cấu t
             raise
         except Exception as ex:
             logger.error(f"Lỗi khi gọi Google Gemini API: {ex}", exc_info=True)
-            raise RuntimeError(f"Lỗi khi sinh tài liệu bằng Gemini API ({active_model_name}): {str(ex)}")
+            raise RuntimeError(f"Lỗi khi sinh tài liệu bằng Gemini API: {str(ex)}")
