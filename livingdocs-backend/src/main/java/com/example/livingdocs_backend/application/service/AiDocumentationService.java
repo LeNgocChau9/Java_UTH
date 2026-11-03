@@ -63,7 +63,7 @@ public class AiDocumentationService implements AiDocumentationServicePort {
             @Value("${ai.engine.url:http://localhost:8000}") String aiEngineUrl
     ) {
         this(
-                RestClient.builder().baseUrl(aiEngineUrl).build(),
+                RestClient.builder().baseUrl(aiEngineUrl).requestFactory(new org.springframework.http.client.JdkClientHttpRequestFactory(java.net.http.HttpClient.newBuilder().version(java.net.http.HttpClient.Version.HTTP_1_1).connectTimeout(java.time.Duration.ofSeconds(10)).build())).build(),
                 null,
                 null,
                 null,
@@ -88,7 +88,7 @@ public class AiDocumentationService implements AiDocumentationServicePort {
             GitHubClientPort gitHubClient
     ) {
         this(
-                RestClient.builder().baseUrl(aiEngineUrl).build(),
+                RestClient.builder().baseUrl(aiEngineUrl).requestFactory(new org.springframework.http.client.JdkClientHttpRequestFactory(java.net.http.HttpClient.newBuilder().version(java.net.http.HttpClient.Version.HTTP_1_1).connectTimeout(java.time.Duration.ofSeconds(10)).build())).build(),
                 documentServicePort,
                 codeEntityRepository,
                 codeIndexService,

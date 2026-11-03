@@ -23,13 +23,24 @@ _JAVA_LANG = tree_sitter.Language(tree_sitter_java.language())
 _PY_LANG = tree_sitter.Language(tree_sitter_python.language())
 _TS_LANG = tree_sitter.Language(tree_sitter_typescript.language_typescript())
 _TSX_LANG = tree_sitter.Language(tree_sitter_typescript.language_tsx())
-_SQL_LANG = tree_sitter.Language(tree_sitter_sql.language())
+import threading
 
+_TS_LOCK = threading.Lock()
 _PARSER_JAVA = tree_sitter.Parser(_JAVA_LANG)
 _PARSER_PY = tree_sitter.Parser(_PY_LANG)
 _PARSER_TS = tree_sitter.Parser(_TS_LANG)
 _PARSER_TSX = tree_sitter.Parser(_TSX_LANG)
-_PARSER_SQL = tree_sitter.Parser(_SQL_LANG)
+try:
+    _SQL_LANG = tree_sitter.Language(tree_sitter_sql.language())
+    _PARSER_SQL = tree_sitter.Parser(_SQL_LANG)
+except Exception:
+    _SQL_LANG = None
+    _PARSER_SQL = None
+
+def _node_text(node, source_bytes: bytes = b"") -> str:
+    if node is None:
+        return ""
+    return source_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
 
 
 def _clean_docstring(raw_comment: str) -> str:
@@ -64,7 +75,7 @@ def _extract_prev_comment(parent_node, target_node, source_bytes: bytes) -> Opti
         if child == target_node:
             break
         if child.type in ("block_comment", "line_comment", "comment"):
-            text = source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace")
+            text = _node_text(child, source_bytes)
             prev_comment = text
         elif child.type not in (";", ",", "\n"):
             prev_comment = None
@@ -84,7 +95,7 @@ def _extract_java_annotations(modifiers_node, source_bytes: bytes) -> List[str]:
         return annotations
     for child in modifiers_node.children:
         if child.type in ("marker_annotation", "annotation"):
-            ann_text = source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace")
+            ann_text = _node_text(child, source_bytes)
             ann_clean = " ".join(ann_text.split())
             if ann_clean:
                 annotations.append(ann_clean)
@@ -104,9 +115,9 @@ def _extract_java_parameters(params_node, source_bytes: bytes) -> List[Dict[str,
                 if sub.type == "modifiers":
                     param_annotations = _extract_java_annotations(sub, source_bytes)
                 elif sub.type == "identifier":
-                    name_text = source_bytes[sub.start_byte:sub.end_byte].decode("utf-8", errors="replace").strip()
+                    name_text = _node_text(sub, source_bytes).strip()
                 elif sub.type not in ("variable_declarator_id", ","):
-                    type_text = source_bytes[sub.start_byte:sub.end_byte].decode("utf-8", errors="replace").strip()
+                    type_text = _node_text(sub, source_bytes).strip()
 
             if name_text:
                 params.append({
@@ -136,7 +147,8 @@ def parse_java_ast(file_path: str, source_code: str) -> Dict[str, Any]:
 
     try:
         source_bytes = source_code.encode("utf-8")
-        tree = _PARSER_JAVA.parse(source_bytes)
+        with _TS_LOCK:
+            tree = _PARSER_JAVA.parse(source_bytes)
         root = tree.root_node
     except Exception as e:
         result["parse_error"] = f"TreeSitterJavaError: {str(e)}"
@@ -146,7 +158,7 @@ def parse_java_ast(file_path: str, source_code: str) -> Dict[str, Any]:
         if child.type == "package_declaration":
             for sub in child.children:
                 if sub.type in ("scoped_identifier", "identifier"):
-                    result["package_name"] = source_bytes[sub.start_byte:sub.end_byte].decode("utf-8", errors="replace").strip()
+                    result["package_name"] = _node_text(sub, source_bytes).strip()
             break
 
     class_node = None
@@ -174,7 +186,7 @@ def parse_java_ast(file_path: str, source_code: str) -> Dict[str, Any]:
     class_body_node = None
     for child in class_node.children:
         if child.type == "identifier":
-            result["class_name"] = source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace").strip()
+            result["class_name"] = _node_text(child, source_bytes).strip()
         elif child.type == "modifiers":
             result["annotations"] = _extract_java_annotations(child, source_bytes)
             for sub in child.children:
@@ -201,11 +213,11 @@ def parse_java_ast(file_path: str, source_code: str) -> Dict[str, Any]:
                 if sub.type == "modifiers":
                     m_modifiers_node = sub
                 elif sub.type == "identifier":
-                    method_name = source_bytes[sub.start_byte:sub.end_byte].decode("utf-8", errors="replace").strip()
+                    method_name = _node_text(sub, source_bytes).strip()
                 elif sub.type == "formal_parameters":
                     params_node = sub
                 elif sub.type not in ("block", ";") and not method_name:
-                    return_type = source_bytes[sub.start_byte:sub.end_byte].decode("utf-8", errors="replace").strip()
+                    return_type = _node_text(sub, source_bytes).strip()
 
             params = _extract_java_parameters(params_node, source_bytes)
             params_str_parts = []
@@ -251,7 +263,7 @@ def parse_java_ast(file_path: str, source_code: str) -> Dict[str, Any]:
                 if sub.type == "modifiers":
                     c_modifiers_node = sub
                 elif sub.type == "identifier":
-                    ctor_name = source_bytes[sub.start_byte:sub.end_byte].decode("utf-8", errors="replace").strip()
+                    ctor_name = _node_text(sub, source_bytes).strip()
                 elif sub.type == "formal_parameters":
                     params_node = sub
 
@@ -302,9 +314,9 @@ def parse_java_ast(file_path: str, source_code: str) -> Dict[str, Any]:
                 elif sub.type == "variable_declarator":
                     for v_sub in sub.children:
                         if v_sub.type == "identifier":
-                            field_name = source_bytes[v_sub.start_byte:v_sub.end_byte].decode("utf-8", errors="replace").strip()
+                            field_name = _node_text(v_sub, source_bytes).strip()
                 elif sub.type not in (";", ","):
-                    field_type = source_bytes[sub.start_byte:sub.end_byte].decode("utf-8", errors="replace").strip()
+                    field_type = _node_text(sub, source_bytes).strip()
 
             if field_name:
                 annotations = _extract_java_annotations(f_modifiers_node, source_bytes)
@@ -339,7 +351,7 @@ def _extract_py_docstring(body_node, source_bytes: bytes) -> Optional[str]:
         if child.type == "expression_statement":
             for sub in child.children:
                 if sub.type in ("string", "concatenated_string"):
-                    raw = source_bytes[sub.start_byte:sub.end_byte].decode("utf-8", errors="replace")
+                    raw = _node_text(sub, source_bytes)
                     return _clean_docstring(raw)
             break
         elif child.type not in ("comment", "\n"):
@@ -352,7 +364,7 @@ def _extract_py_decorators(decorated_node, source_bytes: bytes) -> List[str]:
     decorators = []
     for child in decorated_node.children:
         if child.type == "decorator":
-            dec_text = source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace").strip()
+            dec_text = _node_text(child, source_bytes).strip()
             decorators.append(dec_text)
     return decorators
 
@@ -376,7 +388,8 @@ def parse_python_ast(file_path: str, source_code: str) -> Dict[str, Any]:
 
     try:
         source_bytes = source_code.encode("utf-8")
-        tree = _PARSER_PY.parse(source_bytes)
+        with _TS_LOCK:
+            tree = _PARSER_PY.parse(source_bytes)
         root = tree.root_node
     except Exception as e:
         result["parse_error"] = f"TreeSitterPythonError: {str(e)}"
@@ -406,7 +419,7 @@ def parse_python_ast(file_path: str, source_code: str) -> Dict[str, Any]:
 
             for sub in actual_node.children:
                 if sub.type == "identifier":
-                    c_name = source_bytes[sub.start_byte:sub.end_byte].decode("utf-8", errors="replace").strip()
+                    c_name = _node_text(sub, source_bytes).strip()
                 elif sub.type == "block":
                     c_body = sub
 
@@ -444,11 +457,11 @@ def parse_python_ast(file_path: str, source_code: str) -> Dict[str, Any]:
 
                         for s in target.children:
                             if s.type == "identifier":
-                                m_name = source_bytes[s.start_byte:s.end_byte].decode("utf-8", errors="replace").strip()
+                                m_name = _node_text(s, source_bytes).strip()
                             elif s.type == "parameters":
-                                params_str = source_bytes[s.start_byte:s.end_byte].decode("utf-8", errors="replace").strip("()")
+                                params_str = _node_text(s, source_bytes).strip("()")
                             elif s.type == "type":
-                                ret_type = source_bytes[s.start_byte:s.end_byte].decode("utf-8", errors="replace").strip()
+                                ret_type = _node_text(s, source_bytes).strip()
                             elif s.type == "block":
                                 m_body = s
 
@@ -475,7 +488,7 @@ def parse_python_ast(file_path: str, source_code: str) -> Dict[str, Any]:
                         # Thuộc tính class: field_name: Type = value
                         for s in target.children:
                             if s.type == "assignment":
-                                f_text = source_bytes[s.start_byte:s.end_byte].decode("utf-8", errors="replace").strip()
+                                f_text = _node_text(s, source_bytes).strip()
                                 parts = f_text.split("=")
                                 f_left = parts[0].strip()
                                 f_name = f_left.split(":")[0].strip()
@@ -506,11 +519,11 @@ def parse_python_ast(file_path: str, source_code: str) -> Dict[str, Any]:
 
             for sub in actual_node.children:
                 if sub.type == "identifier":
-                    fn_name = source_bytes[sub.start_byte:sub.end_byte].decode("utf-8", errors="replace").strip()
+                    fn_name = _node_text(sub, source_bytes).strip()
                 elif sub.type == "parameters":
-                    fn_params = source_bytes[sub.start_byte:sub.end_byte].decode("utf-8", errors="replace").strip("()")
+                    fn_params = _node_text(sub, source_bytes).strip("()")
                 elif sub.type == "type":
-                    fn_ret = source_bytes[sub.start_byte:sub.end_byte].decode("utf-8", errors="replace").strip()
+                    fn_ret = _node_text(sub, source_bytes).strip()
                 elif sub.type == "block":
                     fn_body = sub
 
@@ -578,8 +591,8 @@ def parse_typescript_ast(file_path: str, source_code: str) -> Dict[str, Any]:
     try:
         source_bytes = source_code.encode("utf-8")
         is_tsx = file_path.endswith(".tsx") or file_path.endswith(".jsx")
-        parser = _PARSER_TSX if is_tsx else _PARSER_TS
-        tree = parser.parse(source_bytes)
+        with _TS_LOCK:
+            tree = (_PARSER_TSX if is_tsx else _PARSER_TS).parse(source_bytes)
         root = tree.root_node
     except Exception as e:
         result["parse_error"] = f"TreeSitterTypeScriptError: {str(e)}"
@@ -608,7 +621,7 @@ def parse_typescript_ast(file_path: str, source_code: str) -> Dict[str, Any]:
 
             for sub in target.children:
                 if sub.type == "type_identifier":
-                    c_name = source_bytes[sub.start_byte:sub.end_byte].decode("utf-8", errors="replace").strip()
+                    c_name = _node_text(sub, source_bytes).strip()
                 elif sub.type == "class_body":
                     c_body = sub
 
@@ -624,13 +637,13 @@ def parse_typescript_ast(file_path: str, source_code: str) -> Dict[str, Any]:
                 for sub in c_body.children:
                     if sub.type in ("method_definition", "public_field_definition"):
                         m_name = ""
-                        m_sig = source_bytes[sub.start_byte:sub.end_byte].decode("utf-8", errors="replace").split("{")[0].strip()
+                        m_sig = _node_text(sub, source_bytes).split("{")[0].strip()
                         m_doc = _extract_prev_comment(c_body, sub, source_bytes)
                         is_ctor = False
 
                         for s in sub.children:
                             if s.type == "property_identifier":
-                                m_name = source_bytes[s.start_byte:s.end_byte].decode("utf-8", errors="replace").strip()
+                                m_name = _node_text(s, source_bytes).strip()
                             elif s.type == "constructor":
                                 is_ctor = True
                                 m_name = c_name
@@ -662,7 +675,7 @@ def parse_typescript_ast(file_path: str, source_code: str) -> Dict[str, Any]:
             i_name = ""
             for sub in target.children:
                 if sub.type == "type_identifier":
-                    i_name = source_bytes[sub.start_byte:sub.end_byte].decode("utf-8", errors="replace").strip()
+                    i_name = _node_text(sub, source_bytes).strip()
             doc = _extract_prev_comment(root, node, source_bytes)
             classes.append({
                 "class_name": i_name,
@@ -676,8 +689,8 @@ def parse_typescript_ast(file_path: str, source_code: str) -> Dict[str, Any]:
             f_name = ""
             for sub in target.children:
                 if sub.type == "identifier":
-                    f_name = source_bytes[sub.start_byte:sub.end_byte].decode("utf-8", errors="replace").strip()
-            f_sig = source_bytes[target.start_byte:target.end_byte].decode("utf-8", errors="replace").split("{")[0].strip()
+                    f_name = _node_text(sub, source_bytes).strip()
+            f_sig = _node_text(target, source_bytes).split("{")[0].strip()
             doc = _extract_prev_comment(root, node, source_bytes)
             methods.append({
                 "entity_type": "FUNCTION",
@@ -730,9 +743,34 @@ def parse_sql_ast(file_path: str, source_code: str) -> Dict[str, Any]:
         "parse_error": None
     }
 
+    if _PARSER_SQL is None:
+        methods = []
+        for idx, stmt in enumerate(source_code.split(";"), start=1):
+            stmt_text = stmt.strip()
+            if not stmt_text:
+                continue
+            m_tbl = re.search(r"CREATE\s+(?:OR\s+REPLACE\s+)?(TABLE|VIEW|FUNCTION|PROCEDURE|INDEX)\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:[\w\"]+\.)?[\"']?(\w+)[\"']?", stmt_text, re.IGNORECASE)
+            if m_tbl:
+                kind = m_tbl.group(1).upper()
+                name = m_tbl.group(2)
+                first_line = stmt_text.splitlines()[0]
+                methods.append({
+                    "entity_type": kind,
+                    "method_name": name,
+                    "class_name": result["class_name"],
+                    "signature": first_line,
+                    "start_line": 1,
+                    "end_line": len(stmt_text.splitlines()),
+                    "doc_status": "UNDOCUMENTED",
+                    "javadoc": f"Đối tượng {kind}: {name}"
+                })
+        result["methods"] = methods
+        return result
+
     try:
         source_bytes = source_code.encode("utf-8")
-        tree = _PARSER_SQL.parse(source_bytes)
+        with _TS_LOCK:
+            tree = _PARSER_SQL.parse(source_bytes)
         root = tree.root_node
     except Exception as e:
         result["parse_error"] = f"TreeSitterSqlError: {str(e)}"
@@ -744,7 +782,7 @@ def parse_sql_ast(file_path: str, source_code: str) -> Dict[str, Any]:
     # Duyệt các câu lệnh DDL trong SQL
     for child in root.children:
         if child.type in ("statement", "create_table_statement", "create_view_statement"):
-            stmt_text = source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace").strip()
+            stmt_text = _node_text(child, source_bytes).strip()
             comment = _extract_prev_comment(root, child, source_bytes)
             start_l = child.start_point.row + 1
             end_l = child.end_point.row + 1
