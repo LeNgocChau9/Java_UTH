@@ -36,8 +36,13 @@ public class CodeIndexService implements CodeIndexServicePort {
             CodeEntityRepositoryPort codeEntityRepository,
             @Value("${ai.engine.url:http://localhost:8000}") String aiEngineUrl) {
         this.codeEntityRepository = codeEntityRepository;
+        java.net.http.HttpClient httpClient = java.net.http.HttpClient.newBuilder()
+                .version(java.net.http.HttpClient.Version.HTTP_1_1)
+                .connectTimeout(java.time.Duration.ofSeconds(10))
+                .build();
         this.restClient = RestClient.builder()
                 .baseUrl(aiEngineUrl)
+                .requestFactory(new org.springframework.http.client.JdkClientHttpRequestFactory(httpClient))
                 .build();
     }
 
