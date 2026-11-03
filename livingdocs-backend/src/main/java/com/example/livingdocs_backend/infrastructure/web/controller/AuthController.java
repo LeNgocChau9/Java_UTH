@@ -47,6 +47,7 @@ public class AuthController {
     private final SpringDataGitHubConnectionRepository gitHubConnectionRepository;
     private final SpringDataRepositoryRepository repositoryRepository;
     private final com.example.livingdocs_backend.application.port.RepositoryServicePort repositoryServicePort;
+    private final com.example.livingdocs_backend.application.port.AdminUserServicePort adminUserServicePort;
     private final com.example.livingdocs_backend.domain.repository.UserRepositoryPort userRepositoryPort;
     private final com.example.livingdocs_backend.infrastructure.security.JwtTokenProvider jwtTokenProvider;
 
@@ -65,6 +66,14 @@ public class AuthController {
     @Operation(summary = "Đăng nhập hệ thống", description = "Xác thực email và mật khẩu bằng BCrypt, trả về JWT Access Token")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
         AuthResponse response = authServicePort.login(request);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/auth/forgot-password")
+    @Operation(summary = "Gửi yêu cầu quên mật khẩu đến quyền ADMIN", description = "Người dùng nhập email khi quên mật khẩu, hệ thống chuyển yêu cầu này đến danh sách chờ Admin phê duyệt và cấp lại.")
+    public ResponseEntity<com.example.livingdocs_backend.application.dto.PasswordResetRequestResponse> forgotPassword(
+            @Valid @RequestBody com.example.livingdocs_backend.application.dto.ForgotPasswordRequest request) {
+        com.example.livingdocs_backend.application.dto.PasswordResetRequestResponse response = adminUserServicePort.requestPasswordReset(request);
         return ResponseEntity.ok(response);
     }
 
