@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
+import { refreshSession } from "@/services/authService";
 import {
   repoService,
   RepoItem,
@@ -140,6 +141,12 @@ export default function RepoManagementPage() {
     try {
       setSyncingId(repo.repositoryId);
       setSyncMessage(null);
+      // Tự động gia hạn phiên ngầm trước khi quét/đồng bộ
+      try {
+        await refreshSession();
+      } catch (refErr) {
+        console.warn("Silent session refresh before sync:", refErr);
+      }
       const result: SyncResult = await repoService.syncRepository(repo.repositoryId);
       setSyncMessage({
         id: repo.repositoryId,

@@ -30,307 +30,6 @@ import {
   Key,
 } from "lucide-react";
 
-// Dữ liệu fallback chuẩn 5 file Java trong demo-samples khi backend chưa kết nối DB
-const DEMO_SAMPLES_ENTITIES: Record<string, CodeEntityDto[]> = {
-  "src/com/example/demo/controller/OrderController.java": [
-    {
-      repositoryId: 1,
-      filePath: "src/com/example/demo/controller/OrderController.java",
-      entityType: "CLASS",
-      className: "OrderController",
-      signature: "public class OrderController",
-      startLine: 15,
-      endLine: 75,
-      docStatus: "DOCUMENTED",
-      javadoc: "Controller xử lý các REST API liên quan đến quản lý đơn hàng.",
-    },
-    {
-      repositoryId: 1,
-      filePath: "src/com/example/demo/controller/OrderController.java",
-      entityType: "CONSTRUCTOR",
-      className: "OrderController",
-      methodName: "OrderController",
-      signature:
-        "public OrderController(PaymentService paymentService, UserService userService, NotificationService notificationService)",
-      parameters:
-        "PaymentService paymentService, UserService userService, NotificationService notificationService",
-      startLine: 21,
-      endLine: 25,
-      docStatus: "UNDOCUMENTED",
-    },
-    {
-      repositoryId: 1,
-      filePath: "src/com/example/demo/controller/OrderController.java",
-      entityType: "METHOD",
-      className: "OrderController",
-      methodName: "createOrder",
-      signature:
-        "public Order createOrder(String userId, BigDecimal amount, String paymentMethod)",
-      returnType: "Order",
-      parameters: "String userId, BigDecimal amount, String paymentMethod",
-      startLine: 35,
-      endLine: 52,
-      docStatus: "DOCUMENTED",
-      javadoc:
-        "Tiếp nhận yêu cầu tạo đơn hàng mới và thực hiện thanh toán tự động.\n@param userId Mã người dùng đặt hàng\n@param amount Tổng số tiền đơn hàng\n@param paymentMethod Phương thức thanh toán (VIETQR, CREDIT_CARD)\n@return Order Đối tượng đơn hàng sau khi tạo và xử lý thanh toán",
-    },
-    {
-      repositoryId: 1,
-      filePath: "src/com/example/demo/controller/OrderController.java",
-      entityType: "METHOD",
-      className: "OrderController",
-      methodName: "getOrderDetails",
-      signature: "public Order getOrderDetails(String orderId)",
-      returnType: "Order",
-      parameters: "String orderId",
-      startLine: 60,
-      endLine: 63,
-      docStatus: "DOCUMENTED",
-      javadoc:
-        "Tra cứu thông tin chi tiết của một đơn hàng.\n@param orderId Mã định danh đơn hàng cần tìm\n@return Order Đối tượng đơn hàng hoặc null nếu không tìm thấy",
-    },
-    {
-      repositoryId: 1,
-      filePath: "src/com/example/demo/controller/OrderController.java",
-      entityType: "METHOD",
-      className: "OrderController",
-      methodName: "cancelOrder",
-      signature: "public boolean cancelOrder(String orderId, String reason)",
-      returnType: "boolean",
-      parameters: "String orderId, String reason",
-      startLine: 72,
-      endLine: 74,
-      docStatus: "DOCUMENTED",
-      javadoc:
-        "Hủy đơn hàng và kích hoạt hoàn tiền nếu đơn đã thanh toán.\n@param orderId Mã đơn hàng cần hủy\n@param reason Lý do hủy đơn\n@return boolean Trả về true nếu hủy thành công",
-    },
-  ],
-  "src/com/example/demo/model/Order.java": [
-    {
-      repositoryId: 1,
-      filePath: "src/com/example/demo/model/Order.java",
-      entityType: "CLASS",
-      className: "Order",
-      signature: "public class Order",
-      startLine: 9,
-      endLine: 66,
-      docStatus: "UNDOCUMENTED",
-    },
-    {
-      repositoryId: 1,
-      filePath: "src/com/example/demo/model/Order.java",
-      entityType: "CONSTRUCTOR",
-      className: "Order",
-      methodName: "Order",
-      signature: "public Order()",
-      startLine: 16,
-      endLine: 17,
-      docStatus: "UNDOCUMENTED",
-    },
-    {
-      repositoryId: 1,
-      filePath: "src/com/example/demo/model/Order.java",
-      entityType: "CONSTRUCTOR",
-      className: "Order",
-      methodName: "Order",
-      signature:
-        "public Order(String orderId, String userId, BigDecimal totalAmount, String status, LocalDateTime createdAt)",
-      parameters:
-        "String orderId, String userId, BigDecimal totalAmount, String status, LocalDateTime createdAt",
-      startLine: 19,
-      endLine: 25,
-      docStatus: "UNDOCUMENTED",
-    },
-    {
-      repositoryId: 1,
-      filePath: "src/com/example/demo/model/Order.java",
-      entityType: "METHOD",
-      className: "Order",
-      methodName: "getOrderId",
-      signature: "public String getOrderId()",
-      returnType: "String",
-      startLine: 27,
-      endLine: 29,
-      docStatus: "UNDOCUMENTED",
-    },
-    {
-      repositoryId: 1,
-      filePath: "src/com/example/demo/model/Order.java",
-      entityType: "METHOD",
-      className: "Order",
-      methodName: "setOrderId",
-      signature: "public void setOrderId(String orderId)",
-      returnType: "void",
-      parameters: "String orderId",
-      startLine: 31,
-      endLine: 33,
-      docStatus: "UNDOCUMENTED",
-    },
-    {
-      repositoryId: 1,
-      filePath: "src/com/example/demo/model/Order.java",
-      entityType: "METHOD",
-      className: "Order",
-      methodName: "getTotalAmount",
-      signature: "public BigDecimal getTotalAmount()",
-      returnType: "BigDecimal",
-      startLine: 43,
-      endLine: 45,
-      docStatus: "UNDOCUMENTED",
-    },
-    {
-      repositoryId: 1,
-      filePath: "src/com/example/demo/model/Order.java",
-      entityType: "METHOD",
-      className: "Order",
-      methodName: "getStatus",
-      signature: "public String getStatus()",
-      returnType: "String",
-      startLine: 51,
-      endLine: 53,
-      docStatus: "UNDOCUMENTED",
-    },
-  ],
-  "src/com/example/demo/service/NotificationService.java": [
-    {
-      repositoryId: 1,
-      filePath: "src/com/example/demo/service/NotificationService.java",
-      entityType: "CLASS",
-      className: "NotificationService",
-      signature: "public class NotificationService",
-      startLine: 7,
-      endLine: 38,
-      docStatus: "DOCUMENTED",
-      javadoc: "Service phụ trách gửi thông báo cho khách hàng qua Email và Zalo.",
-    },
-    {
-      repositoryId: 1,
-      filePath: "src/com/example/demo/service/NotificationService.java",
-      entityType: "METHOD",
-      className: "NotificationService",
-      methodName: "sendEmail",
-      signature:
-        "public boolean sendEmail(String recipientEmail, String subject, String content)",
-      returnType: "boolean",
-      parameters: "String recipientEmail, String subject, String content",
-      startLine: 16,
-      endLine: 22,
-      docStatus: "DOCUMENTED",
-      javadoc:
-        "Gửi email thông báo đơn hàng hoặc cập nhật trạng thái.\n@param recipientEmail Địa chỉ email người nhận\n@param subject Tiêu đề thư\n@param content Nội dung thông báo\n@return boolean Trả về true nếu gửi thành công",
-    },
-    {
-      repositoryId: 1,
-      filePath: "src/com/example/demo/service/NotificationService.java",
-      entityType: "METHOD",
-      className: "NotificationService",
-      methodName: "sendZaloNotification",
-      signature: "public boolean sendZaloNotification(String zaloUserId, String message)",
-      returnType: "boolean",
-      parameters: "String zaloUserId, String message",
-      startLine: 31,
-      endLine: 37,
-      docStatus: "DOCUMENTED",
-      javadoc: "Gửi tin nhắn Zalo ZNS chăm sóc khách hàng.",
-    },
-  ],
-  "src/com/example/demo/service/PaymentService.java": [
-    {
-      repositoryId: 1,
-      filePath: "src/com/example/demo/service/PaymentService.java",
-      entityType: "CLASS",
-      className: "PaymentService",
-      signature: "public class PaymentService",
-      startLine: 8,
-      endLine: 40,
-      docStatus: "DOCUMENTED",
-      javadoc: "Service tích hợp cổng thanh toán trực tuyến (VietQR, Thẻ quốc tế).",
-    },
-    {
-      repositoryId: 1,
-      filePath: "src/com/example/demo/service/PaymentService.java",
-      entityType: "METHOD",
-      className: "PaymentService",
-      methodName: "processPayment",
-      signature: "public boolean processPayment(Order order, String paymentMethod)",
-      returnType: "boolean",
-      parameters: "Order order, String paymentMethod",
-      startLine: 18,
-      endLine: 25,
-      docStatus: "DOCUMENTED",
-      javadoc:
-        "Xử lý giao dịch thanh toán cho một đơn hàng cụ thể.\n@param order Đơn hàng cần thanh toán\n@param paymentMethod Phương thức thanh toán\n@return boolean True nếu thanh toán thành công",
-    },
-    {
-      repositoryId: 1,
-      filePath: "src/com/example/demo/service/PaymentService.java",
-      entityType: "METHOD",
-      className: "PaymentService",
-      methodName: "refundPayment",
-      signature: "public boolean refundPayment(String orderId, String reason)",
-      returnType: "boolean",
-      parameters: "String orderId, String reason",
-      startLine: 34,
-      endLine: 39,
-      docStatus: "DOCUMENTED",
-      javadoc: "Kích hoạt hoàn tiền khi đơn hàng bị hủy bỏ.",
-    },
-  ],
-  "src/com/example/demo/service/UserService.java": [
-    {
-      repositoryId: 1,
-      filePath: "src/com/example/demo/service/UserService.java",
-      entityType: "CLASS",
-      className: "UserService",
-      signature: "public class UserService",
-      startLine: 8,
-      endLine: 44,
-      docStatus: "DOCUMENTED",
-      javadoc: "Service quản lý thông tin người dùng và định danh tài khoản.",
-    },
-    {
-      repositoryId: 1,
-      filePath: "src/com/example/demo/service/UserService.java",
-      entityType: "CONSTRUCTOR",
-      className: "UserService",
-      methodName: "UserService",
-      signature: "public UserService()",
-      startLine: 13,
-      endLine: 16,
-      docStatus: "UNDOCUMENTED",
-    },
-    {
-      repositoryId: 1,
-      filePath: "src/com/example/demo/service/UserService.java",
-      entityType: "METHOD",
-      className: "UserService",
-      methodName: "findEmailById",
-      signature: "public String findEmailById(String userId)",
-      returnType: "String",
-      parameters: "String userId",
-      startLine: 24,
-      endLine: 29,
-      docStatus: "DOCUMENTED",
-      javadoc:
-        "Tìm kiếm email của khách hàng theo mã định danh tài khoản.\n@param userId Mã tài khoản người dùng\n@return String Email khách hàng hoặc null",
-    },
-    {
-      repositoryId: 1,
-      filePath: "src/com/example/demo/service/UserService.java",
-      entityType: "METHOD",
-      className: "UserService",
-      methodName: "authenticate",
-      signature: "public boolean authenticate(String email, String password)",
-      returnType: "boolean",
-      parameters: "String email, String password",
-      startLine: 38,
-      endLine: 43,
-      docStatus: "DOCUMENTED",
-      javadoc: "Xác thực danh tính người dùng bằng email và mật khẩu.",
-    },
-  ],
-};
-
 // Cấu trúc node cây thư mục
 interface FileTreeNode {
   id: string;
@@ -504,6 +203,12 @@ export default function SourceTreePage() {
     async function loadRepoEntities() {
       setLoading(true);
       try {
+        // Tự động gia hạn phiên ngầm khi quét / tải kho lưu trữ
+        try {
+          await refreshSession();
+        } catch {
+          // ignore
+        }
         let realFiles: string[] = [];
         try {
           const treeItems = await repoService.getRepositoryTree(selectedRepo!.repositoryId);
@@ -517,6 +222,26 @@ export default function SourceTreePage() {
           }
         } catch {
           setGitTreeFiles([]);
+        }
+
+        // Nếu backend chưa có hoặc trả về rỗng, thử tải trực tiếp từ GitHub Public Git Tree API cho đúng repo đang chọn
+        if (realFiles.length === 0 && selectedRepo?.repoFullName) {
+          try {
+            const repoFullName = selectedRepo.repoFullName;
+            const branch = selectedRepo.defaultBranch || "main";
+            const ghRes = await fetch(`https://api.github.com/repos/${repoFullName}/git/trees/${branch}?recursive=1`);
+            if (ghRes.ok) {
+              const ghData = await ghRes.json();
+              if (ghData && ghData.tree && Array.isArray(ghData.tree)) {
+                realFiles = ghData.tree
+                  .filter((item: any) => item.type === "blob" || item.path?.includes("."))
+                  .map((item: any) => item.path);
+                setGitTreeFiles(realFiles);
+              }
+            }
+          } catch {
+            // ignore
+          }
         }
 
         const data = await codeEntityService.getByRepository(selectedRepo!.repositoryId);
@@ -575,16 +300,14 @@ export default function SourceTreePage() {
           // ignore
         }
 
-        // 3. Nếu là file mẫu demo
-        if (DEMO_SAMPLES_ENTITIES[selectedFile]) {
-          setEntities(DEMO_SAMPLES_ENTITIES[selectedFile]);
+        // 3. Trích xuất phần tử cho MỌI LOẠI FILE (Java, Python, JS/TS, SQL, YAML, JSON, ENV...)
+        // Bằng cách tải mã nguồn từ GitHub Raw và phân tích qua Universal AST Parser
+        const repoFullName = selectedRepo?.repoFullName;
+        if (!repoFullName) {
+          setEntities([]);
           setLoading(false);
           return;
         }
-
-        // 4. Trích xuất phần tử cho MỌI LOẠI FILE (Java, Python, JS/TS, SQL, YAML, JSON, ENV...)
-        // Bằng cách tải mã nguồn từ GitHub Raw và phân tích qua Universal AST Parser
-        const repoFullName = selectedRepo?.repoFullName || "LeNgocChau9/Java_UTH";
         const branch = selectedRepo?.defaultBranch || "main";
         const rawUrl = `https://raw.githubusercontent.com/${repoFullName}/${branch}/${selectedFile}`;
 
@@ -661,9 +384,7 @@ export default function SourceTreePage() {
             fullPath: currentPath,
             isFolder: !isFile,
             children: isFile ? undefined : [],
-            entityCount: isFile
-              ? DEMO_SAMPLES_ENTITIES[currentPath]?.length || 0
-              : 0,
+            entityCount: isFile ? (entityCounts[currentPath] || 0) : 0,
           };
         }
         if (!isFile) {
@@ -695,7 +416,7 @@ export default function SourceTreePage() {
               fullPath,
               isFolder: !isFile,
               children: isFile ? undefined : [],
-              entityCount: isFile ? (entityCounts[p] || DEMO_SAMPLES_ENTITIES[p]?.length || 0) : 0,
+              entityCount: isFile ? (entityCounts[p] || 0) : 0,
             };
             currentArr.push(existing);
           }
@@ -851,8 +572,12 @@ export default function SourceTreePage() {
                 );
                 if (r) {
                   setSelectedRepo(r);
-                  setHasChangedRepo(true); // Bật nút đồng bộ khi chuyển repository
-                  setOpenFolders({}); // Reset trạng thái mở thư mục theo đúng cây của repo mới
+                  setGitTreeFiles([]);
+                  setRepoEntities([]);
+                  setEntities([]);
+                  setSelectedFile("");
+                  setHasChangedRepo(true);
+                  setOpenFolders({});
                 }
               }}
               className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 shadow-sm focus:border-emerald-500 focus:outline-none"
@@ -914,7 +639,22 @@ export default function SourceTreePage() {
             </div>
 
             <div className="flex-1 overflow-y-auto pr-1 select-none">
-              {renderTree(treeData)}
+              {treeData.length > 0 ? (
+                renderTree(treeData)
+              ) : loading ? (
+                <div className="flex h-40 flex-col items-center justify-center gap-2 text-xs text-slate-400">
+                  <RefreshCw size={16} className="animate-spin text-emerald-600" />
+                  <span>Đang tải cây thư mục từ GitHub...</span>
+                </div>
+              ) : (
+                <div className="flex h-56 flex-col items-center justify-center p-6 text-center">
+                  <FolderOpen size={32} className="text-slate-300 mb-2" />
+                  <p className="text-xs font-semibold text-slate-700">Chưa có cây mã nguồn</p>
+                  <p className="text-[11px] text-slate-400 mt-1 max-w-[220px] leading-relaxed">
+                    Kho lưu trữ này chưa có dữ liệu cây thư mục. Nhấn nút <b>&quot;Đồng bộ cây&quot;</b> ở trên để tải cấu trúc file thực tế từ GitHub.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 

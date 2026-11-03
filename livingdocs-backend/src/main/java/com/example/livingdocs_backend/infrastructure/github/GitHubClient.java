@@ -55,6 +55,28 @@ public class GitHubClient implements GitHubClientPort {
         this.restClient = restClient;
     }
 
+    private List<GitHubFileDto> fetchGitTreeResponse(String token, String uri) {
+        GitTreeResponse response = executeWithAuth(token, uri)
+                .accept(MediaType.APPLICATION_JSON)
+                .retrieve()
+                .body(GitTreeResponse.class);
+
+        if (response == null || response.tree() == null) {
+            return Collections.emptyList();
+        }
+
+        return response.tree().stream()
+                .map(item -> GitHubFileDto.builder()
+                        .path(item.path())
+                        .mode(item.mode())
+                        .type(item.type())
+                        .sha(item.sha())
+                        .size(item.size())
+                        .url(item.url())
+                        .build())
+                .toList();
+    }
+
     @Override
     public List<GitHubFileDto> getRepositoryTree(String token, String owner, String repo, String treeSha,
             boolean recursive) {
@@ -65,27 +87,17 @@ public class GitHubClient implements GitHubClientPort {
                 .toUriString();
 
         try {
-            GitTreeResponse response = executeWithAuth(token, uri)
-                    .accept(MediaType.APPLICATION_JSON)
-                    .retrieve()
-                    .body(GitTreeResponse.class);
-
-            if (response == null || response.tree() == null) {
-                return Collections.emptyList();
-            }
-
-            return response.tree().stream()
-                    .map(item -> GitHubFileDto.builder()
-                            .path(item.path())
-                            .mode(item.mode())
-                            .type(item.type())
-                            .sha(item.sha())
-                            .size(item.size())
-                            .url(item.url())
-                            .build())
-                    .toList();
-
+            return fetchGitTreeResponse(token, uri);
         } catch (Exception ex) {
+            // Tự động thử lại không token nếu token cũ bị 401 Bad credentials (áp dụng cho Public repository)
+            if (StringUtils.hasText(token) && ex.getMessage() != null && ex.getMessage().contains("401")) {
+                try {
+                    log.info("Token GitHub bị 401 Bad credentials cho {}/{}. Tự động fallback sang chế độ Public (anonymous)...", owner, repo);
+                    return fetchGitTreeResponse(null, uri);
+                } catch (Exception ex2) {
+                    log.warn("Thử lại chế độ Public cho {}/{} thất bại: {}", owner, repo, ex2.getMessage());
+                }
+            }
             log.warn("Không thể lấy cây git tree từ GitHub API cho {}/{}: {}. Trả về rỗng thay vì throw 500.", owner,
                     repo, ex.getMessage());
             return Collections.emptyList();
@@ -121,60 +133,91 @@ public class GitHubClient implements GitHubClientPort {
     @Override
     public List<GitHubPullRequestDto> listPullRequests(String token, String owner, String repo, String state) {
         String targetState = StringUtils.hasText(state) ? state : "open";
+        try {
+            return doFetchPullRequests(token, owner, repo, targetState);
+        } catch (RestClientResponseException ex) {
+            if (StringUtils.hasText(token) && ex.getStatusCode().value() == 401) {
+                try {
+                    log.info("Token GitHub bị 401 khi lấy PR cho {}/{}. Tự động fallback sang chế độ Public (anonymous)...", owner, repo);
+                    return doFetchPullRequests(null, owner, repo, targetState);
+                } catch (Exception ex2) {
+                    log.warn("Thử lại lấy PR chế độ Public thất bại: {}", ex2.getMessage());
+                }
+            }
+            handleErrorResponse(ex, "listPullRequests (" + owner + "/" + repo + ")");
+            return Collections.emptyList();
+        } catch (Exception ex) {
+            log.warn("Lỗi khi lấy danh sách PR của {}/{}: {}. Trả về rỗng.", owner, repo, ex.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    private List<GitHubPullRequestDto> doFetchPullRequests(String token, String owner, String repo, String targetState) {
         String uri = UriComponentsBuilder.fromPath("/repos/{owner}/{repo}/pulls")
                 .queryParam("state", targetState)
                 .queryParam("per_page", 100)
                 .buildAndExpand(owner, repo)
                 .toUriString();
 
-        try {
-            List<GitPullResponse> list = executeWithAuth(token, uri)
+        List<GitPullResponse> list = executeWithAuth(token, uri)
+                .accept(MediaType.APPLICATION_JSON)
+                .retrieve()
+                .body(new ParameterizedTypeReference<List<GitPullResponse>>() {
+                });
+
+        if (list == null) {
+            return Collections.emptyList();
+        }
+
+        java.util.List<GitPullResponse> allPulls = new java.util.ArrayList<>(list);
+        int page = 2;
+        while (list.size() == 100 && page <= 10) {
+            String nextUri = UriComponentsBuilder.fromPath("/repos/{owner}/{repo}/pulls")
+                    .queryParam("state", targetState)
+                    .queryParam("per_page", 100)
+                    .queryParam("page", page)
+                    .buildAndExpand(owner, repo)
+                    .toUriString();
+            list = executeWithAuth(token, nextUri)
                     .accept(MediaType.APPLICATION_JSON)
                     .retrieve()
                     .body(new ParameterizedTypeReference<List<GitPullResponse>>() {
                     });
-
-            if (list == null) {
-                return Collections.emptyList();
+            if (list == null || list.isEmpty()) {
+                break;
             }
-
-            java.util.List<GitPullResponse> allPulls = new java.util.ArrayList<>(list);
-            int page = 2;
-            while (list.size() == 100 && page <= 10) {
-                String nextUri = UriComponentsBuilder.fromPath("/repos/{owner}/{repo}/pulls")
-                        .queryParam("state", targetState)
-                        .queryParam("per_page", 100)
-                        .queryParam("page", page)
-                        .buildAndExpand(owner, repo)
-                        .toUriString();
-                list = executeWithAuth(token, nextUri)
-                        .accept(MediaType.APPLICATION_JSON)
-                        .retrieve()
-                        .body(new ParameterizedTypeReference<List<GitPullResponse>>() {
-                        });
-                if (list == null || list.isEmpty()) {
-                    break;
-                }
-                allPulls.addAll(list);
-                page++;
-            }
-
-            return allPulls.stream()
-                    .map(this::mapToPullRequestDto)
-                    .toList();
-        } catch (RestClientResponseException ex) {
-            handleErrorResponse(ex, "listPullRequests (" + owner + "/" + repo + ")");
-            return Collections.emptyList();
-        } catch (Exception ex) {
-            log.error("Lỗi khi lấy danh sách PR của {}/{}: {}", owner, repo, ex.getMessage(), ex);
-            throw new GitHubApiException("Lỗi khi lấy danh sách PR của " + owner + "/" + repo + ": " + ex.getMessage(),
-                    500, ex);
+            allPulls.addAll(list);
+            page++;
         }
+
+        return allPulls.stream()
+                .map(this::mapToPullRequestDto)
+                .toList();
     }
 
     @Override
     public List<GitHubCommitDto> listCommits(String token, String owner, String repo, String sha, int limit) {
         int perPage = (limit > 0 && limit <= 100) ? limit : 30;
+        try {
+            return doFetchCommits(token, owner, repo, sha, perPage);
+        } catch (RestClientResponseException ex) {
+            if (StringUtils.hasText(token) && ex.getStatusCode().value() == 401) {
+                try {
+                    log.info("Token GitHub bị 401 khi lấy Commits cho {}/{}. Tự động fallback sang chế độ Public (anonymous)...", owner, repo);
+                    return doFetchCommits(null, owner, repo, sha, perPage);
+                } catch (Exception ex2) {
+                    log.warn("Thử lại lấy Commits chế độ Public thất bại: {}", ex2.getMessage());
+                }
+            }
+            handleErrorResponse(ex, "listCommits (" + owner + "/" + repo + ")");
+            return Collections.emptyList();
+        } catch (Exception ex) {
+            log.warn("Lỗi khi lấy commits của {}/{}: {}. Trả về rỗng.", owner, repo, ex.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    private List<GitHubCommitDto> doFetchCommits(String token, String owner, String repo, String sha, int perPage) {
         UriComponentsBuilder builder = UriComponentsBuilder.fromPath("/repos/{owner}/{repo}/commits")
                 .queryParam("per_page", perPage);
         if (StringUtils.hasText(sha)) {
@@ -182,72 +225,63 @@ public class GitHubClient implements GitHubClientPort {
         }
         String uri = builder.buildAndExpand(owner, repo).toUriString();
 
-        try {
-            List<GitCommitResponse> commits = executeWithAuth(token, uri)
+        List<GitCommitResponse> commits = executeWithAuth(token, uri)
+                .accept(MediaType.APPLICATION_JSON)
+                .retrieve()
+                .body(new ParameterizedTypeReference<List<GitCommitResponse>>() {
+                });
+
+        if (commits == null) {
+            return Collections.emptyList();
+        }
+
+        java.util.List<GitCommitResponse> allCommits = new java.util.ArrayList<>(commits);
+        int page = 2;
+        while (perPage == 100 && commits.size() == 100 && page <= 10) {
+            UriComponentsBuilder nextBuilder = UriComponentsBuilder.fromPath("/repos/{owner}/{repo}/commits")
+                    .queryParam("per_page", 100)
+                    .queryParam("page", page);
+            if (StringUtils.hasText(sha)) {
+                nextBuilder.queryParam("sha", sha);
+            }
+            String nextUri = nextBuilder.buildAndExpand(owner, repo).toUriString();
+            commits = executeWithAuth(token, nextUri)
                     .accept(MediaType.APPLICATION_JSON)
                     .retrieve()
                     .body(new ParameterizedTypeReference<List<GitCommitResponse>>() {
                     });
-
-            if (commits == null) {
-                return Collections.emptyList();
+            if (commits == null || commits.isEmpty()) {
+                break;
             }
-
-            java.util.List<GitCommitResponse> allCommits = new java.util.ArrayList<>(commits);
-            int page = 2;
-            while (perPage == 100 && commits.size() == 100 && page <= 10) {
-                UriComponentsBuilder nextBuilder = UriComponentsBuilder.fromPath("/repos/{owner}/{repo}/commits")
-                        .queryParam("per_page", 100)
-                        .queryParam("page", page);
-                if (StringUtils.hasText(sha)) {
-                    nextBuilder.queryParam("sha", sha);
-                }
-                String nextUri = nextBuilder.buildAndExpand(owner, repo).toUriString();
-                commits = executeWithAuth(token, nextUri)
-                        .accept(MediaType.APPLICATION_JSON)
-                        .retrieve()
-                        .body(new ParameterizedTypeReference<List<GitCommitResponse>>() {
-                        });
-                if (commits == null || commits.isEmpty()) {
-                    break;
-                }
-                allCommits.addAll(commits);
-                page++;
-            }
-
-            return allCommits.stream()
-                    .map(c -> {
-                        GitCommitDetail detail = c.commit();
-                        List<String> parents = c.parents() != null
-                                ? c.parents().stream().map(GitParent::sha).toList()
-                                : Collections.emptyList();
-
-                        return GitHubCommitDto.builder()
-                                .sha(c.sha())
-                                .message(detail != null ? detail.message() : null)
-                                .authorName(detail != null && detail.author() != null ? detail.author().name() : null)
-                                .authorEmail(detail != null && detail.author() != null ? detail.author().email() : null)
-                                .authorDate(detail != null && detail.author() != null ? detail.author().date() : null)
-                                .committerName(
-                                        detail != null && detail.committer() != null ? detail.committer().name() : null)
-                                .committerEmail(
-                                        detail != null && detail.committer() != null ? detail.committer().email()
-                                                : null)
-                                .committerDate(
-                                        detail != null && detail.committer() != null ? detail.committer().date() : null)
-                                .htmlUrl(c.htmlUrl())
-                                .parentShas(parents)
-                                .build();
-                    })
-                    .toList();
-        } catch (RestClientResponseException ex) {
-            handleErrorResponse(ex, "listCommits (" + owner + "/" + repo + ")");
-            return Collections.emptyList();
-        } catch (Exception ex) {
-            log.error("Lỗi khi lấy danh sách commit của {}/{}: {}", owner, repo, ex.getMessage(), ex);
-            throw new GitHubApiException(
-                    "Lỗi khi lấy danh sách commit của " + owner + "/" + repo + ": " + ex.getMessage(), 500, ex);
+            allCommits.addAll(commits);
+            page++;
         }
+
+        return allCommits.stream()
+                .map(c -> {
+                    GitCommitDetail detail = c.commit();
+                    List<String> parents = c.parents() != null
+                            ? c.parents().stream().map(GitParent::sha).toList()
+                            : Collections.emptyList();
+
+                    return GitHubCommitDto.builder()
+                            .sha(c.sha())
+                            .message(detail != null ? detail.message() : null)
+                            .authorName(detail != null && detail.author() != null ? detail.author().name() : null)
+                            .authorEmail(detail != null && detail.author() != null ? detail.author().email() : null)
+                            .authorDate(detail != null && detail.author() != null ? detail.author().date() : null)
+                            .committerName(
+                                    detail != null && detail.committer() != null ? detail.committer().name() : null)
+                            .committerEmail(
+                                    detail != null && detail.committer() != null ? detail.committer().email()
+                                            : null)
+                            .committerDate(
+                                    detail != null && detail.committer() != null ? detail.committer().date() : null)
+                            .htmlUrl(c.htmlUrl())
+                            .parentShas(parents)
+                            .build();
+                })
+                .toList();
     }
 
     @Override
