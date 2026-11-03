@@ -1,5 +1,6 @@
 package com.example.livingdocs_backend;
 
+import com.example.livingdocs_backend.application.dto.drift.ApplySuggestionRequestDto;
 import com.example.livingdocs_backend.application.dto.drift.AutoDraftOnDriftResponse;
 import com.example.livingdocs_backend.application.port.AuditServicePort;
 import com.example.livingdocs_backend.application.port.AutoDraftServicePort;
@@ -9,9 +10,11 @@ import com.example.livingdocs_backend.domain.model.DocumentStatus;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentChangeAlertEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentVersionEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.ReviewEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentChangeAlertRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentVersionRepository;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataReviewRepository;
 import com.example.livingdocs_backend.infrastructure.security.UserPrincipal;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -42,6 +45,9 @@ class AutoDraftServiceTest {
     private SpringDataDocumentVersionRepository documentVersionRepository;
 
     @Mock
+    private SpringDataReviewRepository reviewRepository;
+
+    @Mock
     private AuditServicePort auditServicePort;
 
     @Mock
@@ -63,6 +69,7 @@ class AutoDraftServiceTest {
                 alertRepository,
                 documentRepository,
                 documentVersionRepository,
+                reviewRepository,
                 auditServicePort,
                 changelogServicePort,
                 restClient
@@ -102,7 +109,7 @@ class AutoDraftServiceTest {
     }
 
     @Test
-    @DisplayName("Tự động sinh bản nháp DRAFT cho cảnh báo drift thành công")
+    @DisplayName("Tự động sinh bản nháp khi phát hiện Trôi dạt (Auto-Draft): trạng thái PENDING_REVIEW, actor AI_AGENT và gửi hàng đợi xem xét")
     void generateDraftFromAlert_success() {
         when(alertRepository.findById(50L)).thenReturn(Optional.of(testAlert));
         when(documentRepository.findById(10L)).thenReturn(Optional.of(testDoc));
@@ -115,12 +122,21 @@ class AutoDraftServiceTest {
                 .content("# OrderService API\n## processPayment(Long id, Double amount, String currency)")
                 .hash("hash2")
                 .prevHash("hash1")
-                .actorRole("AI")
+                .actorRole("AI_AGENT")
                 .triggerType("AUTO_DRIFT_AI_REWRITE")
                 .createdAt(Instant.now())
                 .build();
 
         when(documentVersionRepository.save(any(DocumentVersionEntity.class))).thenReturn(savedDraftVersion);
+
+        ReviewEntity savedReview = ReviewEntity.builder()
+                .reviewId(200L)
+                .docId(10L)
+                .versionId(101L)
+                .reviewer("AI_AGENT")
+                .result("PENDING")
+                .build();
+        when(reviewRepository.save(any(ReviewEntity.class))).thenReturn(savedReview);
 
         AutoDraftOnDriftResponse response = autoDraftService.generateDraftFromAlert(50L, testActor);
 
@@ -129,18 +145,76 @@ class AutoDraftServiceTest {
         assertEquals(10L, response.getDocumentId());
         assertEquals(101L, response.getVersionId());
         assertEquals(2, response.getVersionNum());
-        assertEquals("DRAFT", response.getStatus());
-        assertEquals("AI", response.getActorRole());
+        assertEquals("PENDING_REVIEW", response.getStatus());
+        assertEquals("AI_AGENT", response.getActorRole());
+        assertEquals(200L, response.getReviewId());
+        assertEquals("PENDING", response.getReviewStatus());
 
         // Kiểm tra alert được cập nhật liên kết draftVersionId
         verify(alertRepository).save(argThat(a -> a.getDraftVersionId().equals(101L)));
 
-        // Kiểm tra changelog được ghi nhận
-        verify(changelogServicePort).logChange(eq(10L), eq(101L), eq(1L), eq("AI"), anyString());
+        // Kiểm tra document chuyển trạng thái UNDER_REVIEW_STAFF
+        assertEquals(DocumentStatus.UNDER_REVIEW_STAFF, testDoc.getStatus());
+        verify(documentRepository).save(testDoc);
+
+        // Kiểm tra changelog được ghi nhận với actor AI_AGENT
+        verify(changelogServicePort).logChange(eq(10L), eq(101L), eq(1L), eq("AI_AGENT"), anyString());
+
+        // Kiểm tra review queue được lưu
+        verify(reviewRepository).save(argThat(r -> "AI_AGENT".equals(r.getReviewer()) && "PENDING".equals(r.getResult())));
     }
 
     @Test
-    @DisplayName("Chấp nhận bản nháp DRAFT chỉ trong 1 click chuyển sang APPROVED")
+    @DisplayName("API apply-suggestion: Chuyển đề xuất AI thành bản nháp chính thức (PENDING_REVIEW, AI_AGENT)")
+    void applySuggestion_success() {
+        when(alertRepository.findById(50L)).thenReturn(Optional.of(testAlert));
+        when(documentRepository.findById(10L)).thenReturn(Optional.of(testDoc));
+        when(documentVersionRepository.findTopByDocIdOrderByVersionNumDesc(10L)).thenReturn(Optional.of(testVersion1));
+
+        DocumentVersionEntity savedDraftVersion = DocumentVersionEntity.builder()
+                .versionId(102L)
+                .docId(10L)
+                .versionNum(2)
+                .content("# OrderService API (Updated)")
+                .hash("hash3")
+                .prevHash("hash1")
+                .actorRole("AI_AGENT")
+                .triggerType("APPLY_AI_SUGGESTION")
+                .createdAt(Instant.now())
+                .build();
+
+        when(documentVersionRepository.save(any(DocumentVersionEntity.class))).thenReturn(savedDraftVersion);
+
+        ReviewEntity savedReview = ReviewEntity.builder()
+                .reviewId(201L)
+                .docId(10L)
+                .versionId(102L)
+                .reviewer("AI_AGENT")
+                .result("PENDING")
+                .build();
+        when(reviewRepository.save(any(ReviewEntity.class))).thenReturn(savedReview);
+
+        ApplySuggestionRequestDto request = ApplySuggestionRequestDto.builder()
+                .alertId(50L)
+                .customContent("# OrderService API (Updated)")
+                .changeSummary("Tùy chỉnh đề xuất AI cho OrderService")
+                .build();
+
+        AutoDraftOnDriftResponse response = autoDraftService.applySuggestion(request, testActor);
+
+        assertNotNull(response);
+        assertEquals(50L, response.getAlertId());
+        assertEquals(102L, response.getVersionId());
+        assertEquals("PENDING_REVIEW", response.getStatus());
+        assertEquals("AI_AGENT", response.getActorRole());
+        assertEquals(201L, response.getReviewId());
+
+        verify(documentVersionRepository).save(argThat(v -> "AI_AGENT".equals(v.getActorRole()) && "APPLY_AI_SUGGESTION".equals(v.getTriggerType())));
+        verify(reviewRepository).save(argThat(r -> "AI_AGENT".equals(r.getReviewer()) && "PENDING".equals(r.getResult())));
+    }
+
+    @Test
+    @DisplayName("Chấp nhận bản nháp chỉ trong 1 click chuyển sang APPROVED")
     void acceptDraft_success() {
         testAlert.setDraftVersionId(101L);
 
@@ -148,12 +222,13 @@ class AutoDraftServiceTest {
                 .versionId(101L)
                 .docId(10L)
                 .versionNum(2)
-                .actorRole("AI")
+                .actorRole("AI_AGENT")
                 .build();
 
         when(alertRepository.findById(50L)).thenReturn(Optional.of(testAlert));
         when(documentVersionRepository.findById(101L)).thenReturn(Optional.of(draftVersion));
         when(documentRepository.findById(10L)).thenReturn(Optional.of(testDoc));
+        when(reviewRepository.findFirstByDocIdOrderByCreatedAtDesc(10L)).thenReturn(Optional.empty());
 
         AutoDraftOnDriftResponse response = autoDraftService.acceptDraft(50L, testActor);
 
@@ -172,4 +247,3 @@ class AutoDraftServiceTest {
         verify(documentRepository).save(testDoc);
     }
 }
-
