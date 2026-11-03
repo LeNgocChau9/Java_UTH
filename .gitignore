@@ -33,6 +33,9 @@ pnpm-debug.log*
 .agents/
 skills-lock.json
 
+# Markdown & Document files (KHÔNG commit file .md)
+*.md
+
 # Design, UML and Diagram files (KHÔNG push lên GitHub)
 *.puml
 *.plantuml

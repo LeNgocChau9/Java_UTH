@@ -287,7 +287,8 @@ public class AiDocumentationService implements AiDocumentationServicePort {
             Long actorId
     ) {
         String rawPackagePath = firstNonBlank(request.target_path(), request.file_path(), "src/main/java");
-        String normalizedPrefix = normalizePackagePathPrefix(rawPackagePath);
+        final String effectivePrefix = normalizePackagePathPrefix(rawPackagePath);
+        String normalizedPrefix = effectivePrefix;
 
         List<CodeEntity> allRepoEntities = (codeEntityRepository != null && repoId != null)
                 ? codeEntityRepository.findByRepositoryId(repoId)
@@ -295,7 +296,7 @@ public class AiDocumentationService implements AiDocumentationServicePort {
 
         // Lọc tất cả thực thể thuộc package prefix (hỗ trợ cả đường dẫn thư mục lẫn tên package dấu chấm)
         List<CodeEntity> packageEntities = allRepoEntities.stream()
-                .filter(e -> e.getFilePath() != null && matchesPackageScope(e.getFilePath(), rawPackagePath, normalizedPrefix))
+                .filter(e -> e.getFilePath() != null && matchesPackageScope(e.getFilePath(), rawPackagePath, effectivePrefix))
                 .collect(Collectors.toList());
 
         // Nếu người dùng chọn 1 file cụ thể ở chế độ PACKAGE, lấy thư mục cha của file đó làm package
