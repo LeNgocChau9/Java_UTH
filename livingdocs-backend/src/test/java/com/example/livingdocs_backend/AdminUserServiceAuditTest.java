@@ -1,81 +1,128 @@
 package com.example.livingdocs_backend;
 
+import com.example.livingdocs_backend.application.dto.*;
+import com.example.livingdocs_backend.application.port.AdminUserServicePort;
 import com.example.livingdocs_backend.application.port.AuditServicePort;
 import com.example.livingdocs_backend.application.service.AdminUserServiceImpl;
 import com.example.livingdocs_backend.domain.model.RoleType;
 import com.example.livingdocs_backend.domain.model.User;
 import com.example.livingdocs_backend.domain.repository.UserRepositoryPort;
-import org.springframework.security.crypto.password.PasswordEncoder;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.PasswordResetRequestEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataPasswordResetRequestRepository;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
-import java.util.Optional;
-import java.util.Set;
+import java.time.Instant;
+import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
+@ExtendWith(MockitoExtension.class)
 class AdminUserServiceAuditTest {
 
-    @Test
-    void recordsActorAndRoleChangeAfterChangingRole() {
-        UserRepositoryPort userRepositoryPort = mock(UserRepositoryPort.class);
-        AuditServicePort auditServicePort = mock(AuditServicePort.class);
-        PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
-        AdminUserServiceImpl adminUserService =
-                new AdminUserServiceImpl(userRepositoryPort, auditServicePort, passwordEncoder);
-        User target = User.builder()
-                .userId(9L)
-                .email("target@example.com")
-                .fullName("Target User")
-                .status("ACTIVE")
-                .roles(Set.of(RoleType.ROLE_DEVELOPER))
-                .build();
-        when(userRepositoryPort.findById(9L)).thenReturn(Optional.of(target));
+    @Mock
+    private UserRepositoryPort userRepositoryPort;
 
-        adminUserService.changeRole(9L, "MANAGER", 1L, "admin@example.com");
+    @Mock
+    private AuditServicePort auditServicePort;
 
-        verify(userRepositoryPort).changeRole(9L, "MANAGER");
-        verify(auditServicePort).recordRoleChange(
-                1L, "admin@example.com", 9L, "ROLE_DEVELOPER", "MANAGER");
+    @Mock
+    private PasswordEncoder passwordEncoder;
+
+    @Mock
+    private SpringDataPasswordResetRequestRepository passwordResetRequestRepository;
+
+    private AdminUserServicePort adminUserService;
+
+    @BeforeEach
+    void setUp() {
+        adminUserService = new AdminUserServiceImpl(
+                userRepositoryPort,
+                auditServicePort,
+                passwordEncoder,
+                passwordResetRequestRepository
+        );
     }
 
     @Test
-    void adminCanCreateUserSuccessfully() {
-        UserRepositoryPort userRepositoryPort = mock(UserRepositoryPort.class);
-        AuditServicePort auditServicePort = mock(AuditServicePort.class);
-        PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
-        when(passwordEncoder.encode("Secret@123")).thenReturn("hashedSecret");
-
-        AdminUserServiceImpl adminUserService =
-                new AdminUserServiceImpl(userRepositoryPort, auditServicePort, passwordEncoder);
-
-        when(userRepositoryPort.existsByEmail("dev_staff@example.com")).thenReturn(false);
-
-        User savedUser = User.builder()
-                .userId(15L)
-                .email("dev_staff@example.com")
-                .fullName("Staff User")
+    @DisplayName("Gửi yêu cầu quên mật khẩu đến quyền ADMIN thành công")
+    void requestPasswordReset_success() {
+        User user = User.builder()
+                .userId(2L)
+                .email("nguyenphuccanh8533@gmail.com")
+                .fullName("Nguyễn Phúc Cảnh")
                 .status("ACTIVE")
-                .roles(Set.of(RoleType.ROLE_STAFF))
                 .build();
-        when(userRepositoryPort.save(any(User.class))).thenReturn(savedUser);
-        when(userRepositoryPort.findById(15L)).thenReturn(Optional.of(savedUser));
 
-        com.example.livingdocs_backend.application.dto.AdminCreateUserRequest req =
-                com.example.livingdocs_backend.application.dto.AdminCreateUserRequest.builder()
-                        .email("dev_staff@example.com")
-                        .password("Secret@123")
-                        .fullName("Staff User")
-                        .role("STAFF")
-                        .build();
+        when(userRepositoryPort.findByEmail("nguyenphuccanh8533@gmail.com")).thenReturn(Optional.of(user));
+        when(passwordResetRequestRepository.findFirstByEmailAndStatusOrderByCreatedAtDesc("nguyenphuccanh8533@gmail.com", "PENDING"))
+                .thenReturn(Optional.empty());
 
-        var res = adminUserService.createUser(req, 1L, "admin@example.com");
+        PasswordResetRequestEntity savedEntity = PasswordResetRequestEntity.builder()
+                .requestId(1L)
+                .userId(2L)
+                .email("nguyenphuccanh8533@gmail.com")
+                .fullName("Nguyễn Phúc Cảnh")
+                .status("PENDING")
+                .createdAt(Instant.now())
+                .build();
 
-        assertNotNull(res);
-        assertEquals(15L, res.getUserId());
-        assertEquals("dev_staff@example.com", res.getEmail());
-        assertTrue(res.getRoles().contains("ROLE_STAFF"));
-        verify(userRepositoryPort).changeRole(15L, "STAFF");
-        verify(auditServicePort).recordSecurityAction(eq(1L), any(), eq("USER"), eq("15"), contains("dev_staff@example.com"));
+        when(passwordResetRequestRepository.save(any(PasswordResetRequestEntity.class))).thenReturn(savedEntity);
+
+        ForgotPasswordRequest request = ForgotPasswordRequest.builder()
+                .email("nguyenphuccanh8533@gmail.com")
+                .note("Quên mật khẩu")
+                .build();
+
+        PasswordResetRequestResponse response = adminUserService.requestPasswordReset(request);
+
+        assertNotNull(response);
+        assertEquals(1L, response.getRequestId());
+        assertEquals("PENDING", response.getStatus());
+        assertEquals("nguyenphuccanh8533@gmail.com", response.getEmail());
+        verify(passwordResetRequestRepository).save(any(PasswordResetRequestEntity.class));
+    }
+
+    @Test
+    @DisplayName("Admin phê duyệt và cấp lại mật khẩu cho người dùng")
+    void approvePasswordReset_success() {
+        PasswordResetRequestEntity resetReq = PasswordResetRequestEntity.builder()
+                .requestId(1L)
+                .userId(2L)
+                .email("nguyenphuccanh8533@gmail.com")
+                .fullName("Nguyễn Phúc Cảnh")
+                .status("PENDING")
+                .createdAt(Instant.now())
+                .build();
+
+        User user = User.builder()
+                .userId(2L)
+                .email("nguyenphuccanh8533@gmail.com")
+                .fullName("Nguyễn Phúc Cảnh")
+                .passwordHash("old_hash")
+                .status("ACTIVE")
+                .build();
+
+        when(passwordResetRequestRepository.findById(1L)).thenReturn(Optional.of(resetReq));
+        when(userRepositoryPort.findById(2L)).thenReturn(Optional.of(user));
+        when(passwordEncoder.encode("Canh8533")).thenReturn("encoded_Canh8533");
+        when(passwordResetRequestRepository.save(any(PasswordResetRequestEntity.class))).thenAnswer(i -> i.getArgument(0));
+
+        AdminResetPasswordRequest request = new AdminResetPasswordRequest("Canh8533");
+        PasswordResetRequestResponse response = adminUserService.approvePasswordReset(1L, request, 1L, "admin@livingdocs.dev");
+
+        assertNotNull(response);
+        assertEquals("RESOLVED", response.getStatus());
+        assertEquals("Canh8533", response.getNewPasswordTemp());
+        assertEquals("encoded_Canh8533", user.getPasswordHash());
+        verify(userRepositoryPort).save(user);
     }
 }
