@@ -1,5 +1,4 @@
 import { CodeEntityDto } from "@/services/codeEntityService";
-
 /**
  * Bộ trích xuất và phân tích phần tử mã nguồn phổ quát (Universal Multi-language AST Parser)
  * Hỗ trợ bóc tách đầy đủ Class, Interface, Method, Constructor, Field (thuộc tính), Annotation
@@ -10,10 +9,8 @@ export function parseUniversalCodeEntities(
   repositoryId: number = 1
 ): CodeEntityDto[] {
   if (!content || !content.trim()) return [];
-
   const ext = filePath.split(".").pop()?.toLowerCase() || "";
   const lines = content.split("\n");
-
   switch (ext) {
     case "java":
       return parseJavaEntities(filePath, lines, repositoryId);
@@ -40,55 +37,49 @@ export function parseUniversalCodeEntities(
       return parseGenericEntities(filePath, lines, repositoryId);
   }
 }
-
 // 1. JAVA PARSER (Hỗ trợ Class, Method, Constructor và Fields / Thuộc tính DTO)
 function parseJavaEntities(filePath: string, lines: string[], repositoryId: number): CodeEntityDto[] {
   const entities: CodeEntityDto[] = [];
   let currentClass = "";
   let pendingDoc = "";
   let pendingAnnotations: string[] = [];
-
   for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i];
     const line = rawLine.trim();
     const lineNum = i + 1;
-
     // Comments / Javadoc
     if (line.startsWith("/**") || line.startsWith("*") || line.startsWith("//")) {
       const cleaned = line.replace(/^\/\*\*|\*\/|\*|\/\//g, "").trim();
       if (cleaned) pendingDoc += (pendingDoc ? "\n" : "") + cleaned;
       continue;
     }
-
     // Annotations (e.g. @Data, @Getter, @Schema, @NotBlank)
     if (line.startsWith("@")) {
       pendingAnnotations.push(line);
       continue;
     }
-
     // 1. Class / Interface / Enum / Record
     const classMatch = line.match(/(?:public|protected|private)?\s*(?:static\s+)?(?:final\s+)?(?:abstract\s+)?(class|interface|enum|record)\s+([A-Za-z0-9_]+)/);
     if (classMatch) {
       const type = classMatch[1].toUpperCase();
       const name = classMatch[2];
       currentClass = name;
-      const annText = pendingAnnotations.length > 0 ? pendingAnnotations.join(" ") + " " : "";
       entities.push({
         repositoryId,
         filePath,
         entityType: type as any,
         className: name,
-        signature: `${annText}${line.replace(/\{$/, "").trim()}`,
+        signature: line.replace(/\{$/, "").trim(),
         startLine: lineNum,
         endLine: Math.min(lineNum + 40, lines.length),
         docStatus: pendingDoc ? "DOCUMENTED" : "UNDOCUMENTED",
         javadoc: pendingDoc || (pendingAnnotations.length > 0 ? `Annotations: ${pendingAnnotations.join(", ")}` : undefined),
+        annotations: pendingAnnotations.length > 0 ? [...pendingAnnotations] : undefined,
       });
       pendingDoc = "";
       pendingAnnotations = [];
       continue;
     }
-
     // 2. Method / Constructor
     const methodMatch = line.match(/(?:public|protected|private|static|final|synchronized|abstract|\s)*\s+([\w<>\[\],\s]+)\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)\s*(?:throws\s+[\w,\s]+)?\s*[{;]?/);
     if (methodMatch && !line.includes("new ") && !line.startsWith("return") && !line.startsWith("if") && !line.startsWith("for") && !line.startsWith("while")) {
@@ -96,7 +87,6 @@ function parseJavaEntities(filePath: string, lines: string[], repositoryId: numb
       const methodName = methodMatch[2];
       const params = methodMatch[3].trim();
       const isCtor = currentClass && methodName === currentClass;
-
       if (!["if", "for", "while", "switch", "catch"].includes(methodName)) {
         entities.push({
           repositoryId,
@@ -117,13 +107,11 @@ function parseJavaEntities(filePath: string, lines: string[], repositoryId: numb
         continue;
       }
     }
-
     // 3. Field / Thuộc tính DTO (private String email; private Long id;)
     const fieldMatch = line.match(/(?:public|protected|private)?\s*(?:static\s+)?(?:final\s+)?([\w<>\[\]]+)\s+([A-Za-z0-9_]+)\s*(?:=[^;]+)?\s*;/);
     if (fieldMatch && currentClass && !line.startsWith("return") && !line.startsWith("import") && !line.startsWith("package")) {
       const fieldType = fieldMatch[1];
       const fieldName = fieldMatch[2];
-
       if (!["class", "interface", "enum", "record", "void"].includes(fieldType)) {
         entities.push({
           repositoryId,
@@ -137,40 +125,35 @@ function parseJavaEntities(filePath: string, lines: string[], repositoryId: numb
           endLine: lineNum,
           docStatus: pendingDoc || pendingAnnotations.length > 0 ? "DOCUMENTED" : "UNDOCUMENTED",
           javadoc: pendingDoc || (pendingAnnotations.length > 0 ? `Ràng buộc & Chú thích: ${pendingAnnotations.join(" | ")}` : `Thuộc tính ${fieldName} kiểu ${fieldType}`),
+          annotations: pendingAnnotations.length > 0 ? [...pendingAnnotations] : undefined,
         });
         pendingDoc = "";
         pendingAnnotations = [];
         continue;
       }
     }
-
     if (line.length > 0 && !line.startsWith("@")) {
       pendingDoc = "";
       pendingAnnotations = [];
     }
   }
-
   return entities;
 }
-
 // 2. PYTHON PARSER
 function parsePythonEntities(filePath: string, lines: string[], repositoryId: number): CodeEntityDto[] {
   const entities: CodeEntityDto[] = [];
   let currentClass = "";
   let pendingDoc = "";
-
   for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i];
     const line = rawLine.trim();
     const lineNum = i + 1;
-
     // Docstring
     if (line.startsWith('"""') || line.startsWith("'''") || line.startsWith("#")) {
       const cleaned = line.replace(/^"""|'''|#|"""$|'''$/g, "").trim();
       if (cleaned) pendingDoc += (pendingDoc ? "\n" : "") + cleaned;
       continue;
     }
-
     // Python Class
     const classMatch = line.match(/^class\s+([A-Za-z0-9_]+)(?:\(([^)]*)\))?:/);
     if (classMatch) {
@@ -189,7 +172,6 @@ function parsePythonEntities(filePath: string, lines: string[], repositoryId: nu
       pendingDoc = "";
       continue;
     }
-
     // Python Function / Method (sync & async)
     const funcMatch = line.match(/^(?:async\s+)?def\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)(?:\s*->\s*([^:]+))?:/);
     if (funcMatch) {
@@ -197,7 +179,6 @@ function parsePythonEntities(filePath: string, lines: string[], repositoryId: nu
       const params = funcMatch[2].trim();
       const returnType = funcMatch[3]?.trim();
       const isMethod = rawLine.startsWith("    ") || rawLine.startsWith("\t");
-
       let methodDoc = pendingDoc;
       if (!methodDoc && i + 1 < lines.length) {
         const nextLine = lines[i + 1].trim();
@@ -205,7 +186,6 @@ function parsePythonEntities(filePath: string, lines: string[], repositoryId: nu
           methodDoc = nextLine.replace(/^"""|'''|"""$|'''$/g, "").trim();
         }
       }
-
       entities.push({
         repositoryId,
         filePath,
@@ -223,7 +203,6 @@ function parsePythonEntities(filePath: string, lines: string[], repositoryId: nu
       pendingDoc = "";
       continue;
     }
-
     // Python class field (variable: type = val)
     const pyFieldMatch = rawLine.match(/^(?:    |\t)([A-Za-z0-9_]+)\s*:\s*([^=\n]+)(?:\s*=.*)?$/);
     if (pyFieldMatch && currentClass) {
@@ -245,32 +224,26 @@ function parsePythonEntities(filePath: string, lines: string[], repositoryId: nu
       pendingDoc = "";
       continue;
     }
-
     if (line.length > 0 && !line.startsWith("@")) {
       pendingDoc = "";
     }
   }
-
   return entities;
 }
-
 // 3. TYPESCRIPT / JAVASCRIPT PARSER
 function parseJsTsEntities(filePath: string, lines: string[], repositoryId: number): CodeEntityDto[] {
   const entities: CodeEntityDto[] = [];
   let currentClass = "";
   let pendingDoc = "";
-
   for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i];
     const line = rawLine.trim();
     const lineNum = i + 1;
-
     if (line.startsWith("/**") || line.startsWith("*") || line.startsWith("//")) {
       const cleaned = line.replace(/^\/\*\*|\*\/|\*|\/\//g, "").trim();
       if (cleaned) pendingDoc += (pendingDoc ? "\n" : "") + cleaned;
       continue;
     }
-
     // Interface / Type
     const typeMatch = line.match(/^(?:export\s+)?(interface|type)\s+([A-Za-z0-9_]+)/);
     if (typeMatch) {
@@ -288,7 +261,6 @@ function parseJsTsEntities(filePath: string, lines: string[], repositoryId: numb
       pendingDoc = "";
       continue;
     }
-
     // Class
     const classMatch = line.match(/^(?:export\s+)?(?:default\s+)?class\s+([A-Za-z0-9_]+)/);
     if (classMatch) {
@@ -307,7 +279,6 @@ function parseJsTsEntities(filePath: string, lines: string[], repositoryId: numb
       pendingDoc = "";
       continue;
     }
-
     // Function Declaration
     const funcMatch = line.match(/^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)/);
     if (funcMatch) {
@@ -327,7 +298,6 @@ function parseJsTsEntities(filePath: string, lines: string[], repositoryId: numb
       pendingDoc = "";
       continue;
     }
-
     // Const Arrow Function
     const arrowMatch = line.match(/^(?:export\s+)?const\s+([A-Za-z0-9_]+)\s*=\s*(?:async\s*)?\(([^)]*)\)\s*(?::\s*[^=>]+)?\s*=>/);
     if (arrowMatch) {
@@ -346,28 +316,22 @@ function parseJsTsEntities(filePath: string, lines: string[], repositoryId: numb
       pendingDoc = "";
       continue;
     }
-
     if (line.length > 0) pendingDoc = "";
   }
-
   return entities;
 }
-
 // 4. SQL PARSER
 function parseSqlEntities(filePath: string, lines: string[], repositoryId: number): CodeEntityDto[] {
   const entities: CodeEntityDto[] = [];
   let pendingComment = "";
-
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     const lineNum = i + 1;
-
     if (line.startsWith("--") || line.startsWith("/*") || line.startsWith("*")) {
       const c = line.replace(/^--|\/\*|\*\/|\*/g, "").trim();
       if (c) pendingComment += (pendingComment ? " " : "") + c;
       continue;
     }
-
     const tableMatch = line.match(/^CREATE\s+(?:OR\s+REPLACE\s+)?(TABLE|VIEW|FUNCTION|PROCEDURE|INDEX)\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:[\w"]+\.)?["']?([\w]+)["']?/i);
     if (tableMatch) {
       const type = tableMatch[1].toUpperCase();
@@ -389,27 +353,22 @@ function parseSqlEntities(filePath: string, lines: string[], repositoryId: numbe
       pendingComment = "";
     }
   }
-
   return entities;
 }
-
 // 5. YAML PARSER
 function parseYamlEntities(filePath: string, lines: string[], repositoryId: number): CodeEntityDto[] {
   const entities: CodeEntityDto[] = [];
   let currentTop = "";
   let pendingDoc = "";
-
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i];
     const line = raw.trim();
     const lineNum = i + 1;
-
     if (line.startsWith("#")) {
       const c = line.replace(/^#+/, "").trim();
       if (c) pendingDoc += (pendingDoc ? " " : "") + c;
       continue;
     }
-
     const rootKeyMatch = raw.match(/^([A-Za-z0-9_-]+):\s*$/);
     if (rootKeyMatch) {
       currentTop = rootKeyMatch[1];
@@ -427,7 +386,6 @@ function parseYamlEntities(filePath: string, lines: string[], repositoryId: numb
       pendingDoc = "";
       continue;
     }
-
     const subMatch = raw.match(/^  ([A-Za-z0-9_-]+):\s*$/);
     if (subMatch) {
       const subKey = subMatch[1];
@@ -446,13 +404,10 @@ function parseYamlEntities(filePath: string, lines: string[], repositoryId: numb
       pendingDoc = "";
       continue;
     }
-
     if (line.length > 0) pendingDoc = "";
   }
-
   return entities;
 }
-
 // 6. JSON PARSER
 function parseJsonEntities(filePath: string, lines: string[], repositoryId: number): CodeEntityDto[] {
   try {
@@ -479,22 +434,18 @@ function parseJsonEntities(filePath: string, lines: string[], repositoryId: numb
     return [];
   }
 }
-
 // 7. ENV PARSER
 function parseEnvEntities(filePath: string, lines: string[], repositoryId: number): CodeEntityDto[] {
   const entities: CodeEntityDto[] = [];
   let pendingDoc = "";
-
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     const lineNum = i + 1;
-
     if (line.startsWith("#")) {
       const c = line.replace(/^#+/, "").trim();
       if (c) pendingDoc += (pendingDoc ? " " : "") + c;
       continue;
     }
-
     const envMatch = line.match(/^([A-Za-z0-9_]+)\s*=\s*(.*)$/);
     if (envMatch) {
       const key = envMatch[1];
@@ -515,10 +466,8 @@ function parseEnvEntities(filePath: string, lines: string[], repositoryId: numbe
       pendingDoc = "";
     }
   }
-
   return entities;
 }
-
 // 8. MARKDOWN PARSER
 function parseMarkdownEntities(filePath: string, lines: string[], repositoryId: number): CodeEntityDto[] {
   const entities: CodeEntityDto[] = [];
@@ -545,7 +494,6 @@ function parseMarkdownEntities(filePath: string, lines: string[], repositoryId: 
   }
   return entities;
 }
-
 // 9. GENERIC / FALLBACK
 function parseGenericEntities(filePath: string, lines: string[], repositoryId: number): CodeEntityDto[] {
   const fileName = filePath.split("/").pop() || "File";

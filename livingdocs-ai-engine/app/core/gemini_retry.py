@@ -1,15 +1,7 @@
 """
 gemini_retry.py
-Module cung cấp cơ chế tự động thử lại (Retry với Exponential Backoff) và bắt lỗi Quota (HTTP 429)
-dành riêng cho việc gọi Google Gemini API (Task Tuần 4 - TV4).
-
-Yêu cầu nghiệp vụ:
-1. Tự động thử lại (Retry tối đa 3 lần với exponential backoff: ví dụ 1s, 2s, 4s) khi gặp lỗi mạng,
-   server quá tải (HTTP 500, 502, 503, 504), timeout hoặc lỗi kết nối.
-2. Bắt lỗi hết Quota (HTTP 429 - RESOURCE_EXHAUSTED):
-   - Không retry vô nghĩa khi quota đã hết hoặc thông báo retry-after quá dài.
-   - Bắt trọn lỗi và trả về thông báo lỗi rõ ràng bằng Tiếng Việt thân thiện.
-   - Tuyệt đối không để sập tiến trình FastAPI / Python runtime.
+Module cung cấp cơ chế tự động thử lại (Retry với Exponential Backoff),
+bắt lỗi Quota (HTTP 429) và tự động xoay API Key (Multi-Key Rotation Pool).
 """
 
 import time
@@ -56,17 +48,14 @@ def is_quota_exceeded_error(exception: Exception) -> bool:
     if exception is None:
         return False
 
-    # 1. Kiểm tra status code nếu có thuộc tính code / status_code
     status_code = getattr(exception, "code", None) or getattr(exception, "status_code", None)
     if status_code == 429:
         return True
 
-    # 2. Kiểm tra tên class ngoại lệ
     exc_type_name = type(exception).__name__
     if exc_type_name in ("ResourceExhausted", "TooManyRequests", "GeminiQuotaExceededError"):
         return True
 
-    # 3. Phân tích nội dung chuỗi lỗi
     error_msg = str(exception).upper()
     quota_keywords = [
         "429",
@@ -114,15 +103,14 @@ def execute_with_gemini_retry(
     action_name: str = "Gọi Gemini API",
 ) -> T:
     """
-    Thực thi hàm gọi Gemini API có cơ chế Retry với Exponential Backoff và bắt lỗi Quota.
-
-    Tham số:
-    - action: Callable thực hiện gọi Gemini API và trả về kết quả.
-    - max_retries: Số lần thử lại tối đa khi gặp lỗi tạm thời (mặc định: 3 lần).
-    - initial_delay: Thời gian chờ ban đầu tính bằng giây (mặc định: 1.0s).
-    - backoff_factor: Hệ số nhân thời gian chờ theo lũy thừa (mặc định: 2.0 -> 1s, 2s, 4s).
-    - action_name: Tên tác vụ để ghi log tường minh.
+    Thực thi hàm gọi Gemini API có cơ chế Retry với Exponential Backoff,
+    tự động xoay API Key khi gặp lỗi Quota (HTTP 429).
     """
+    # Import muộn để tránh circular import
+    from app.core.gemini_key_manager import GeminiKeyManager
+
+    total_keys = GeminiKeyManager.get_keys_count()
+    keys_tried = 0
     delay = initial_delay
 
     for attempt in range(1, max_retries + 2):
@@ -130,44 +118,52 @@ def execute_with_gemini_retry(
             return action()
 
         except Exception as ex:
-            # 1. Bắt lỗi Quota 429 ngay lập tức, không retry lặp lại vô nghĩa
+            # 1. Phát hiện lỗi Quota 429: Thử xoay sang API Key khác nếu có nhiều key
             if is_quota_exceeded_error(ex):
                 logger.error(
                     "[%s] Phát hiện lỗi Quota / Hạn mức Gemini API (HTTP 429): %s",
                     action_name, ex
                 )
+                if total_keys > 1 and keys_tried < total_keys:
+                    keys_tried += 1
+                    new_key = GeminiKeyManager.rotate_key(reason=f"Quota 429 trên lượt gọi {attempt}")
+                    logger.info(
+                        "[%s] Tự động chuyển đổi sang Gemini API Key dự phòng (lần %d/%d)...",
+                        action_name, keys_tried, total_keys
+                    )
+                    time.sleep(0.5)
+                    continue
+
                 vietnamese_msg = (
                     "Hạn mức sử dụng Google Gemini API đã tạm thời cạn kiệt (HTTP 429 Quota Exceeded). "
-                    "Vui lòng đợi vài phút để hạn mức được làm mới hoặc kiểm tra lại gói Gemini API Key."
+                    "Vui lòng đợi vài phút để hạn mức được làm mới hoặc bổ sung thêm Gemini API Key vào file .env."
                 )
                 raise GeminiQuotaExceededError(message=vietnamese_msg, raw_error=ex) from ex
 
-            # 2. Nếu không phải lỗi tạm thời (ví dụ: 400 Bad Request, 404 Model Not Found, 403 Forbidden)
-            # thì không retry vô nghĩa mà ném lỗi ngay để fallback model hoặc thông báo lập tức
+            # 2. Nếu không phải lỗi tạm thời -> ném lỗi ngay
             if not is_transient_error(ex):
                 logger.warning(
-                    "[%s] Lỗi cố định không thể tự phục hồi (%s): %s. Bỏ qua retry để xử lý fallback/báo lỗi ngay.",
+                    "[%s] Lỗi cố định không thể tự phục hồi (%s): %s. Bỏ qua retry để báo lỗi ngay.",
                     action_name, type(ex).__name__, ex
                 )
                 raise ex
 
-            # 3. Nếu là lần thử cuối cùng thì không còn lượt retry
+            # 3. Quá số lần retry tối đa
             if attempt > max_retries:
                 logger.error(
                     "[%s] Đã thử lại tối đa %d lần thất bại: %s",
                     action_name, max_retries, ex
                 )
                 vietnamese_msg = (
-                    f"Dịch vụ Gemini API hiện không phản hồi sau {max_retries} lần thử lại liên tiếp "
-                    f"với exponential backoff. Chi tiết lỗi kỹ thuật: {str(ex)}"
+                    f"Dịch vụ Gemini API hiện không phản hồi sau {max_retries} lần thử lại liên tiếp. "
+                    f"Chi tiết lỗi kỹ thuật: {str(ex)}"
                 )
                 raise GeminiServiceUnavailableError(message=vietnamese_msg, raw_error=ex) from ex
 
-            # 4. Thực hiện chờ với exponential backoff cho lỗi tạm thời
+            # 4. Chờ với exponential backoff
             logger.warning(
                 "[%s] Lỗi mạng/quá tải tạm thời (lần %d/%d): %s. Đang chờ %.1fs trước khi thử lại...",
                 action_name, attempt, max_retries, ex, delay
             )
             time.sleep(delay)
             delay *= backoff_factor
-

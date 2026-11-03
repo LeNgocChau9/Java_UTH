@@ -823,9 +823,9 @@ export default function SourceTreePage() {
 
   return (
     <AppShell>
-      <div className="space-y-6 p-4 sm:p-6 lg:p-8">
+      <div className="h-[calc(100vh-56px)] max-h-[calc(100vh-56px)] flex flex-col p-4 sm:p-6 space-y-3.5 overflow-hidden">
         {/* Header trang */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 pb-5 ">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 pb-3 shrink-0">
           <div>
             <div className="flex items-center gap-2">
               <span className="rounded-md bg-emerald-100 p-1.5 text-emerald-700">
@@ -893,14 +893,14 @@ export default function SourceTreePage() {
 
         {/* Nội dung 2 cột: Cột trái Cây thư mục - Cột phải Danh sách Entities */}
         {renewNotice && (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-medium text-emerald-800 flex items-center justify-between shadow-sm">
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-medium text-emerald-800 flex items-center justify-between shadow-sm shrink-0">
             <span>{renewNotice}</span>
             <button type="button" onClick={() => setRenewNotice(null)} className="text-emerald-600 hover:text-emerald-900 font-bold ml-2">✕</button>
           </div>
         )}
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-5 min-h-0 overflow-hidden">
           {/* CỘT TRÁI: Cây thư mục mã nguồn (4 cols) */}
-          <div className="lg:col-span-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col h-[calc(100vh-210px)] min-h-[500px]">
+          <div className="lg:col-span-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col h-full min-h-0 overflow-hidden">
             <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-2.5 shrink-0">
               <div className="flex items-center gap-2">
                 <FolderOpen size={16} className="text-slate-500" />
@@ -919,7 +919,7 @@ export default function SourceTreePage() {
           </div>
 
           {/* CỘT PHẢI: Chi tiết AST của file được chọn (8 cols) */}
-          <div className="lg:col-span-8 flex flex-col h-[calc(100vh-210px)] min-h-[500px] rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <div className="lg:col-span-8 flex flex-col h-full min-h-0 rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
             {/* Thanh thông tin file + Bộ lọc (Cố định ở trên) */}
             <div className="border-b border-slate-200 bg-slate-50/60 p-4 shrink-0">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1018,8 +1018,8 @@ export default function SourceTreePage() {
                       }`}
                     >
                       {/* Dòng tiêu đề entity */}
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="space-y-1">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between min-w-0 w-full">
+                        <div className="space-y-1.5 min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
                             {/* Entity Type Badge */}
                             <span
@@ -1069,13 +1069,15 @@ export default function SourceTreePage() {
                           </div>
 
                           {/* Full Signature Box */}
-                          <div className="relative mt-2 flex items-start justify-between rounded-lg bg-slate-900 px-3 py-2 font-mono text-xs text-emerald-400 shadow-inner overflow-hidden">
-                            <code className="whitespace-pre-wrap break-all pr-8 leading-relaxed">{item.signature}</code>
+                          <div className="relative mt-2 flex items-center justify-between rounded-lg bg-slate-900 px-3 py-2 font-mono text-xs text-emerald-400 shadow-inner overflow-hidden max-w-full">
+                            <div className="overflow-x-auto max-w-full pr-8 py-0.5">
+                              <code className="whitespace-pre font-mono text-xs text-emerald-400 inline-block">{item.signature}</code>
+                            </div>
                             <button
                               type="button"
                               onClick={() => copyToClipboard(item.signature)}
                               title="Sao chép chữ ký"
-                              className="absolute right-2 text-slate-400 hover:text-white transition"
+                              className="absolute right-2 top-2 text-slate-400 hover:text-white transition p-1 bg-slate-900/90 rounded"
                             >
                               {copiedSig === item.signature ? (
                                 <Check size={14} className="text-emerald-400" />
@@ -1084,6 +1086,21 @@ export default function SourceTreePage() {
                               )}
                             </button>
                           </div>
+
+                          {/* Hiển thị Annotations / Decorators nếu có */}
+                          {item.annotations && item.annotations.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1.5">
+                              {item.annotations.map((ann, aIdx) => (
+                                <span
+                                  key={aIdx}
+                                  className="inline-flex items-center rounded-md bg-slate-100 border border-slate-200 px-1.5 py-0.5 text-[10px] font-mono text-slate-700 max-w-full truncate"
+                                  title={ann}
+                                >
+                                  {ann}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
 
                         {/* Vị trí dòng mã */}
