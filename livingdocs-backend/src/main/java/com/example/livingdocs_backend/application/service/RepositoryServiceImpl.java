@@ -24,12 +24,19 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Collections;
+import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 import java.util.Optional;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class RepositoryServiceImpl implements RepositoryServicePort {
+
+    private final ConcurrentHashMap<Long, Object> repoSyncLocks = new ConcurrentHashMap<>();
 
     private final SpringDataRepositoryRepository repositoryRepository;
     private final SpringDataPullRequestRepository pullRequestRepository;
@@ -85,47 +92,55 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
     @Override
     @Transactional
     public SyncRepoResponse syncRepository(Long repositoryId, String explicitToken, Long currentUserId) {
-        RepositoryEntity repo = repositoryRepository.findById(repositoryId)
-                .orElseThrow(() -> new GitHubApiException("Không tìm thấy repository với ID: " + repositoryId, 404));
+        Object lock = repoSyncLocks.computeIfAbsent(repositoryId, k -> new Object());
+        synchronized (lock) {
+            RepositoryEntity repo = repositoryRepository.findById(repositoryId)
+                    .orElseThrow(() -> new GitHubApiException("Không tìm thấy repository với ID: " + repositoryId, 404));
 
-        String[] parts = parseOwnerAndRepo(repo.getRepoFullName());
-        String owner = parts[0];
-        String repoName = parts[1];
+            String[] parts = parseOwnerAndRepo(repo.getRepoFullName());
+            String owner = parts[0];
+            String repoName = parts[1];
 
-        // Lấy token để gọi GitHub API
-        String token = resolveTokenForSync(repo, explicitToken, currentUserId);
+            // Lấy token để gọi GitHub API
+            String token = resolveTokenForSync(repo, explicitToken, currentUserId);
 
-        log.info("Bắt đầu đồng bộ repository [{}] (ID: {})...", repo.getRepoFullName(), repositoryId);
+            log.info("Bắt đầu đồng bộ repository [{}] (ID: {})...", repo.getRepoFullName(), repositoryId);
 
-        // 1. Đồng bộ Pull Requests (cả open và closed)
-        int syncedPrs = syncPullRequests(repo, token, owner, repoName);
+            // 1. Đồng bộ Pull Requests (cả open và closed)
+            int syncedPrs = syncPullRequests(repo, token, owner, repoName);
 
-        // 2. Đồng bộ Commits
-        int syncedCommits = syncCommits(repo, token, owner, repoName);
+            // 2. Đồng bộ Commits
+            int syncedCommits = syncCommits(repo, token, owner, repoName);
 
-        // 3. Cập nhật last_synced_at
-        Instant now = Instant.now();
-        repo.setLastSyncedAt(now);
-        repo.setUpdatedAt(now);
-        repositoryRepository.save(repo);
+            // 3. Cập nhật last_synced_at
+            Instant now = Instant.now();
+            repo.setLastSyncedAt(now);
+            repo.setUpdatedAt(now);
+            repositoryRepository.save(repo);
 
-        log.info("Hoàn tất đồng bộ [{}]: {} PRs, {} Commits", repo.getRepoFullName(), syncedPrs, syncedCommits);
+            log.info("Hoàn tất đồng bộ [{}]: {} PRs, {} Commits", repo.getRepoFullName(), syncedPrs, syncedCommits);
 
-        return SyncRepoResponse.builder()
-                .repositoryId(repo.getRepositoryId())
-                .repoFullName(repo.getRepoFullName())
-                .syncedPullRequestsCount(syncedPrs)
-                .syncedCommitsCount(syncedCommits)
-                .syncedAt(now)
-                .message("Đồng bộ repository thành công!")
-                .build();
+            return SyncRepoResponse.builder()
+                    .repositoryId(repo.getRepositoryId())
+                    .repoFullName(repo.getRepoFullName())
+                    .syncedPullRequestsCount(syncedPrs)
+                    .syncedCommitsCount(syncedCommits)
+                    .syncedAt(now)
+                    .message("Đồng bộ repository thành công!")
+                    .build();
+        }
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<RepoResponse> listRepositories(Long workspaceId) {
         Long targetWorkspaceId = workspaceId != null ? workspaceId : DEFAULT_WORKSPACE_ID;
-        return repositoryRepository.findByWorkspaceId(targetWorkspaceId).stream()
+        List<RepositoryEntity> list = repositoryRepository.findByWorkspaceId(targetWorkspaceId);
+        if (list.isEmpty() && workspaceId == null) {
+            // ponytail: fallback lấy tất cả repository nếu workspaceId mặc định (1L) chưa có repo
+            list = repositoryRepository.findAll();
+        }
+        return list.stream()
                 .map(this::mapToRepoResponse)
                 .toList();
     }
@@ -182,17 +197,32 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
             prs = gitHubClient.listPullRequests(token, owner, repoName, "open");
         }
 
-        int count = 0;
-        for (GitHubPullRequestDto prDto : prs) {
-            if (prDto.number() == null) continue;
+        if (prs == null || prs.isEmpty()) {
+            return 0;
+        }
 
-            PullRequestEntity prEntity = pullRequestRepository
-                    .findByRepositoryIdAndPrNumber(repo.getRepositoryId(), prDto.number())
-                    .orElseGet(() -> PullRequestEntity.builder()
-                            .repositoryId(repo.getRepositoryId())
-                            .prNumber(prDto.number())
-                            .createdAt(Instant.now())
-                            .build());
+        // ponytail: Tải tất cả PR hiện có vào Map để update in-place, tránh duplicate key uk_pr_repo_number và N+1 queries
+        Map<Integer, PullRequestEntity> existingPrMap = pullRequestRepository
+                .findByRepositoryId(repo.getRepositoryId()).stream()
+                .collect(Collectors.toMap(PullRequestEntity::getPrNumber, p -> p, (p1, p2) -> p1));
+
+        Set<Integer> processedPrNumbers = new HashSet<>();
+        List<PullRequestEntity> entitiesToSave = new ArrayList<>();
+
+        for (GitHubPullRequestDto prDto : prs) {
+            if (prDto.number() == null || !processedPrNumbers.add(prDto.number())) {
+                continue;
+            }
+
+            PullRequestEntity prEntity = existingPrMap.get(prDto.number());
+            if (prEntity == null) {
+                prEntity = PullRequestEntity.builder()
+                        .repositoryId(repo.getRepositoryId())
+                        .prNumber(prDto.number())
+                        .createdAt(Instant.now())
+                        .build();
+                existingPrMap.put(prDto.number(), prEntity);
+            }
 
             prEntity.setGithubPrId(prDto.id() != null ? prDto.id() : (long) prDto.number());
             prEntity.setTitle(StringUtils.hasText(prDto.title()) ? prDto.title() : "No Title");
@@ -207,36 +237,52 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
             prEntity.setGithubClosedAt(prDto.closedAt());
             prEntity.setUpdatedAt(Instant.now());
 
-            pullRequestRepository.save(prEntity);
-            count++;
+            entitiesToSave.add(prEntity);
         }
-        return count;
+
+        pullRequestRepository.saveAll(entitiesToSave);
+        return entitiesToSave.size();
     }
 
     private int syncCommits(RepositoryEntity repo, String token, String owner, String repoName) {
         List<GitHubCommitDto> commits = gitHubClient.listCommits(token, owner, repoName, repo.getDefaultBranch(), 100);
+        if (commits == null || commits.isEmpty()) {
+            return 0;
+        }
 
-        int count = 0;
+        // ponytail: Tải tất cả Commits hiện có vào Map để update in-place, tránh duplicate key uk_commit_repo_hash và N+1 queries
+        Map<String, CommitEntity> existingCommitMap = commitRepository
+                .findByRepositoryId(repo.getRepositoryId()).stream()
+                .collect(Collectors.toMap(CommitEntity::getCommitHash, c -> c, (c1, c2) -> c1));
+
+        Set<String> processedHashes = new HashSet<>();
+        List<CommitEntity> entitiesToSave = new ArrayList<>();
+
         for (GitHubCommitDto commitDto : commits) {
-            if (!StringUtils.hasText(commitDto.sha())) continue;
+            if (!StringUtils.hasText(commitDto.sha()) || !processedHashes.add(commitDto.sha())) {
+                continue;
+            }
 
-            CommitEntity commitEntity = commitRepository
-                    .findByRepositoryIdAndCommitHash(repo.getRepositoryId(), commitDto.sha())
-                    .orElseGet(() -> CommitEntity.builder()
-                            .repositoryId(repo.getRepositoryId())
-                            .commitHash(commitDto.sha())
-                            .createdAt(Instant.now())
-                            .build());
+            CommitEntity commitEntity = existingCommitMap.get(commitDto.sha());
+            if (commitEntity == null) {
+                commitEntity = CommitEntity.builder()
+                        .repositoryId(repo.getRepositoryId())
+                        .commitHash(commitDto.sha())
+                        .createdAt(Instant.now())
+                        .build();
+                existingCommitMap.put(commitDto.sha(), commitEntity);
+            }
 
             commitEntity.setAuthorName(commitDto.authorName() != null ? commitDto.authorName() : "Unknown");
             commitEntity.setAuthorEmail(commitDto.authorEmail());
             commitEntity.setCommitMessage(commitDto.message() != null ? commitDto.message() : "");
             commitEntity.setCommittedAt(commitDto.authorDate() != null ? commitDto.authorDate() : Instant.now());
 
-            commitRepository.save(commitEntity);
-            count++;
+            entitiesToSave.add(commitEntity);
         }
-        return count;
+
+        commitRepository.saveAll(entitiesToSave);
+        return entitiesToSave.size();
     }
 
     private Long resolveOrCreateConnection(Long workspaceId, Long userId, String token, String repoFullName) {

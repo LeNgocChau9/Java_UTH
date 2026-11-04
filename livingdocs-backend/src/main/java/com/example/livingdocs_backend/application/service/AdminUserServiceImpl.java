@@ -226,7 +226,6 @@ public class AdminUserServiceImpl implements AdminUserServicePort {
                 .status(user.getStatus())
                 .roles(roleStrings)
                 .createdAt(user.getCreatedAt())
-                .updatedAt(user.getUpdatedAt())
                 .build();
     }
 }

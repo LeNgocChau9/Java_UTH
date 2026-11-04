@@ -185,9 +185,20 @@ export default function RepoManagementPage() {
         // Bắn event để hiển thị modal gia hạn phiên
         window.dispatchEvent(new CustomEvent("livingdocs:session_expired"));
       } else {
-        const safeText = rawMsg.includes("{") || rawMsg.toLowerCase().includes("github api")
-          ? "Đồng bộ thất bại. Vui lòng thử lại sau!"
+        const isDbOrInternalError =
+          rawMsg.includes("Exception") ||
+          rawMsg.includes("SQL") ||
+          rawMsg.includes("constraint") ||
+          rawMsg.includes("could not execute") ||
+          rawMsg.includes("violates") ||
+          rawMsg.includes("duplicate key") ||
+          rawMsg.includes("{") ||
+          rawMsg.toLowerCase().includes("github api");
+
+        const safeText = isDbOrInternalError
+          ? "Đồng bộ gặp xung đột dữ liệu hoặc lỗi hệ thống. Vui lòng làm mới trang và thử lại!"
           : rawMsg || "Sync thất bại. Vui lòng thử lại!";
+
         setSyncMessage({
           id: repo.repositoryId,
           text: safeText,

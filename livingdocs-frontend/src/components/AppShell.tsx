@@ -91,7 +91,7 @@ const NAV: NavItem[] = [
     href: "/kho-luu-tru",
     label: "Kho lưu trữ",
     icon: <Archive size={16} />,
-    roles: ["DEVELOPER"],
+    roles: ["DEVELOPER", "TECH_LEAD", "ADMIN"],
   },
   {
     href: "/tai-lieu-cua-toi",

@@ -1,5 +1,6 @@
 package com.example.livingdocs_backend.infrastructure.web.controller;
 
+import lombok.extern.slf4j.Slf4j;
 import com.example.livingdocs_backend.domain.exception.AuthenticationException;
 import com.example.livingdocs_backend.domain.exception.EmailAlreadyExistsException;
 import com.example.livingdocs_backend.domain.exception.InvalidDocumentStatusTransitionException;
@@ -16,6 +17,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 
+@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -175,13 +177,26 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
     }
 
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ResponseEntity<Map<String, Object>> handleDataIntegrityViolationException(org.springframework.dao.DataIntegrityViolationException ex) {
+        log.error("Data integrity violation: {}", ex.getMessage(), ex);
+        Map<String, Object> error = new HashMap<>();
+        error.put("status", HttpStatus.CONFLICT.value());
+        error.put("error", "Conflict");
+        error.put("errorCode", "DATA_INTEGRITY_VIOLATION");
+        error.put("message", "Dữ liệu bị trùng lặp hoặc xung đột bản ghi trong hệ thống. Vui lòng làm mới trang và thử lại.");
+        error.put("timestamp", Instant.now().toString());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGenericException(Exception ex) {
-        ex.printStackTrace();
+        log.error("Unhandled system error: ", ex);
         Map<String, Object> error = new HashMap<>();
         error.put("status", HttpStatus.INTERNAL_SERVER_ERROR.value());
         error.put("error", "Internal Server Error");
-        error.put("message", "Đã xảy ra lỗi hệ thống: " + ex.getClass().getSimpleName() + " - " + ex.getMessage());
+        error.put("errorCode", "INTERNAL_SERVER_ERROR");
+        error.put("message", "Đã xảy ra lỗi trong quá trình xử lý của hệ thống. Vui lòng thử lại sau.");
         error.put("timestamp", Instant.now().toString());
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
     }
