@@ -34,6 +34,19 @@ export interface DocumentItem {
   missingHeadings?: string[];
 }
 
+export interface GroundingEvidenceItem {
+  linkId?: number;
+  documentId?: number;
+  entityId?: number | null;
+  filePath: string;
+  className?: string | null;
+  methodName?: string | null;
+  signature?: string | null;
+  startLine?: number | null;
+  endLine?: number | null;
+  commitHash?: string | null;
+  createdAt?: string;
+}
 export interface DocumentDetail extends DocumentItem {
   versionHistory: DocumentVersionItem[];
 }

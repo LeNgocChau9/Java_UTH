@@ -7,7 +7,7 @@ import { AppShell } from "@/components/AppShell";
 import { MarkdownViewer } from "@/components/shared/MarkdownViewer";
 import { documentService } from "@/services/documentService";
 import { repoService, type RepoItem } from "@/services/repoService";
-import type { DocCollection, DocumentDetail, DocumentStatus } from "@/types/document";
+import type { DocCollection, DocumentDetail, DocumentStatus, GroundingEvidenceItem } from "@/types/document";
 import {
   Save,
   Send,
@@ -38,6 +38,11 @@ import {
   ShieldCheck,
   ChevronDown,
   History,
+  GitCommit,
+  Code2,
+  Layers,
+  ChevronUp,
+  ExternalLink,
 } from "lucide-react";
 
 const SAMPLE_MARKDOWN = `# Tài liệu Kiến trúc Hệ thống LivingDocs
@@ -114,6 +119,9 @@ function EditorContent() {
   const [toast, setToast] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null);
   const [showConfirmReview, setShowConfirmReview] = useState(false);
   const [showTemplateDropdown, setShowTemplateDropdown] = useState(false);
+  const [groundingLinks, setGroundingLinks] = useState<GroundingEvidenceItem[]>([]);
+  const [loadingGrounding, setLoadingGrounding] = useState(false);
+  const [groundingExpanded, setGroundingExpanded] = useState(true);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -171,6 +179,19 @@ function EditorContent() {
         notify("error", "Không thể nạp tài liệu: " + (err.response?.data?.message || err.message));
       } finally {
         setLoading(false);
+      }
+
+      // Nạp danh sách bằng chứng xác thực Grounding (doc_code_links)
+      if (docIdParam) {
+        setLoadingGrounding(true);
+        try {
+          const links = await documentService.getDocumentCodeLinks(parseInt(docIdParam, 10));
+          setGroundingLinks(links || []);
+        } catch (e) {
+          console.warn("Chưa thể lấy grounding links:", e);
+        } finally {
+          setLoadingGrounding(false);
+        }
       }
     };
 
@@ -661,6 +682,226 @@ function EditorContent() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* KHỐI BẰNG CHỨNG XÁC THỰC (GROUNDING EVIDENCE BOX) */}
+      <div
+        className="ld-card"
+        style={{
+          marginBottom: 16,
+          padding: "14px 18px",
+          border: "1px solid var(--color-border)",
+          borderRadius: 8,
+          background: "var(--color-bg-surface, #ffffff)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            cursor: "pointer",
+            userSelect: "none",
+          }}
+          onClick={() => setGroundingExpanded(!groundingExpanded)}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 6,
+                background: "#e6fcf5",
+                color: "#087f5b",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <ShieldCheck size={16} />
+            </div>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "var(--color-text-primary)" }}>
+                  Khối Bằng chứng Xác thực (Grounding Evidence Box)
+                </span>
+                <span
+                  style={{
+                    fontSize: 11,
+                    padding: "2px 8px",
+                    borderRadius: 12,
+                    background: "#e6fcf5",
+                    color: "#087f5b",
+                    fontWeight: 600,
+                  }}
+                >
+                  {groundingLinks.length > 0 ? `${groundingLinks.length} liên kết AST` : "Tự động trích xuất AST"}
+                </span>
+              </div>
+              <p style={{ margin: 0, fontSize: 11, color: "var(--color-text-secondary)" }}>
+                Hiển thị tệp nguồn, các hàm tham chiếu, commit hash và khoảng dòng code được AI tham chiếu.
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+              {groundingExpanded ? "Thu gọn" : "Mở rộng"}
+            </span>
+            <button type="button" className="ld-btn ld-btn-ghost ld-btn-sm" style={{ padding: 4 }}>
+              {groundingExpanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+            </button>
+          </div>
+        </div>
+
+        {groundingExpanded && (
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px dashed var(--color-border)" }}>
+            {loadingGrounding ? (
+              <div style={{ padding: "12px 0", fontSize: 12, color: "var(--color-text-secondary)", textAlign: "center" }}>
+                Đang tải dữ liệu bằng chứng mã nguồn AST...
+              </div>
+            ) : groundingLinks.length > 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {groundingLinks.map((link, idx) => (
+                  <div
+                    key={link.linkId || idx}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      flexWrap: "wrap",
+                      gap: 8,
+                      padding: "8px 12px",
+                      background: "var(--color-muted, #f8fafc)",
+                      borderRadius: 6,
+                      fontSize: 12,
+                      border: "1px solid var(--color-border)",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                          fontFamily: "var(--font-mono)",
+                          fontWeight: 600,
+                          color: "var(--color-accent, #1971c2)",
+                        }}
+                      >
+                        <FileCode size={13} />
+                        {link.filePath}
+                      </span>
+
+                      {link.className && (
+                        <span
+                          style={{
+                            padding: "2px 6px",
+                            borderRadius: 4,
+                            background: "#e7f5ff",
+                            color: "#1971c2",
+                            fontWeight: 500,
+                            fontFamily: "var(--font-mono)",
+                          }}
+                        >
+                          class {link.className}
+                        </span>
+                      )}
+
+                      {link.methodName && (
+                        <span
+                          style={{
+                            padding: "2px 6px",
+                            borderRadius: 4,
+                            background: "#fff4e6",
+                            color: "#d9480f",
+                            fontWeight: 500,
+                            fontFamily: "var(--font-mono)",
+                          }}
+                        >
+                          fn {link.methodName}()
+                        </span>
+                      )}
+
+                      {(link.startLine !== null && link.startLine !== undefined) && (
+                        <span
+                          style={{
+                            padding: "2px 6px",
+                            borderRadius: 4,
+                            background: "#f1f3f5",
+                            color: "var(--color-text-secondary)",
+                            fontFamily: "var(--font-mono)",
+                          }}
+                        >
+                          L{link.startLine}{link.endLine ? ` - L${link.endLine}` : ""}
+                        </span>
+                      )}
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      {link.commitHash && (
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 3,
+                            fontFamily: "var(--font-mono)",
+                            fontSize: 11,
+                            color: "var(--color-text-secondary)",
+                          }}
+                          title={`Commit SHA: ${link.commitHash}`}
+                        >
+                          <GitCommit size={12} />
+                          {link.commitHash.substring(0, 8)}
+                        </span>
+                      )}
+                      <span
+                        style={{
+                          fontSize: 11,
+                          padding: "2px 6px",
+                          borderRadius: 4,
+                          background: "#e6fcf5",
+                          color: "#087f5b",
+                          fontWeight: 500,
+                        }}
+                      >
+                        ✓ AST Grounded
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "10px 14px",
+                  background: "var(--color-muted, #f8fafc)",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  color: "var(--color-text-secondary)",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <AlertCircle size={14} style={{ color: "#f59f00" }} />
+                  <span>
+                    Chưa có liên kết AST lưu trong cơ sở dữ liệu. Bằng chứng xác thực sẽ tự động được liên kết khi sinh tài liệu từ AI Engine.
+                  </span>
+                </div>
+                <Link
+                  href="/yeu-cau-sinh-tai-lieu"
+                  className="ld-btn ld-btn-ghost ld-btn-sm"
+                  style={{ color: "var(--color-accent)", fontSize: 11 }}
+                >
+                  <Sparkles size={12} />
+                  <span>Sinh bằng AI</span>
+                </Link>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Thanh Công cụ Định dạng Markdown & Điều khiển Chế độ xem */}
