@@ -328,7 +328,16 @@ export default function RepoManagementPage() {
         
         {/* CỘT TRÁI: DANH SÁCH REPOS */}
         <div className="ld-card" style={{ padding: 18 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              paddingBottom: 14,
+              marginBottom: 14,
+              borderBottom: "1px solid #e2e8f0",
+            }}
+          >
             <h2 style={{ fontSize: 16, fontWeight: 600, color: "#0f172a", margin: 0 }}>
               Repositories đã kết nối ({filteredRepos.length})
             </h2>
@@ -372,7 +381,16 @@ export default function RepoManagementPage() {
               </button>
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+                maxHeight: 580,
+                overflowY: "auto",
+                paddingRight: 6,
+              }}
+            >
               {filteredRepos.map((repo) => {
                 const isSelected = selectedRepo?.repositoryId === repo.repositoryId;
                 const isSyncing = syncingId === repo.repositoryId;
