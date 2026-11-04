@@ -598,11 +598,6 @@ service.initialize();
       {/* Header */}
       <div className="ld-page-header">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
-              AI Generation Hub
-            </span>
-          </div>
           <h1 className="ld-page-title flex items-center gap-2.5">
             <Sparkles className="w-7 h-7 text-amber-500 animate-pulse" />
             Yêu cầu AI sinh tài liệu

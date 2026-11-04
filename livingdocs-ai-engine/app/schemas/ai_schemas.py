@@ -200,7 +200,7 @@ class DriftAnalyzeResponse(BaseModel):
         description="Danh sách đề xuất sửa đổi cụ thể cho từng phần tài liệu bị ảnh hưởng."
     )
     model_used: str = Field(
-        default="gemini-3.8-flash",
+        default="gemini-3.5-flash-lite",
         description="Tên model Gemini đã sử dụng."
     )
 
