@@ -189,6 +189,18 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
 
+    @ExceptionHandler(org.springframework.dao.DataAccessException.class)
+    public ResponseEntity<Map<String, Object>> handleDataAccessException(org.springframework.dao.DataAccessException ex) {
+        log.error("Database access exception: {}", ex.getMessage(), ex);
+        Map<String, Object> error = new HashMap<>();
+        error.put("status", HttpStatus.INTERNAL_SERVER_ERROR.value());
+        error.put("error", "Database Error");
+        error.put("errorCode", "DATABASE_ERROR");
+        error.put("message", "Đã xảy ra sự cố khi truy vấn cơ sở dữ liệu. Vui lòng thử lại sau.");
+        error.put("timestamp", Instant.now().toString());
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGenericException(Exception ex) {
         log.error("Unhandled system error: ", ex);

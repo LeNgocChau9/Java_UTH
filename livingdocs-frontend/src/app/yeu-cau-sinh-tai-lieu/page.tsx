@@ -539,11 +539,23 @@ service.initialize();
 
       setStep("generated");
     } catch (caught) {
-      setError(
+      let rawMsg =
         isAxiosError(caught) && typeof caught.response?.data?.message === "string"
           ? caught.response.data.message
-          : "Không thể tạo tài liệu bằng AI. Vui lòng kiểm tra lại kết nối và thử lại."
-      );
+          : "Không thể tạo tài liệu bằng AI. Vui lòng kiểm tra lại kết nối và thử lại.";
+
+      const isDbOrInternal =
+        rawMsg.includes("Exception") ||
+        rawMsg.includes("SQL") ||
+        rawMsg.includes("could not execute") ||
+        rawMsg.includes("relation") ||
+        rawMsg.includes("constraint");
+
+      if (isDbOrInternal) {
+        rawMsg = "Hệ thống gặp sự cố cơ sở dữ liệu khi lưu trữ tài liệu. Vui lòng thử lại sau ít phút!";
+      }
+
+      setError(rawMsg);
       setStep("error");
     }
   }
@@ -560,11 +572,23 @@ service.initialize();
       });
       setStep("done");
     } catch (caught) {
-      setError(
+      let rawMsg =
         isAxiosError(caught) && typeof caught.response?.data?.message === "string"
           ? caught.response.data.message
-          : "Không thể gửi tài liệu xem xét cho Staff."
-      );
+          : "Không thể gửi tài liệu xem xét cho Staff.";
+
+      const isDbOrInternal =
+        rawMsg.includes("Exception") ||
+        rawMsg.includes("SQL") ||
+        rawMsg.includes("could not execute") ||
+        rawMsg.includes("relation") ||
+        rawMsg.includes("constraint");
+
+      if (isDbOrInternal) {
+        rawMsg = "Hệ thống gặp sự cố cơ sở dữ liệu khi gửi duyệt tài liệu. Vui lòng thử lại sau ít phút!";
+      }
+
+      setError(rawMsg);
       setStep("generated");
     }
   }

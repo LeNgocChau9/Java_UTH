@@ -407,6 +407,47 @@ CREATE TABLE IF NOT EXISTS public.jobs
     CONSTRAINT jobs_pkey PRIMARY KEY (job_id)
 );
 
+CREATE TABLE IF NOT EXISTS public.changelogs (
+    id bigserial NOT NULL,
+    document_id bigint NOT NULL,
+    version_id bigint,
+    actor_id bigint,
+    actor_role character varying(50),
+    change_summary text NOT NULL,
+    created_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT changelogs_pkey PRIMARY KEY (id)
+);
+CREATE INDEX IF NOT EXISTS idx_changelogs_document_id ON public.changelogs(document_id);
+CREATE INDEX IF NOT EXISTS idx_changelogs_created_at ON public.changelogs(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.password_reset_requests (
+    request_id bigserial NOT NULL,
+    user_id bigint NOT NULL,
+    email character varying(255) NOT NULL,
+    full_name character varying(150),
+    status character varying(50) NOT NULL DEFAULT 'PENDING',
+    new_password_temp character varying(255),
+    resolved_by bigint,
+    resolved_at timestamp with time zone,
+    created_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT password_reset_requests_pkey PRIMARY KEY (request_id)
+);
+CREATE INDEX IF NOT EXISTS idx_pwd_reset_user_id ON public.password_reset_requests(user_id);
+CREATE INDEX IF NOT EXISTS idx_pwd_reset_status ON public.password_reset_requests(status);
+
+CREATE TABLE IF NOT EXISTS public.doc_code_links (
+    link_id bigserial NOT NULL,
+    document_id bigint NOT NULL,
+    entity_id bigint,
+    file_path character varying(500) NOT NULL,
+    class_name character varying(255),
+    method_name character varying(255),
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT doc_code_links_pkey PRIMARY KEY (link_id)
+);
+CREATE INDEX IF NOT EXISTS idx_doc_code_links_doc ON public.doc_code_links(document_id);
+CREATE INDEX IF NOT EXISTS idx_doc_code_links_file ON public.doc_code_links(file_path);
+
 -- Foreign Keys & Constraints
 ALTER TABLE IF EXISTS public.admin_settings
     ADD CONSTRAINT admin_settings_updated_by_fkey FOREIGN KEY (updated_by)
