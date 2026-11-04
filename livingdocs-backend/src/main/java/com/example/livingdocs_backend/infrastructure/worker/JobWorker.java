@@ -15,8 +15,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Worker quét và thực thi các tác vụ bất đồng bộ từ bảng jobs mỗi 3 giây.
- * Hỗ trợ cơ chế tự động thử lại (Retry) tối đa 3 lần và chuyển sang DEAD (Dead Letter Queue).
+ * Worker quét và thực thi các tác vụ bất đồng bộ từ bảng jobs theo chu kỳ 3 giây.
+ * Hỗ trợ các tác vụ AI mất nhiều thời gian dưới nền (AI_DOC_GEN, REPO_SCAN, DRIFT_ANALYZE,...).
+ * Hỗ trợ cơ chế tự động thử lại (Retry) tối đa 3 lần và chuyển sang FAILED/DEAD (Dead Letter Queue - DLQ).
  */
 @Slf4j
 @Component
@@ -37,7 +38,8 @@ public class JobWorker {
 
     @Scheduled(fixedDelay = 3000)
     public void processPendingJobs() {
-        List<Job> pendingJobs = jobRepositoryPort.findTopJobsByStatus(JobStatus.PENDING, 5);
+        // Quét các job đang ở trạng thái chờ (QUEUED hoặc PENDING)
+        List<Job> pendingJobs = jobRepositoryPort.findTopJobsByStatus(JobStatus.QUEUED, 5);
         if (pendingJobs.isEmpty()) {
             return;
         }
@@ -51,7 +53,7 @@ public class JobWorker {
         log.info("[JobWorker] Picking up job #{} [Type: {}, Attempt: {}/{}]", 
                 job.getJobId(), job.getType(), (job.getAttempts() + 1), job.getMaxAttempts());
 
-        // 1. Chuyển sang trạng thái RUNNING
+        // 1. Chuyển sang trạng thái PROCESSING (RUNNING)
         job.markRunning();
         jobRepositoryPort.save(job);
 
@@ -65,16 +67,16 @@ public class JobWorker {
         }
 
         try {
-            // 2. Thực thi nghiệp vụ của Job
+            // 2. Thực thi nghiệp vụ của Job dưới nền
             handler.handle(job);
 
-            // 3. Đánh dấu DONE nếu thành công
+            // 3. Đánh dấu COMPLETED nếu thành công
             job.markDone();
             jobRepositoryPort.save(job);
             log.info("[JobWorker] Successfully completed job #{} [Type: {}]", job.getJobId(), job.getType());
 
         } catch (Exception ex) {
-            // 4. Bắt lỗi và kích hoạt cơ chế Retry / Dead Letter Queue
+            // 4. Bắt lỗi và kích hoạt cơ chế Retry / Dead Letter Queue (DLQ)
             String errorDetails = extractStackTrace(ex);
             log.warn("[JobWorker] Job #{} failed on attempt {}/{}. Reason: {}", 
                     job.getJobId(), job.getAttempts(), job.getMaxAttempts(), ex.getMessage());
@@ -82,8 +84,8 @@ public class JobWorker {
             job.recordFailure(errorDetails);
             Job savedJob = jobRepositoryPort.save(job);
 
-            if (savedJob.getStatus() == JobStatus.DEAD) {
-                log.error("[JobWorker - DEAD LETTER QUEUE] Job #{} reached max attempts ({}) and is now DEAD! Last error: {}",
+            if (savedJob.getStatus() == JobStatus.FAILED || savedJob.getStatus() == JobStatus.DEAD) {
+                log.error("[JobWorker - DEAD LETTER QUEUE] Job #{} reached max attempts ({}) and is now FAILED/DEAD! Last error: {}",
                         job.getJobId(), job.getMaxAttempts(), ex.getMessage());
             } else {
                 log.info("[JobWorker] Job #{} will be retried on next schedule poll.", job.getJobId());

@@ -28,10 +28,13 @@ public class JobEntity {
     @Column(name = "payload_json", nullable = false, columnDefinition = "TEXT")
     private String payloadJson;
 
+    @Column(name = "result_json", columnDefinition = "TEXT")
+    private String resultJson;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 50)
     @Builder.Default
-    private JobStatus status = JobStatus.PENDING;
+    private JobStatus status = JobStatus.QUEUED;
 
     @Column(name = "attempts", nullable = false)
     @Builder.Default

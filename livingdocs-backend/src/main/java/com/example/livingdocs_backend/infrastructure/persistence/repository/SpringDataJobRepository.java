@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 
 @Repository
@@ -15,4 +16,7 @@ public interface SpringDataJobRepository extends JpaRepository<JobEntity, Long> 
 
     @Query("SELECT j FROM JobEntity j WHERE j.status = :status ORDER BY j.createdAt ASC")
     List<JobEntity> findJobsByStatusWithLimit(@Param("status") JobStatus status, Pageable pageable);
+
+    @Query("SELECT j FROM JobEntity j WHERE j.status IN :statuses ORDER BY j.createdAt ASC")
+    List<JobEntity> findJobsByStatusesWithLimit(@Param("statuses") Collection<JobStatus> statuses, Pageable pageable);
 }
