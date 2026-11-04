@@ -578,7 +578,6 @@ service.initialize();
             <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
               AI Generation Hub
             </span>
-            <span className="text-xs text-muted-foreground">Tuần 5 · Kiến trúc 3 Phạm vi & Đa Mẫu</span>
           </div>
           <h1 className="ld-page-title flex items-center gap-2.5">
             <Sparkles className="w-7 h-7 text-amber-500 animate-pulse" />
