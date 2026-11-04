@@ -27,7 +27,7 @@ public class JobQueueImpl implements JobQueue {
         Job job = Job.builder()
                 .type(type)
                 .payloadJson(payloadJson != null ? payloadJson : "{}")
-                .status(JobStatus.PENDING)
+                .status(JobStatus.QUEUED)
                 .attempts(0)
                 .maxAttempts(maxAttempts > 0 ? maxAttempts : 3)
                 .createdAt(Instant.now())
@@ -35,8 +35,8 @@ public class JobQueueImpl implements JobQueue {
                 .build();
 
         Job savedJob = jobRepositoryPort.save(job);
-        log.info("[JobQueue] Enqueued new job #{} with type='{}', maxAttempts={}", 
-                savedJob.getJobId(), savedJob.getType(), savedJob.getMaxAttempts());
+        log.info("[JobQueue] Enqueued new job #{} with type='{}', status='{}', maxAttempts={}", 
+                savedJob.getJobId(), savedJob.getType(), savedJob.getStatus(), savedJob.getMaxAttempts());
         return savedJob;
     }
 }

@@ -33,8 +33,14 @@ public class JobRepositoryAdapter implements JobRepositoryPort {
 
     @Override
     public List<Job> findTopJobsByStatus(JobStatus status, int limit) {
-        return springDataJobRepository.findJobsByStatusWithLimit(status, PageRequest.of(0, limit))
-                .stream()
+        List<JobEntity> entities;
+        if (status == JobStatus.QUEUED || status == JobStatus.PENDING) {
+            entities = springDataJobRepository.findJobsByStatusesWithLimit(
+                    List.of(JobStatus.QUEUED, JobStatus.PENDING), PageRequest.of(0, limit));
+        } else {
+            entities = springDataJobRepository.findJobsByStatusWithLimit(status, PageRequest.of(0, limit));
+        }
+        return entities.stream()
                 .map(this::toDomain)
                 .collect(Collectors.toList());
     }
@@ -44,6 +50,7 @@ public class JobRepositoryAdapter implements JobRepositoryPort {
                 .jobId(job.getJobId())
                 .type(job.getType())
                 .payloadJson(job.getPayloadJson())
+                .resultJson(job.getResultJson())
                 .status(job.getStatus())
                 .attempts(job.getAttempts() != null ? job.getAttempts() : 0)
                 .maxAttempts(job.getMaxAttempts() != null ? job.getMaxAttempts() : 3)
@@ -59,6 +66,7 @@ public class JobRepositoryAdapter implements JobRepositoryPort {
                 .jobId(entity.getJobId())
                 .type(entity.getType())
                 .payloadJson(entity.getPayloadJson())
+                .resultJson(entity.getResultJson())
                 .status(entity.getStatus())
                 .attempts(entity.getAttempts())
                 .maxAttempts(entity.getMaxAttempts())

@@ -39,27 +39,27 @@ class JobWorkerTest {
     }
 
     @Test
-    @DisplayName("Job gặp lỗi sẽ retry và chuyển sang trạng thái DEAD sau 3 lần thất bại")
+    @DisplayName("Job gặp lỗi sẽ retry và chuyển sang trạng thái FAILED (Dead Letter Queue) sau 3 lần thất bại")
     void shouldRetry3TimesAndMoveToDeadLetterQueueWhenJobFails() {
-        // Khởi tạo một Job giả lập
+        // Khởi tạo một Job giả lập với trạng thái ban đầu QUEUED
         Job job = Job.builder()
                 .jobId(100L)
                 .type(FailingTestJobHandler.JOB_TYPE)
                 .payloadJson("{\"test\": true}")
-                .status(JobStatus.PENDING)
+                .status(JobStatus.QUEUED)
                 .attempts(0)
                 .maxAttempts(3)
                 .createdAt(Instant.now())
                 .build();
 
-        when(jobRepositoryPort.findTopJobsByStatus(eq(JobStatus.PENDING), anyInt()))
+        when(jobRepositoryPort.findTopJobsByStatus(eq(JobStatus.QUEUED), anyInt()))
                 .thenReturn(Collections.singletonList(job));
         when(jobRepositoryPort.save(any(Job.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // --- Lần 1: Worker quét và xử lý ---
         jobWorker.processPendingJobs();
         assertEquals(1, job.getAttempts(), "Lần 1: Số lần thử phải là 1");
-        assertEquals(JobStatus.PENDING, job.getStatus(), "Lần 1: Trạng thái vẫn là PENDING để retry tiếp");
+        assertEquals(JobStatus.QUEUED, job.getStatus(), "Lần 1: Trạng thái vẫn là QUEUED để retry tiếp");
         assertNotNull(job.getLastError(), "Lần 1: Phải có thông tin lỗi ghi vào last_error");
         assertTrue(job.getLastError().contains("Simulated connection timeout"),
                 "Nội dung lỗi khớp với exception giả lập");
@@ -67,13 +67,13 @@ class JobWorkerTest {
         // --- Lần 2: Worker quét tiếp ---
         jobWorker.processPendingJobs();
         assertEquals(2, job.getAttempts(), "Lần 2: Số lần thử phải là 2");
-        assertEquals(JobStatus.PENDING, job.getStatus(), "Lần 2: Trạng thái vẫn là PENDING");
+        assertEquals(JobStatus.QUEUED, job.getStatus(), "Lần 2: Trạng thái vẫn là QUEUED");
         assertNotNull(job.getLastError());
 
         // --- Lần 3: Quét lần cuối cùng (đạt max_attempts = 3) ---
         jobWorker.processPendingJobs();
         assertEquals(3, job.getAttempts(), "Lần 3: Số lần thử đạt max = 3");
-        assertEquals(JobStatus.DEAD, job.getStatus(), "Lần 3: Job phải tự động chuyển sang DEAD (Dead Letter Queue)");
+        assertEquals(JobStatus.FAILED, job.getStatus(), "Lần 3: Job phải tự động chuyển sang FAILED (Dead Letter Queue)");
         assertNotNull(job.getLastError(), "Lần 3: Phải lưu vết chi tiết lỗi vào last_error");
         assertTrue(job.getLastError().contains("attempt #3"), "Lỗi ghi rõ thất bại ở attempt #3");
     }

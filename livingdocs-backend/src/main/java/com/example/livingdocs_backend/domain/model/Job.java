@@ -9,15 +9,21 @@ import java.time.Instant;
 
 /**
  * Domain model đại diện cho một tác vụ ngầm trong hệ thống LivingDocs.
+ * Hỗ trợ các tác vụ AI mất nhiều thời gian dưới nền (AI_DOC_GEN, REPO_SCAN, DRIFT_ANALYZE).
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class Job {
+    public static final String TYPE_AI_DOC_GEN = "AI_DOC_GEN";
+    public static final String TYPE_REPO_SCAN = "REPO_SCAN";
+    public static final String TYPE_DRIFT_ANALYZE = "DRIFT_ANALYZE";
+
     private Long jobId;
     private String type;
     private String payloadJson;
+    private String resultJson;
     private JobStatus status;
     private Integer attempts;
     private Integer maxAttempts;
@@ -31,17 +37,22 @@ public class Job {
     }
 
     public void markRunning() {
-        this.status = JobStatus.RUNNING;
+        this.status = JobStatus.PROCESSING;
         this.attempts = (this.attempts == null ? 0 : this.attempts) + 1;
         this.lockedAt = Instant.now();
         this.updatedAt = Instant.now();
     }
 
     public void markDone() {
-        this.status = JobStatus.DONE;
+        this.status = JobStatus.COMPLETED;
         this.lockedAt = null;
         this.lastError = null;
         this.updatedAt = Instant.now();
+    }
+
+    public void markDone(String resultJson) {
+        this.resultJson = resultJson;
+        markDone();
     }
 
     public void recordFailure(String errorMessage) {
@@ -50,9 +61,9 @@ public class Job {
         this.updatedAt = Instant.now();
 
         if (this.attempts >= this.maxAttempts) {
-            this.status = JobStatus.DEAD; // Chuyển sang Dead Letter Queue
+            this.status = JobStatus.FAILED; // Chuyển sang Dead Letter Queue (DLQ)
         } else {
-            this.status = JobStatus.PENDING; // Cho phép lần quét tiếp theo retry
+            this.status = JobStatus.QUEUED; // Cho phép lần quét tiếp theo retry
         }
     }
 }
