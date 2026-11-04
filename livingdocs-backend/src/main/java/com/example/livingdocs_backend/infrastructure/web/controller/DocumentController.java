@@ -12,6 +12,10 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.CodeEntityJpaEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.DocCodeLinkEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataCodeEntityRepository;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocCodeLinkRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -29,6 +33,8 @@ public class DocumentController {
 
     private final DocumentServicePort documentServicePort;
     private final AiDocumentationServicePort aiDocumentationServicePort;
+    private final SpringDataDocCodeLinkRepository docCodeLinkRepository;
+    private final SpringDataCodeEntityRepository codeEntityRepository;
 
     @PostMapping
     @Operation(summary = "Tạo tài liệu mới", description = "Tạo mới tài liệu và tự động tạo phiên bản v1 kèm chuỗi băm khởi tạo (Genesis Hash).")
@@ -223,4 +229,48 @@ public class DocumentController {
         return ResponseEntity.ok(response);
     }
 
+
+    @GetMapping("/{docId}/code-links")
+    @Operation(summary = "Lấy danh sách bằng chứng xác thực Grounding (doc_code_links) của tài liệu",
+               description = "Trả về danh sách các tệp nguồn, lớp, hàm và khoảng dòng code được liên kết với tài liệu này.")
+    public ResponseEntity<List<com.example.livingdocs_backend.application.dto.GroundingEvidenceItem>> getDocumentCodeLinks(
+            @PathVariable Long docId) {
+        if (docCodeLinkRepository == null) {
+            return ResponseEntity.ok(List.of());
+        }
+        List<DocCodeLinkEntity> links = docCodeLinkRepository.findByDocumentId(docId);
+        List<com.example.livingdocs_backend.application.dto.GroundingEvidenceItem> result = new java.util.ArrayList<>();
+        for (DocCodeLinkEntity link : links) {
+            Integer startLine = null;
+            Integer endLine = null;
+            String signature = null;
+            String commitHash = null;
+
+            if (link.getEntityId() != null && codeEntityRepository != null) {
+                var entityOpt = codeEntityRepository.findById(link.getEntityId());
+                if (entityOpt.isPresent()) {
+                    var entity = entityOpt.get();
+                    startLine = entity.getStartLine();
+                    endLine = entity.getEndLine();
+                    signature = entity.getSignature();
+                    commitHash = entity.getCommitHash();
+                }
+            }
+
+            result.add(com.example.livingdocs_backend.application.dto.GroundingEvidenceItem.builder()
+                    .linkId(link.getLinkId())
+                    .documentId(link.getDocumentId())
+                    .entityId(link.getEntityId())
+                    .filePath(link.getFilePath())
+                    .className(link.getClassName())
+                    .methodName(link.getMethodName())
+                    .signature(signature)
+                    .startLine(startLine)
+                    .endLine(endLine)
+                    .commitHash(commitHash)
+                    .createdAt(link.getCreatedAt())
+                    .build());
+        }
+        return ResponseEntity.ok(result);
+    }
 }

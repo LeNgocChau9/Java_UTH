@@ -3,6 +3,7 @@ import type {
   CreateDocumentPayload,
   DocCollection,
   DocumentDetail,
+  GroundingEvidenceItem,
   DocumentItem,
   DocumentVersionItem,
   DocumentAuditLogItem,
@@ -30,6 +31,14 @@ export const documentService = {
   /**
    * Lấy chi tiết tài liệu kèm nội dung mới nhất và lịch sử các phiên bản
    */
+  /**
+   * L?y danh sch b?ng ch?ng xc th?c Grounding (doc_code_links) c?a ti li?u
+   */
+  async getDocumentCodeLinks(docId: number): Promise<GroundingEvidenceItem[]> {
+    const res = await apiClient.get<GroundingEvidenceItem[]>(`/api/documents/${docId}/code-links`);
+    return res.data;
+  },
+
   async getDocumentById(docId: number): Promise<DocumentDetail> {
     const res = await apiClient.get<DocumentDetail>(`/api/documents/${docId}`);
     return res.data;
