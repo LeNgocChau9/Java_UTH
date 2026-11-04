@@ -1,13 +1,15 @@
 """
 gemini_doc_service.py
 Module kết nối trực tiếp với Google Gemini API thật để tự động sinh tài liệu kỹ thuật
-từ cấu trúc AST và Template (Sử dụng google-genai SDK mới nhất và Multi-Key Pool).
-Nếu API Key chưa hợp lệ hoặc quá hạn mức, tự động sinh tài liệu kỹ thuật AST chuẩn (Smart AST Synthesis)
-đảm bảo tốc độ phản hồi tức thì và đầy đủ bảng biểu, chữ ký hàm, hướng dẫn tích hợp.
+theo 4 mẫu cấu trúc chuẩn (API_REFERENCE, README, MODULE_GUIDE, ADR) kèm khối Bằng chứng Xác thực (Grounding Evidence Box).
+Sử dụng google-genai SDK mới nhất và Multi-Key Pool 10 keys với cơ chế tự động xoay vòng Round-Robin & Retry.
+Nếu API Key chưa hợp lệ hoặc quá hạn mức, tự động chuyển sang chế độ tổng hợp AST thông minh (Smart AST Synthesis)
+đảm bảo tính liên tục của hệ thống.
 """
 
 import json
 import logging
+import re
 from typing import List, Optional
 from google import genai
 from google.genai import types as genai_types
@@ -18,12 +20,21 @@ from app.schemas.ai_schemas import (
     GroundingEvidence,
     CodeEntityItem,
 )
+from app.core.gemini_retry import (
+    execute_with_gemini_retry,
+    GeminiQuotaExceededError,
+    GeminiServiceUnavailableError,
+)
 
 logger = logging.getLogger(__name__)
 
 # Danh sách các model Gemini ưu tiên theo thứ tự tốc độ và độ ổn định
 DOC_MODELS = [
+    "gemini-3.8-flash",
+    "gemini-2.5-flash",
     "gemini-2.0-flash",
+    "gemini-flash-latest",
+    "gemini-flash-lite-latest",
     "gemini-1.5-flash",
 ]
 
@@ -32,8 +43,66 @@ class GeminiDocService:
 
     @classmethod
     def _is_valid_google_api_key(cls, key: str) -> bool:
-        """Google AI Studio API keys luôn bắt đầu bằng 'AIza' và dài khoảng 39 ký tự."""
-        return bool(key and key.strip().startswith("AIza") and len(key.strip()) >= 30)
+        """Hỗ trợ cả định dạng truyền thống (AIza...) và định dạng mới của Google AI Studio (AQ....)."""
+        if not key:
+            return False
+        clean = key.strip()
+        return (clean.startswith("AIza") or clean.startswith("AQ.")) and len(clean) >= 20
+
+    @classmethod
+    def _normalize_template_type(cls, template_type: Optional[str]) -> str:
+        """Chuẩn hóa loại mẫu tài liệu về một trong 4 loại chuẩn."""
+        raw = (template_type or "").strip().upper()
+        if "API" in raw or "REFERENCE" in raw:
+            return "API_REFERENCE"
+        if "README" in raw or "INTRO" in raw:
+            return "README"
+        if "MODULE" in raw or "GUIDE" in raw or "HD" in raw:
+            return "MODULE_GUIDE"
+        if "ADR" in raw or "DECISION" in raw:
+            return "ADR"
+        return "API_REFERENCE"
+
+    @classmethod
+    def _build_grounding_box_markdown(
+        cls,
+        file_path: str,
+        commit_hash: str,
+        entities: List[CodeEntityItem]
+    ) -> str:
+        """
+        Tạo khối Markdown Bằng chứng Xác thực Nguồn (Grounding Evidence Box)
+        nhúng trực tiếp vào cuối tài liệu kỹ thuật.
+        """
+        table_rows = []
+        for idx, e in enumerate(entities, 1):
+            name = e.method_name or e.class_name or f"Entity_{idx}"
+            etype = e.entity_type or "CODE"
+            sig = e.signature.strip() if e.signature else f"{etype} {name}"
+            if len(sig) > 70:
+                sig = sig[:67] + "..."
+            line_range = f"L{e.start_line} - L{e.end_line}"
+            table_rows.append(f"| {idx} | `{name}` | `{etype}` | `{sig}` | {line_range} | ✅ Verified AST |")
+
+        if not table_rows:
+            table_rows.append(f"| 1 | `{file_path}` | `FILE` | Toàn bộ tệp mã nguồn | L1 - End | ✅ Verified AST |")
+
+        rows_str = "\n".join(table_rows)
+
+        return f"""
+---
+
+### 🔍 Khối Bằng chứng Xác thực Nguồn (Grounding Evidence Box)
+
+> **Xác thực bởi:** LivingDocs AI Engine (AST Verification Engine)  
+> **File nguồn:** `{file_path}`  
+> **Mã Commit Hash:** `{commit_hash}`  
+> **Tổng số thực thể mã nguồn xác thực:** `{len(entities)}`  
+
+| # | Tên thực thể | Loại phần tử | Chữ ký / Định dạng | Vị trí dòng | Trạng thái xác thực |
+|---|---|---|---|---|---|
+{rows_str}
+"""
 
     @classmethod
     def _build_smart_ast_markdown(
@@ -43,13 +112,12 @@ class GeminiDocService:
         entities_summary: list,
     ) -> str:
         """
-        Bộ tổng hợp tài liệu kỹ thuật thông minh dựa trên cấu trúc AST (Tree-sitter)
-        theo đúng chuẩn 4 loại Template: API_REFERENCE, PROJECT_README, MODULE_GUIDE, ARCHITECTURE_ADR.
+        Bộ tổng hợp tài liệu kỹ thuật dự phòng dựa trên cấu trúc AST (Tree-sitter)
+        khi Gemini API tạm thời không khả dụng.
         """
-        tpl = (request.template_type or "API_REFERENCE").upper()
+        tpl = cls._normalize_template_type(request.template_type)
         file_path = request.file_path or "src/main/java/Component.java"
 
-        # Tạo bảng Markdown từ danh sách AST entities
         rows = []
         if entities_summary:
             for item in entities_summary:
@@ -57,7 +125,6 @@ class GeminiDocService:
                 e_type = item.get("entity_type") or "METHOD"
                 sig = item.get("signature") or f"{name}()"
                 ret = item.get("return_type") or "void"
-                params = item.get("parameters") or "None"
                 lines = item.get("lines") or "1 -> 50"
                 doc = item.get("javadoc")
                 desc = (
@@ -77,7 +144,6 @@ class GeminiDocService:
             + "\n".join(rows)
         )
 
-        # Chi tiết từng phương thức
         method_details = []
         for idx, item in enumerate(entities_summary[:12], start=1):
             name = item.get("name") or target_name
@@ -99,241 +165,270 @@ class GeminiDocService:
         details_md = "\n".join(method_details) if method_details else (
             f"#### 2.1. `{target_name}`\n"
             f"- **Đường dẫn nguồn:** `{file_path}`\n"
-            f"- **Trách nhiệm:** Điều phối luồng dữ liệu, đảm bảo tính toàn vẹn nghiệp vụ và kết nối với tầng Persistence/API.\n"
+            f"- **Trách nhiệm:** Điều phối luồng dữ liệu, đảm bảo tính toàn vẹn nghiệp vụ.\n"
         )
 
-        if "README" in tpl:
-            return f"""# Tài liệu Tổng quan & Kiến trúc Hệ thống: `{target_name}`
+        return f"""# Tài liệu Kỹ thuật cho `{target_name}`
 
-> **Mẫu áp dụng:** `{tpl}` (Project README)  
-> **Phạm vi nguồn:** `{file_path}`  
-> **Tác nhân biên soạn:** LivingDocs AI Engine (AST & Technical Synthesis)  
-> **Số thực thể AST đã đối chiếu:** {len(entities_summary)} phần tử
-
-## 1. Tổng quan Dự án & Mục đích Thiết kế
-Hệ thống **`{target_name}`** được xây dựng theo kiến trúc phân tầng hiện đại (Clean / Hexagonal Architecture), kết hợp **Spring Boot 3**, **FastAPI Tree-sitter AST Engine**, **Next.js App Router** và **PostgreSQL** nhằm tự động hóa toàn diện vòng đời tài liệu kỹ thuật (Living Documentation).
-
-- **Tự động bóc tách AST đa ngôn ngữ:** Phân tích chính xác Class, Method, Constructor, Signature và vị trí dòng lệnh.
-- **Chuỗi băm bất biến (SHA-256 Hash Chain):** Bảo toàn lịch sử phiên bản tài liệu chống chỉnh sửa trái phép.
-- **Quy trình Phê duyệt 2 cấp:** Kiểm duyệt chặt chẽ từ Developer ➔ Staff (Level 1) ➔ Manager (Level 2) trước khi xuất bản lên GitHub.
-
-## 2. Cấu trúc Thành phần & Thực thể Mã nguồn Trọng tâm
-
-{table_md}
-
-### Chi tiết các thành phần tiêu biểu
-{details_md}
-
-## 3. Hướng dẫn Cài đặt & Khởi chạy Nhanh
-```bash
-# 1. Khởi động cơ sở dữ liệu PostgreSQL qua Docker Compose
-docker compose up -d
-
-# 2. Khởi chạy AI Engine (FastAPI + Tree-sitter) tại cổng 8000
-cd livingdocs-ai-engine
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-
-# 3. Khởi chạy Backend Spring Boot tại cổng 8080
-cd livingdocs-backend
-./mvnw spring-boot:run
-
-# 4. Khởi chạy giao diện Quản trị Next.js tại cổng 3000
-cd livingdocs-frontend
-npm run dev
-```
-
-## 4. Bằng chứng Xác thực Nguồn (Grounding & Verification)
-- **Tệp/Kho nguồn xác thực:** `{file_path}`
-- **Tổng số thực thể AST ánh xạ:** `{len(entities_summary)}` phần tử
-- **Trạng thái đối chiếu:** Đã xác thực chữ ký hàm và phạm vi dòng lệnh từ Tree-sitter AST.
-"""
-
-        if "MODULE" in tpl:
-            return f"""# Hướng dẫn Kỹ thuật Mô-đun (Module Guide): `{target_name}`
-
-> **Mẫu áp dụng:** `{tpl}` (Module & Package Guide)  
-> **Đường dẫn Gói / Mô-đun:** `{file_path}`  
-> **Tác nhân biên soạn:** LivingDocs AI Engine (AST & Technical Synthesis)  
-> **Số thực thể AST trong mô-đun:** {len(entities_summary)} phần tử
-
-## 1. Tổng quan Kiến trúc Mô-đun
-Mô-đun **`{target_name}`** tại đường dẫn `{file_path}` đóng vai trò xử lý nghiệp vụ chuyên biệt, đóng gói các lớp dịch vụ, cổng giao tiếp (Ports) và thực thể dữ liệu liên quan, đảm bảo tính tách biệt (Decoupling) và khả năng mở rộng độc lập.
-
-## 2. Bảng Tổng hợp các Lớp & Phương thức trong Mô-đun
-
-{table_md}
-
-### Phân tích chi tiết các phần tử trong gói
-{details_md}
-
-## 3. Luồng Tương tác & Hướng dẫn Tích hợp Nội bộ
-```java
-// Inject dịch vụ hoặc thành phần từ mô-đun {target_name}
-@RequiredArgsConstructor
-@Service
-public class ModuleIntegrationOrchestrator {{
-    // Gọi trực tiếp qua Port/Interface chuẩn của mô-đun
-    public void executeModuleWorkflow() {{
-        // Thực thi luồng nghiệp vụ đã được xác thực AST
-    }}
-}}
-```
-
-## 4. Bằng chứng Xác thực Nguồn (Grounding & Verification)
-- **Đường dẫn gói mã nguồn:** `{file_path}`
-- **Tổng số phần tử AST đã liên kết:** `{len(entities_summary)}` thực thể
-- **Độ phủ cấu trúc:** 100% các lớp và phương thức công khai trong phạm vi quét.
-"""
-
-        if "ADR" in tpl or "ARCH" in tpl:
-            return f"""# Bản ghi Quyết định Kiến trúc (ADR): `{target_name}`
-
-> **Mẫu áp dụng:** `{tpl}` (Architecture Decision Record)  
-> **Phạm vi áp dụng:** `{file_path}`  
-> **Trạng thái quyết định:** Đề xuất & Đã xác thực AST (DRAFT)  
-> **Tác nhân biên soạn:** LivingDocs AI Engine
-
-## 1. Bối cảnh Kỹ thuật & Vấn đề (Context)
-Thành phần **`{target_name}`** (`{file_path}`) yêu cầu một thiết kế chuẩn hóa để đảm bảo hiệu năng xử lý, tính toàn vẹn dữ liệu giữa mã nguồn và tài liệu sống, cũng như khả năng kiểm toán lịch sử thay đổi rõ ràng.
-
-## 2. Quyết định Thiết kế & Cấu trúc AST Hiện tại (Decision)
-Hệ thống chuẩn hóa cấu trúc của `{target_name}` thông qua các giao diện và phương thức được xác định rõ ràng dưới đây:
-
-{table_md}
-
-### Đặc tả kỹ thuật các điểm giao tiếp
-{details_md}
-
-## 3. Hệ quả & Ràng buộc Kỹ thuật (Consequences)
-- **Tích cực:** Đảm bảo tính nhất quán cao giữa mã nguồn thực tế và tài liệu kỹ thuật; dễ dàng phát hiện sai lệch (Drift Detection) khi chữ ký hàm thay đổi.
-- **Ràng buộc:** Mọi thay đổi đối với chữ ký phương thức trong `{file_path}` sẽ tự động kích hoạt cảnh báo sai lệch tài liệu khi tạo Pull Request.
-
-## 4. Bằng chứng Xác thực Nguồn (Grounding & Verification)
-- **Nguồn đối chiếu:** `{file_path}`
-- **Số thực thể AST làm bằng chứng:** `{len(entities_summary)}` phần tử
-"""
-
-        # Mặc định: API_REFERENCE
-        return f"""# Tài liệu Kỹ thuật (API Reference): `{target_name}`
-
-> **Mẫu áp dụng:** `{tpl}`  
+> **Mẫu áp dụng:** {tpl}  
 > **File mã nguồn:** `{file_path}`  
-> **Tác nhân sinh:** LivingDocs AI Engine (Google Gemini & Tree-sitter AST)
+> **Tác nhân sinh:** LivingDocs Smart AST Synthesizer  
+> **Trạng thái:** ACTIVE (Đã đồng bộ AST)  
+
+---
 
 ## 1. Tổng quan & Mục đích thiết kế
-Thành phần **`{target_name}`** tại `{file_path}` chịu trách nhiệm thực thi các nghiệp vụ cốt lõi, cung cấp các phương thức giao tiếp rõ ràng, tuân thủ nguyên tắc Clean Architecture và đảm bảo an toàn kiểu dữ liệu.
+Thành phần `{target_name}` nằm trong tệp `{file_path}`, đóng vai trò điều phối logic nghiệp vụ trong kiến trúc LivingDocs.
 
 ## 2. Chi tiết các Phần tử, Phương thức & API
-
 {table_md}
 
-### Phân tích chuyên sâu từng phương thức
+### Đặc tả chuyên sâu các phần tử
 {details_md}
 
 ## 3. Hướng dẫn Tích hợp & Sử dụng
 ```java
-// Khởi tạo hoặc Inject thành phần {target_name} qua Spring IoC Container
-@Autowired
-private {target_name} {target_name[0].lower() + target_name[1:] if len(target_name) > 1 else "component"};
-
-// Gọi các phương thức theo đúng chữ ký đã được xác thực trong bảng API Reference ở Mục 2
+// Ví dụ sử dụng thành phần {target_name}
+{target_name} instance = new {target_name}();
 ```
-
-## 4. Bằng chứng xác thực nguồn (Grounding & Verification)
-- **File mã nguồn xác thực:** `{file_path}`
-- **Tổng số phần tử AST đã ánh xạ:** `{len(entities_summary)}` thực thể
-- **Cam kết toàn vẹn:** Mọi tên hàm, tham số, kiểu trả về và vị trí dòng lệnh đều được trích xuất trực tiếp từ cây cú pháp trừu tượng (AST).
 """
+
+    @classmethod
+    def _build_prompt_for_template(
+        cls,
+        template_type: str,
+        target_name: str,
+        file_path: str,
+        commit_hash: str,
+        entities_summary: List[dict],
+        source_code: Optional[str]
+    ) -> str:
+        """
+        Thiết kế System Prompt chuẩn mực kỹ thuật theo 4 mẫu tài liệu:
+        - API_REFERENCE: Bảng tham số, Endpoint/Method, HTTP status & Error codes.
+        - README: Giới thiệu, tính năng cốt lõi, cấu trúc thành phần, cài đặt & Quick start.
+        - MODULE_GUIDE: Bounded Context, Workflow dữ liệu, ràng buộc kỹ thuật, xử lý ngoại lệ.
+        - ADR: Context, Options considered, Decision outcome, Consequences, Implementation mapping.
+        """
+        entities_json = json.dumps(entities_summary, ensure_ascii=False, indent=2)
+        code_context = ""
+        if source_code:
+            trimmed_code = source_code[:2500] if len(source_code) > 2500 else source_code
+            code_context = f"\n### ĐOẠN MÃ NGUỒN THAM CHIẾU:\n```java\n{trimmed_code}\n```\n"
+
+        base_instructions = f"""Bạn là một Chuyên gia Kiến trúc Phần mềm và Senior Technical Writer cao cấp của hệ thống LivingDocs.
+Nhiệm vụ của bạn là phân tích cấu trúc mã nguồn (bóc tách từ Tree-sitter AST) và viết một bản TÀI LIỆU KỸ THUẬT HOÀN CHỈNH, CHUẨN MỰC bằng định dạng MARKDOWN.
+
+### THÔNG TIN ĐẦU VÀO:
+- Tên lớp / Thành phần chính: {target_name}
+- Đường dẫn file mã nguồn: {file_path}
+- Mã Commit Hash: {commit_hash}
+- Loại mẫu tài liệu: {template_type}
+- Danh sách các thực thể mã nguồn (AST Entities):
+{entities_json}
+{code_context}
+"""
+
+        if template_type == "API_REFERENCE":
+            template_rules = f"""### QUY TẮC CẤU TRÚC MARKDOWN BẮT BUỘC (MẪU API_REFERENCE):
+Tài liệu PHẢI tuân thủ chính xác các đề mục sau:
+
+# API Reference: {target_name}
+> **Mẫu áp dụng:** API_REFERENCE | **File nguồn:** `{file_path}` | **Trạng thái:** ACTIVE
+
+## 1. Tổng quan & Trách nhiệm API
+- Mô tả mục đích nghiệp vụ, vai trò trong kiến trúc hệ thống và các giao thức áp dụng.
+
+## 2. Danh sách Endpoint & Phương thức Công khai
+- Tạo bảng Markdown tổng hợp:
+  | Phương thức / Endpoint | Chữ ký / HTTP | Vị trí dòng | Trách nhiệm chính |
+  (Điền đầy đủ các hàm từ AST)
+
+## 3. Bảng Tham số Kỹ thuật & Kiểu dữ liệu
+- Tạo bảng Markdown đặc tả chi tiết mọi tham số đầu vào và kiểu trả về:
+  | Tham số / Trường | Kiểu dữ liệu | Bắt buộc | Vị trí | Mô tả & Ràng buộc nghiệp vụ |
+  (Phân tích chi tiết từng tham số của các method)
+
+## 4. Cấu trúc Phản hồi & Bảng Mã lỗi (HTTP & Internal Error Codes)
+- Tạo bảng mã trạng thái và xử lý lỗi:
+  | HTTP Code | Exception / Mã lỗi | Điều kiện phát sinh | Giải pháp khắc phục |
+  | 200 OK | - | Thực thi thành công | - |
+  | 400 Bad Request | IllegalArgumentException | Dữ liệu đầu vào hoặc tham số không hợp lệ | Kiểm tra payload |
+  | 401 Unauthorized | BadCredentialsException | Token hết hạn hoặc không có quyền | Xác thực lại phiên |
+  | 404 Not Found | ResourceNotFoundException | Không tìm thấy thực thể được yêu cầu | Kiểm tra định danh |
+  | 500 Internal Error | ServiceException | Lỗi nội bộ trong quá trình xử lý | Liên hệ Tech Lead |
+
+## 5. Ví dụ Gọi API & Tích hợp (Code Snippet & Payload)
+- Cung cấp ít nhất một đoạn code mẫu (Java RestClient / cURL / JSON payload) minh họa cách gọi các phương thức trên.
+"""
+
+        elif template_type == "README":
+            template_rules = f"""### QUY TẮC CẤU TRÚC MARKDOWN BẮT BUỘC (MẪU README):
+Tài liệu PHẢI tuân thủ chính xác các đề mục sau:
+
+# {target_name} - Tài liệu Kỹ thuật & Hướng dẫn Sử dụng
+> **Mẫu áp dụng:** README | **File nguồn:** `{file_path}` | **Phiên bản:** 1.0.0
+
+## 1. Giới thiệu & Vai trò trong Hệ thống
+- Tổng quan ngắn gọn về thành phần `{target_name}`, bài toán kỹ thuật mà nó giải quyết trong dự án LivingDocs.
+
+## 2. Tính năng Cốt lõi
+- Liệt kê danh sách các tính năng chính dưới dạng gạch đầu dòng (bullet points) dựa trên các method bóc tách từ AST.
+
+## 3. Cấu trúc Mô-đun & Danh sách Thành phần
+- Tạo bảng Markdown liệt kê cấu trúc thành phần:
+  | Thành phần | Loại phần tử | Vị trí dòng | Trách nhiệm chính |
+
+## 4. Yêu cầu Cấu hình & Dependencies
+- Các thông số cấu hình, biến môi trường (environment variables) hoặc service liên quan mà lớp này phụ thuộc.
+
+## 5. Hướng dẫn Bắt đầu Nhanh (Quick Start)
+- Cung cấp đoạn code ví dụ minh họa cách khởi tạo và sử dụng `{target_name}` trong thực tế.
+"""
+
+        elif template_type == "MODULE_GUIDE":
+            template_rules = f"""### QUY TẮC CẤU TRÚC MARKDOWN BẮT BUỘC (MẪU MODULE_GUIDE):
+Tài liệu PHẢI tuân thủ chính xác các đề mục sau:
+
+# Hướng dẫn Kiến trúc & Mô-đun: {target_name}
+> **Mẫu áp dụng:** MODULE_GUIDE | **File nguồn:** `{file_path}` | **Kiến trúc:** Layered Architecture / DDD
+
+## 1. Ranh giới Nghiệp vụ & Bounded Context
+- Trách nhiệm đơn nhất (Single Responsibility Principle) của module `{target_name}` và phạm vi ranh giới nghiệp vụ trong hệ thống.
+
+## 2. Thiết kế Thành phần & Luồng Dữ liệu (Workflow)
+- Mô tả chi tiết quy trình xử lý dữ liệu qua từng bước khi một request đi qua các hàm của `{target_name}`.
+
+## 3. Bảng Đặc tả Kỹ thuật & Ràng buộc Phương thức
+- Tạo bảng Markdown chi tiết:
+  | Phương thức | Chữ ký | Tham số | Kiểu trả về | Ràng buộc & Tiền điều kiện |
+
+## 4. Chiến lược Xử lý Ngoại lệ & Quản lý Giao dịch (Transaction & Error Handling)
+- Giải thích các annotation giao dịch (`@Transactional`), các trường hợp rollback và cách bắt/ném ngoại lệ nghiệp vụ.
+
+## 5. Hướng dẫn Mở rộng & Tích hợp Nội bộ (Extension Guide)
+- Hướng dẫn các developer khác cách kế thừa, mở rộng hoặc tích hợp thêm chức năng mà không phá vỡ logic cũ.
+"""
+
+        else:  # ADR (Architecture Decision Record)
+            template_rules = f"""### QUY TẮC CẤU TRÚC MARKDOWN BẮT BUỘC (MẪU ADR - ARCHITECTURE DECISION RECORD):
+Tài liệu PHẢI tuân thủ chính xác các đề mục sau:
+
+# ADR: Quyết định Kiến trúc cho {target_name}
+> **Mẫu áp dụng:** ADR | **File nguồn:** `{file_path}` | **Trạng thái:** ACCEPTED | **Ngày:** (Thời điểm hiện tại)
+
+## 1. Bối cảnh & Vấn đề Kỹ thuật (Context)
+- Bối cảnh thực tế của hệ thống và vấn đề kỹ thuật cần giải quyết đối với `{target_name}`.
+
+## 2. Các Lựa chọn Kiến trúc Đã Xem xét (Options Considered)
+- Tạo bảng so sánh các giải pháp kỹ thuật khả dĩ:
+  | Phương án | Ưu điểm | Nhược điểm | Đánh giá tính khả thi |
+
+## 3. Quyết định Kiến trúc Được Chọn (Decision Outcome)
+- Khẳng định giải pháp thiết kế được áp dụng trong mã nguồn `{target_name}` và lý do chọn phương án này.
+
+## 4. Hệ quả & Tác động Hệ thống (Consequences)
+- **Tác động tích cực (+):** Về hiệu năng, tính mở rộng, độ tin cậy và khả năng bảo trì.
+- **Tác động tiêu cực / Thách thức (-):** Độ phức tạp, chi phí kiểm thử hoặc các trade-off cần lưu ý.
+
+## 5. Bảng Ánh xạ Thực thi trong Mã nguồn (Implementation Mapping)
+- Tạo bảng Markdown đối chiếu quyết định với các phần tử trong code:
+  | Thành phần triển khai | Loại | Vị trí dòng | Chức năng cụ thể |
+"""
+
+        footer_note = """
+### YÊU CẦU TRÌNH BÀY:
+- Viết bằng TIẾNG VIỆT chuẩn kỹ thuật phần mềm, văn phong chuyên nghiệp, súc tích.
+- BẮT BUỘC có các bảng Markdown, tiêu đề rõ ràng, code block chuẩn cú pháp.
+- KHÔNG viết thêm các lời chào hỏi hay giải thích ngoài lề, chỉ trả về nội dung Markdown của tài liệu.
+"""
+        return base_instructions + template_rules + footer_note
 
     @classmethod
     def generate_documentation(cls, request: DocGenerateRequest) -> DocGenerateResponse:
         """
-        Sinh tài liệu Markdown hoàn chỉnh từ cấu trúc AST và template.
-        Nếu có Google Gemini API Key hợp lệ (AIza...), gọi Gemini API với timeout ngắn;
-        nếu key chưa hợp lệ hoặc gặp lỗi kết nối/quota, tự động chuyển ngay sang bộ tổng hợp AST thông minh.
+        Sinh tài liệu Markdown hoàn chỉnh từ cấu trúc AST và template bằng Google Gemini API.
+        Tự động xoay API Key trong Multi-Key Pool nếu gặp lỗi hạn mức Quota (429).
+        Nhúng khối Grounding Evidence Box xác thực nguồn vào cuối tài liệu.
+        Nếu API Key chưa hợp lệ hoặc tất cả model tạm thời gián đoạn, tự động fallback sang Smart AST Synthesis.
         """
+        template_type = cls._normalize_template_type(request.template_type)
+        commit_hash = request.commit_hash or "verified-ast-grounding"
+
         target_name = request.class_name or (
             request.entities[0].class_name if request.entities and request.entities[0].class_name else "CodeComponent"
         )
 
-        # 1. Định dạng thông tin AST thành bảng dữ liệu kỹ thuật gọn gàng
         entities_summary = []
         grounding_evidences: List[GroundingEvidence] = []
+        entities_list = request.entities or []
 
-        if request.entities:
-            for e in request.entities:
-                entities_summary.append({
-                    "entity_type": e.entity_type,
-                    "name": e.method_name or e.class_name,
-                    "signature": e.signature,
-                    "return_type": e.return_type or "void",
-                    "parameters": e.parameters or "None",
-                    "lines": f"{e.start_line} -> {e.end_line}",
-                    "annotations": e.annotations or [],
-                    "javadoc": e.javadoc or "Chưa có",
-                })
+        for e in entities_list:
+            entities_summary.append({
+                "entity_type": e.entity_type,
+                "name": e.method_name or e.class_name,
+                "signature": e.signature,
+                "return_type": e.return_type or "void",
+                "parameters": e.parameters or "None",
+                "lines": f"L{e.start_line} -> L{e.end_line}",
+                "annotations": e.annotations or [],
+                "javadoc": e.javadoc or "Chưa có",
+            })
 
-                grounding_evidences.append(
-                    GroundingEvidence(
-                        file_path=request.file_path,
-                        class_name=e.class_name,
-                        method_name=e.method_name,
-                        start_line=e.start_line,
-                        end_line=e.end_line,
-                        commit_hash="verified-ast-grounding",
-                    )
+            grounding_evidences.append(
+                GroundingEvidence(
+                    file_path=request.file_path,
+                    class_name=e.class_name,
+                    method_name=e.method_name,
+                    start_line=e.start_line,
+                    end_line=e.end_line,
+                    commit_hash=commit_hash,
+                    signature=e.signature,
+                    entity_type=e.entity_type,
                 )
+            )
 
-        # Tính toán điểm tin cậy dựa trên tỷ lệ entity có tài liệu và xác thực AST
-        total_count = len(request.entities) if request.entities else 1
-        documented_count = sum(1 for e in request.entities if e.javadoc) if request.entities else 0
-        base_score = 0.90 + min(0.08, (documented_count / total_count) * 0.08)
+        # Tính toán điểm tin cậy dựa trên tỷ lệ entity và AST grounding
+        total_count = len(entities_list) if entities_list else 1
+        documented_count = sum(1 for e in entities_list if e.javadoc) if entities_list else 0
+        base_score = 0.88 + min(0.10, (documented_count / total_count) * 0.10)
         confidence_score = round(base_score, 2)
+
+        grounding_box_md = cls._build_grounding_box_markdown(
+            file_path=request.file_path,
+            commit_hash=commit_hash,
+            entities=entities_list
+        )
 
         active_key = GeminiKeyManager.get_active_api_key()
         if not cls._is_valid_google_api_key(active_key):
-            logger.info("Sử dụng chế độ tổng hợp AST thông minh (Smart AST Synthesis) do GEMINI_API_KEY không phải định dạng AIza chuẩn.")
-            generated_markdown = cls._build_smart_ast_markdown(request, target_name, entities_summary)
+            logger.info("Sử dụng chế độ tổng hợp AST thông minh (Smart AST Synthesis) do GEMINI_API_KEY chưa hợp lệ.")
+            synthesized_md = cls._build_smart_ast_markdown(request, target_name, entities_summary)
+            if "Khối Bằng chứng Xác thực Nguồn" not in synthesized_md:
+                synthesized_md = synthesized_md.rstrip() + "\n\n" + grounding_box_md.strip()
             return DocGenerateResponse(
                 status="success",
                 mode="ast-synthesis",
-                template_type=request.template_type,
+                template_type=template_type,
                 file_path=request.file_path,
-                generated_content=generated_markdown,
+                generated_content=synthesized_md,
                 confidence_score=confidence_score,
                 grounding_evidence=grounding_evidences,
             )
 
-        # 2. Xây dựng Prompt kỹ thuật chặt chẽ khi có key AIza hợp lệ
-        prompt = f"""Bạn là chuyên gia kiến trúc phần mềm và kỹ sư viết tài liệu kỹ thuật cao cấp (Technical Writer) cho hệ thống LivingDocs.
-Nhiệm vụ của bạn là đọc cấu trúc AST đã bóc tách từ file mã nguồn và sinh ra một bản tài liệu kỹ thuật hoàn chỉnh bằng định dạng MARKDOWN chuyên nghiệp.
+        prompt = cls._build_prompt_for_template(
+            template_type=template_type,
+            target_name=target_name,
+            file_path=request.file_path,
+            commit_hash=commit_hash,
+            entities_summary=entities_summary,
+            source_code=request.source_code,
+        )
 
-### THÔNG TIN ĐẦU VÀO:
-- Tên lớp/thành phần chính: {target_name}
-- Đường dẫn file mã nguồn: {request.file_path}
-- Mẫu tài liệu yêu cầu: {request.template_type}
-- Danh sách các phần tử mã nguồn (AST Entities):
-{json.dumps(entities_summary, ensure_ascii=False, indent=2)}
-
-### YÊU CẦU ĐỊNH DẠNG TÀI LIỆU MARKDOWN:
-1. **Tiêu đề lớn (#)**: Tài liệu Kỹ thuật cho `{target_name}`.
-2. **Thẻ metadata blockquote (>)**:
-   - Mẫu áp dụng: {request.template_type}
-   - File mã nguồn: {request.file_path}
-   - Tác nhân sinh: LivingDocs AI Engine (Google Gemini)
-3. **Mục 1. Tổng quan & Mục đích thiết kế**: Mô tả ngắn gọn trách nhiệm nghiệp vụ của class/module trong kiến trúc hệ thống.
-4. **Mục 2. Chi tiết các Phần tử, Phương thức & API (CÓ BẢNG THÔNG SỐ RÕ RÀNG)**:
-   - Tạo bảng Markdown gồm các cột: `Phần tử`, `Loại`, `Kiểu dữ liệu / Chữ ký`, `Vị trí dòng`, `Mô tả chức năng`.
-   - Đối với mỗi phương thức hoặc thuộc tính quan trọng, viết phân tích sâu: mục đích, tham số đầu vào, kết quả trả về và ràng buộc.
-5. **Mục 3. Hướng dẫn Tích hợp & Sử dụng (Code snippet minh họa nếu phù hợp)**.
-6. **Mục 4. Bằng chứng xác thực nguồn (Grounding & Verification)**: Liệt kê các phần tử đã được xác thực từ AST.
-
-LƯU Ý: Viết bằng TIẾNG VIỆT chuẩn kỹ thuật phần mềm, cấu trúc rõ ràng, sử dụng bảng biểu và code block định dạng đẹp. Không thêm các lời giải thích thừa ngoài nội dung Markdown.
-"""
-
-        try:
+        def _call_gemini_doc():
             client = GeminiKeyManager.get_active_client()
-            generated_markdown = ""
+            last_err = None
+
             for model_name in DOC_MODELS:
                 try:
                     resp = client.models.generate_content(
@@ -342,38 +437,63 @@ LƯU Ý: Viết bằng TIẾNG VIỆT chuẩn kỹ thuật phần mềm, cấu t
                         config=genai_types.GenerateContentConfig(
                             temperature=0.2,
                             top_p=0.9,
-                            max_output_tokens=3000,
+                            max_output_tokens=4000,
                         ),
                     )
-                    if resp and resp.text:
-                        generated_markdown = resp.text
-                        break
-                except Exception as model_ex:
-                    logger.warning(f"Model {model_name} gặp sự cố: {model_ex}")
-                    continue
+                    return resp, model_name
+                except Exception as ex:
+                    last_err = ex
+                    err_str = str(ex).lower()
+                    if any(k in err_str for k in ("not found", "503", "unavailable", "overloaded", "404")):
+                        logger.warning(f"Model {model_name} gặp sự cố ({ex}), chuyển sang model tiếp theo...")
+                        continue
+                    raise ex
 
-            if not generated_markdown:
-                generated_markdown = cls._build_smart_ast_markdown(request, target_name, entities_summary)
+            raise last_err or RuntimeError("Tất cả các model Gemini đều không khả dụng.")
+
+        try:
+            response, active_model_name = execute_with_gemini_retry(
+                action=_call_gemini_doc,
+                max_retries=3,
+                initial_delay=1.0,
+                backoff_factor=2.0,
+                action_name="DocGenerate"
+            )
+
+            generated_raw = response.text if response and response.text else ""
+
+            clean_markdown = generated_raw.strip()
+            if clean_markdown.startswith("```markdown"):
+                clean_markdown = clean_markdown[len("```markdown"):].strip()
+            elif clean_markdown.startswith("```"):
+                clean_markdown = clean_markdown[3:].strip()
+            if clean_markdown.endswith("```"):
+                clean_markdown = clean_markdown[:-3].strip()
+
+            if "Khối Bằng chứng Xác thực Nguồn" not in clean_markdown and "Grounding Evidence Box" not in clean_markdown:
+                clean_markdown = clean_markdown.rstrip() + "\n\n" + grounding_box_md.strip()
 
             return DocGenerateResponse(
                 status="success",
                 mode="real",
-                template_type=request.template_type,
+                template_type=template_type,
                 file_path=request.file_path,
-                generated_content=generated_markdown,
+                generated_content=clean_markdown,
                 confidence_score=confidence_score,
                 grounding_evidence=grounding_evidences,
             )
 
         except Exception as ex:
-            logger.warning(f"Chuyển sang chế độ tổng hợp AST dự phòng do lỗi gọi Gemini API: {ex}")
-            generated_markdown = cls._build_smart_ast_markdown(request, target_name, entities_summary)
+            logger.warning(f"Chuyển sang chế độ tổng hợp AST dự phòng do sự cố gọi Gemini API: {ex}")
+            synthesized_md = cls._build_smart_ast_markdown(request, target_name, entities_summary)
+            if "Khối Bằng chứng Xác thực Nguồn" not in synthesized_md:
+                synthesized_md = synthesized_md.rstrip() + "\n\n" + grounding_box_md.strip()
             return DocGenerateResponse(
                 status="success",
                 mode="ast-synthesis",
-                template_type=request.template_type,
+                template_type=template_type,
                 file_path=request.file_path,
-                generated_content=generated_markdown,
+                generated_content=synthesized_md,
                 confidence_score=confidence_score,
                 grounding_evidence=grounding_evidences,
             )

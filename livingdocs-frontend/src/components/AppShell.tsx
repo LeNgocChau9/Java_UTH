@@ -101,7 +101,7 @@ const NAV: NavItem[] = [
   },
   {
     href: "/cay-ma-nguon",
-    label: "Cây mã nguồn & AST",
+    label: "Cây thư mục",
     icon: <GitFork size={16} />,
     roles: ["DEVELOPER", "TECH_LEAD"],
   },
@@ -143,7 +143,7 @@ const NAV: NavItem[] = [
   },
   {
     href: "/dashboard-chat-luong",
-    label: "Dashboard chất lượng",
+    label: "Dashboard",
     icon: <BarChart2 size={16} />,
     roles: ["TECH_LEAD"],
   },
@@ -732,7 +732,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
-            className="lg:hidden ld-btn ld-btn-ghost"
+            className="lg:!hidden flex items-center justify-center p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
             style={{ padding: "6px" }}
           >
             <Menu size={18} />
