@@ -553,7 +553,7 @@ export default function SourceTreePage() {
                 <Code size={20} />
               </span>
               <h1 className="text-2xl font-bold tracking-tight text-[#0f172a]" style={{ color: "#0f172a" }}>
-                Cây mã nguồn & AST Inspector
+                Cây thư mục
               </h1>
             </div>
             <p className="mt-1 text-sm text-[#475569]" style={{ color: "#475569" }}>

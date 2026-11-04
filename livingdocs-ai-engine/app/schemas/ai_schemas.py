@@ -35,6 +35,7 @@ class DocGenerateRequest(BaseModel):
     class_name: Optional[str] = Field(None, description="Tên lớp chính cần sinh tài liệu")
     entities: Optional[List[CodeEntityItem]] = Field(default=None, description="Danh sách các entity bóc tách từ AST")
     source_code: Optional[str] = Field(default=None, description="Mã nguồn tham chiếu nếu có")
+    commit_hash: Optional[str] = Field(default=None, description="Mã băm commit của mã nguồn")
 
 class GroundingEvidence(BaseModel):
     file_path: str
@@ -43,6 +44,8 @@ class GroundingEvidence(BaseModel):
     start_line: Optional[int] = None
     end_line: Optional[int] = None
     commit_hash: Optional[str] = None
+    signature: Optional[str] = None
+    entity_type: Optional[str] = None
 
 class DocGenerateResponse(BaseModel):
     status: str = Field(default="success")
