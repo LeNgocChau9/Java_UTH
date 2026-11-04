@@ -28,8 +28,12 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Service xử lý chữ ký bảo mật HMAC-SHA256 và bóc tách dữ liệu sự kiện push / pull_request từ GitHub.
- * Tự động đẩy Job ngầm quét Drift khi phát hiện Pull Request được mở hoặc cập nhật commit.
+ * Service xử lý chữ ký bảo mật HMAC-SHA256 (X-Hub-Signature-256) và bóc tách dữ
+ * liệu sự kiện push / pull_request từ GitHub.
+ * Trích xuất: repository full name, PR number, base commit SHA, head commit
+ * SHA, tác giả commit.
+ * Tự động đẩy Job ngầm quét Drift vào luồng phân tích khi phát hiện Pull
+ * Request hoặc thay đổi mã nguồn.
  */
 @Slf4j
 @Service
@@ -55,7 +59,7 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
             return true;
         }
 
-        if (!StringUtils.hasText(signatureHeader) || !signatureHeader.startsWith("sha256=")) {
+        if (!StringUtils.hasText(signatureHeader) || !signatureHeader.toLowerCase().startsWith("sha256=")) {
             log.error("[Webhook] Thiếu hoặc sai định dạng header X-Hub-Signature-256: {}", signatureHeader);
             return false;
         }
@@ -64,7 +68,8 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
 
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
-            SecretKeySpec secretKeySpec = new SecretKeySpec(webhookSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
+            SecretKeySpec secretKeySpec = new SecretKeySpec(webhookSecret.getBytes(StandardCharsets.UTF_8),
+                    "HmacSHA256");
             mac.init(secretKeySpec);
             byte[] hmacBytes = mac.doFinal(payloadRaw.getBytes(StandardCharsets.UTF_8));
 
@@ -75,7 +80,9 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
             String actualHash = hex.toString();
 
             // So sánh an toàn chống tấn công timing attack
-            boolean match = MessageDigest.isEqual(actualHash.getBytes(StandardCharsets.UTF_8), expectedHash.getBytes(StandardCharsets.UTF_8));
+            boolean match = MessageDigest.isEqual(
+                    actualHash.toLowerCase().getBytes(StandardCharsets.UTF_8),
+                    expectedHash.toLowerCase().getBytes(StandardCharsets.UTF_8));
             if (!match) {
                 log.error("[Webhook] Chữ ký HMAC-SHA256 không khớp! Nhận: {}, Tính toán: {}", expectedHash, actualHash);
             }
@@ -151,18 +158,42 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
     }
 
     private WebhookProcessingResult handlePushEvent(RepositoryEntity repo, JsonNode root) {
+        String baseCommitSha = root.path("before").asText(null);
+        String headCommitSha = root.path("after").asText(null);
+
+        // Xác định headCommitSha dự phòng từ head_commit.id
+        if (!StringUtils.hasText(headCommitSha) || "0000000000000000000000000000000000000000".equals(headCommitSha)) {
+            if (root.hasNonNull("head_commit") && root.path("head_commit").hasNonNull("id")) {
+                headCommitSha = root.path("head_commit").path("id").asText();
+            }
+        }
+
+        // Xác định tác giả commit: ưu tiên head_commit.author -> pusher.name ->
+        // commits[0].author
+        String commitAuthor = "Unknown";
+        if (root.hasNonNull("head_commit") && root.path("head_commit").hasNonNull("author")) {
+            commitAuthor = root.path("head_commit").path("author").path("name").asText("Unknown");
+        } else if (root.hasNonNull("pusher") && root.path("pusher").hasNonNull("name")) {
+            commitAuthor = root.path("pusher").path("name").asText("Unknown");
+        }
+
         JsonNode commitsNode = root.get("commits");
         int savedCommits = 0;
 
         if (commitsNode != null && commitsNode.isArray()) {
             for (JsonNode cNode : commitsNode) {
                 String sha = cNode.path("id").asText();
-                if (!StringUtils.hasText(sha)) continue;
+                if (!StringUtils.hasText(sha))
+                    continue;
 
                 String message = cNode.path("message").asText();
                 String authorName = cNode.path("author").path("name").asText("Unknown");
                 String authorEmail = cNode.path("author").path("email").asText();
                 String timestampStr = cNode.path("timestamp").asText();
+
+                if ("Unknown".equals(commitAuthor) && !"Unknown".equals(authorName)) {
+                    commitAuthor = authorName;
+                }
 
                 Instant committedAt;
                 try {
@@ -194,12 +225,16 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
         repo.setUpdatedAt(Instant.now());
         repositoryRepository.save(repo);
 
-        log.info("[Webhook - Push] Đã lưu {} commits vào repo [{}]", savedCommits, repo.getRepoFullName());
+        log.info("[Webhook - Push] Đã lưu {} commits vào repo [{}] (Base: {}, Head: {}, Tác giả: {})",
+                savedCommits, repo.getRepoFullName(), baseCommitSha, headCommitSha, commitAuthor);
 
         return WebhookProcessingResult.builder()
                 .success(true)
                 .eventType("push")
                 .repoFullName(repo.getRepoFullName())
+                .baseCommitSha(baseCommitSha)
+                .headCommitSha(headCommitSha)
+                .commitAuthor(commitAuthor)
                 .affectedCount(savedCommits)
                 .message("Đã lưu thành công " + savedCommits + " commits")
                 .build();
@@ -213,6 +248,7 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
             return WebhookProcessingResult.builder()
                     .success(false)
                     .eventType("pull_request")
+                    .action(action)
                     .repoFullName(repo.getRepoFullName())
                     .message("Thiếu khối pull_request trong payload")
                     .build();
@@ -225,6 +261,8 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
         boolean merged = prNode.path("merged").asBoolean(false);
         if (merged) {
             state = "MERGED";
+        } else if ("closed".equalsIgnoreCase(action)) {
+            state = "CLOSED";
         }
 
         String headBranch = prNode.path("head").path("ref").asText();
@@ -232,6 +270,15 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
         String baseBranch = prNode.path("base").path("ref").asText();
         String baseCommitHash = prNode.path("base").path("sha").asText();
         String authorUsername = prNode.path("user").path("login").asText();
+
+        // Tác giả commit: ưu tiên head user login hoặc author của PR
+        String commitAuthor = authorUsername;
+        if (prNode.hasNonNull("head") && prNode.path("head").hasNonNull("user")) {
+            String headUser = prNode.path("head").path("user").path("login").asText();
+            if (StringUtils.hasText(headUser)) {
+                commitAuthor = headUser;
+            }
+        }
 
         Instant createdAt = parseInstant(prNode.path("created_at").asText());
         Instant updatedAt = parseInstant(prNode.path("updated_at").asText());
@@ -265,10 +312,11 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
         repo.setUpdatedAt(Instant.now());
         repositoryRepository.save(repo);
 
-        log.info("[Webhook - PR] Đã lưu/cập nhật PR #{}: [{}] trạng thái [{}] cho repo [{}] (action: {})",
-                prNumber, title, state, repo.getRepoFullName(), action);
+        log.info("[Webhook - PR] Đã lưu/cập nhật PR #{}: [{}] trạng thái [{}] cho repo [{}] (action: {}, author: {})",
+                prNumber, title, state, repo.getRepoFullName(), action, commitAuthor);
 
-        // Kích hoạt quét sai lệch tài liệu (Drift Scan) qua bảng jobs nếu action là opened, synchronize, hoặc reopened
+        // Kích hoạt quét sai lệch tài liệu (Drift Scan) qua bảng jobs nếu action là
+        // opened, synchronize, hoặc reopened
         String jobStatusMsg = "";
         if (DRIFT_TRIGGER_ACTIONS.contains(action.toLowerCase())) {
             try {
@@ -277,7 +325,7 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
                         .repoFullName(repo.getRepoFullName())
                         .prNumber(prNumber)
                         .prTitle(title)
-                        .authorUsername(authorUsername)
+                        .authorUsername(commitAuthor)
                         .headCommitHash(headCommitHash)
                         .baseCommitHash(baseCommitHash)
                         .action(action)
@@ -296,18 +344,24 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
         return WebhookProcessingResult.builder()
                 .success(true)
                 .eventType("pull_request")
+                .action(action)
                 .repoFullName(repo.getRepoFullName())
+                .prNumber(prNumber)
+                .baseCommitSha(baseCommitHash)
+                .headCommitSha(headCommitHash)
+                .commitAuthor(commitAuthor)
                 .affectedCount(1)
-                .message("Đã cập nhật PR #" + prNumber + " (" + state + ")" + jobStatusMsg)
+                .message("Đã cập nhật PR #" + prNumber + " (" + action + " -> " + state + ")" + jobStatusMsg)
                 .build();
     }
 
     private RepositoryEntity findRepository(Long githubRepoId, String repoFullName) {
         if (githubRepoId != null && githubRepoId > 0) {
             Optional<RepositoryEntity> byId = repositoryRepository.findAll().stream()
-                    .filter(r -> githubRepoId.equals(r.getGithubRepoId()))
+                    .filter(r -> githubRepoId.equals(r.getGithubRepoId()) || githubRepoId.equals(r.getRepositoryId()))
                     .findFirst();
-            if (byId.isPresent()) return byId.get();
+            if (byId.isPresent())
+                return byId.get();
         }
 
         if (StringUtils.hasText(repoFullName)) {
@@ -321,7 +375,8 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
     }
 
     private Instant parseInstant(String text) {
-        if (!StringUtils.hasText(text)) return null;
+        if (!StringUtils.hasText(text))
+            return null;
         try {
             return Instant.parse(text);
         } catch (Exception e) {
