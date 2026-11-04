@@ -95,7 +95,7 @@ const NAV: NavItem[] = [
   },
   {
     href: "/tai-lieu-cua-toi",
-    label: "Tài liệu của tôi",
+    label: "Tài liệu",
     icon: <FileText size={16} />,
     roles: ["DEVELOPER"],
   },
@@ -107,13 +107,13 @@ const NAV: NavItem[] = [
   },
   {
     href: "/yeu-cau-sinh-tai-lieu",
-    label: "Sinh tài liệu AI",
+    label: "AI",
     icon: <Sparkles size={16} />,
     roles: ["DEVELOPER"],
   },
   {
     href: "/canh-bao-sai-lech",
-    label: "Cảnh báo sai lệch",
+    label: "Cảnh báo",
     icon: <AlertTriangle size={16} />,
     roles: ["DEVELOPER"],
   },

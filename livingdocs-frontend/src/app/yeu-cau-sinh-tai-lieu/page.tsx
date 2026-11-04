@@ -607,9 +607,7 @@ service.initialize();
             <Sparkles className="w-7 h-7 text-amber-500 animate-pulse" />
             Yêu cầu AI sinh tài liệu
           </h1>
-          <p className="ld-page-subtitle">
-            Hệ thống tự động quét mã nguồn, bóc tách cấu trúc AST và ứng dụng Google Gemini để soạn thảo tài liệu chuyên nghiệp.
-          </p>
+
         </div>
       </div>
 
@@ -1086,9 +1084,7 @@ service.initialize();
                     )}
                   </button>
 
-                  <span style={{ fontSize: 12, color: "#64748b" }}>
-                    Bảo đảm văn phong kỹ thuật chuẩn, tự động liên kết AST.
-                  </span>
+
                 </div>
 
                 {/* Báo lỗi nếu có */}
