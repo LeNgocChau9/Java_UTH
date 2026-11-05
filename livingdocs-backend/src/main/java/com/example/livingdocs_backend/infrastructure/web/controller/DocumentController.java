@@ -1,6 +1,8 @@
 package com.example.livingdocs_backend.infrastructure.web.controller;
 
 import com.example.livingdocs_backend.application.dto.*;
+import com.example.livingdocs_backend.application.dto.RegenerateEntityDocRequest;
+import com.example.livingdocs_backend.application.dto.RegenerateEntityDocResponse;
 import com.example.livingdocs_backend.application.dto.ai.AiDocGenerateRequestDto;
 import com.example.livingdocs_backend.application.dto.ai.AiDocGenerateResponseDto;
 import com.example.livingdocs_backend.application.port.AiDocumentationServicePort;
@@ -272,5 +274,21 @@ public class DocumentController {
                     .build());
         }
         return ResponseEntity.ok(result);
+    }
+
+    @PostMapping("/{docId}/regenerate-entity")
+    @Operation(
+            summary = "Táº¡o láº¡i hoáº·c cáº­p nháº­t riÃªng tÃ i liá»‡u cá»§a má»™t thá»±c thá»ƒ mÃ£ nguá»“n (hÃ m/lá»›p)",
+            description = "Cho phÃ©p láº­p trÃ¬nh viÃªn táº¡o láº¡i hoáº·c cáº­p nháº­t riÃªng tÃ i liá»‡u cá»§a má»™t hÃ m/lá»›p cá»¥ thá»ƒ khi hÃ m Ä‘Ã³ cÃ³ sá»­a Ä‘á»•i nhá» mÃ  khÃ´ng cáº§n sinh láº¡i toÃ n bá»™ file. Há»‡ thá»‘ng trÃ­ch xuáº¥t mÃ£ nguá»“n hÃ m/lá»›p, gá»i AI Engine (/v1/docs/rewrite-suggestion) viáº¿t láº¡i vÃ  cáº­p nháº­t trá»±c tiáº¿p vÃ o tÃ i liá»‡u tá»•ng thá»ƒ kÃ¨m phiÃªn báº£n má»›i."
+    )
+    public ResponseEntity<RegenerateEntityDocResponse> regenerateEntityDocumentation(
+            @PathVariable Long docId,
+            @RequestBody RegenerateEntityDocRequest request,
+            @AuthenticationPrincipal UserPrincipal userPrincipal
+    ) {
+        Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
+        String actorRole = extractRole(userPrincipal);
+        RegenerateEntityDocResponse response = documentServicePort.regenerateEntityDoc(docId, request, actorId, actorRole);
+        return ResponseEntity.ok(response);
     }
 }
