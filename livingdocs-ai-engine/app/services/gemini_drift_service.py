@@ -125,8 +125,47 @@ class GeminiDriftService:
         doc = request.current_doc or ""
         entity_name = request.entity_name or "Component"
 
+        if not diff.strip():
+            return DriftAnalyzeResponse(
+                status="success",
+                mode="smart-diff-fallback",
+                entity_name=request.entity_name,
+                entity_type=request.entity_type,
+                drift_score=0.0,
+                severity="LOW",
+                classification="SEMANTIC",
+                is_drifted=False,
+                explanation="Không phát hiện thay đổi mã nguồn trong code diff.",
+                affected_sections=[],
+                suggestions=[],
+                model_used="smart-diff-analyzer",
+            )
         added_lines = [l for l in diff.splitlines() if l.startswith("+") and not l.startswith("+++")]
-        removed_lines = [l for l in diff.splitlines() if l.startswith("-") and not l.startswith("---")]
+        raw_added = added_lines
+        raw_removed = [l for l in diff.splitlines() if l.startswith("-") and not l.startswith("---")]
+
+        def _is_meaningful(line: str) -> bool:
+            c = line[1:].strip()
+            return bool(c) and not c.startswith(("//", "/*", "*", "#", "'''", '"""'))
+
+        added_lines = [l for l in raw_added if _is_meaningful(l)]
+        removed_lines = [l for l in raw_removed if _is_meaningful(l)]
+
+        if not added_lines and not removed_lines:
+            return DriftAnalyzeResponse(
+                status="success",
+                mode="smart-diff-fallback",
+                entity_name=request.entity_name,
+                entity_type=request.entity_type,
+                drift_score=0.05,
+                severity="LOW",
+                classification="SEMANTIC",
+                is_drifted=False,
+                explanation=f"Thay đổi trong code diff của '{entity_name}' chỉ bao gồm chú thích hoặc định dạng dòng, không làm thay đổi ngữ nghĩa tài liệu.",
+                affected_sections=[],
+                suggestions=[],
+                model_used="smart-diff-analyzer",
+            )
 
         # 1. Kiểm tra xóa/đổi tên hàm hoặc class (REFERENCE)
         has_removal = any(re.search(r"\b(class|void|int|String|boolean|ResponseEntity)\b", l) for l in removed_lines)
@@ -154,7 +193,16 @@ class GeminiDriftService:
             explanation = f"Các thay đổi trong code diff không ảnh hưởng đáng kể đến tài liệu kỹ thuật của '{entity_name}'."
 
         is_drifted = drift_score >= 0.25
-        affected_sections = ["2. Chi tiết các Phần tử & Phương thức"] if is_drifted else []
+        # Trích xuất các heading từ tài liệu Markdown hiện tại nếu có
+        doc_headings = [
+            h.strip().lstrip("#").strip()
+            for h in doc.splitlines()
+            if h.strip().startswith("#")
+        ]
+        matched_sections = [h for h in doc_headings if entity_name.lower() in h.lower()]
+        if not matched_sections and doc_headings:
+            matched_sections = doc_headings[:2]
+        affected_sections = matched_sections if is_drifted else []
         suggestions = []
 
         if is_drifted:
@@ -251,6 +299,22 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ (không kèm markdown fence,
         Phân tích sai lệch tài liệu ngữ nghĩa bằng Google Gemini API.
         Tự động xoay API Key khi gặp hạn mức Quota (429) và fallback sang Smart Diff nếu mất kết nối.
         """
+        if not request.code_diff or not request.code_diff.strip():
+            return DriftAnalyzeResponse(
+                status="success",
+                mode="static-analysis",
+                entity_name=request.entity_name,
+                entity_type=request.entity_type,
+                drift_score=0.0,
+                severity="LOW",
+                classification="SEMANTIC",
+                is_drifted=False,
+                explanation="Không phát hiện thay đổi mã nguồn trong code diff.",
+                affected_sections=[],
+                suggestions=[],
+                model_used="static-analysis",
+            )
+
         active_key = GeminiKeyManager.get_active_api_key()
         if not cls._is_valid_google_api_key(active_key):
             logger.info("[DriftAnalysis] Sử dụng bộ phân tích Smart Diff do API Key chưa hợp lệ.")
@@ -309,11 +373,8 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ (không kèm markdown fence,
             raw_class = parsed.get("classification")
             classification = _normalize_classification(raw_class, explanation)
 
-            raw_severity = parsed.get("severity")
-            if raw_severity and raw_severity.strip().upper() in VALID_SEVERITIES:
-                severity = raw_severity.strip().upper()
-            else:
-                severity = _get_severity_by_score(drift_score)
+            # Đồng bộ severity chuẩn xác theo ngưỡng kỹ thuật của drift_score
+            severity = _get_severity_by_score(drift_score)
 
             is_drifted = bool(parsed.get("is_drifted", drift_score >= 0.25))
             affected_secs = parsed.get("affected_sections", [])
