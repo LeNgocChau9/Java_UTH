@@ -92,15 +92,13 @@ public interface DocumentServicePort {
 
     /**
      * Xuất bản tài liệu lên GitHub bằng GitHub Contents API.
-     * Tạo hoặc cập nhật file Markdown tại đường dẫn targetPath của tài liệu trong repository.
-     * Ghi nhận commit hash và link commit vào bảng document_versions.
-     *
-     * @param docId          ID tài liệu cần xuất bản
-     * @param request        Request chứa GitHub token và commit message tùy chọn
-     * @param actorId        ID người thực hiện (Manager)
-     * @return Kết quả xuất bản gồm commit hash, URL và metadata
      */
     PublishToGitHubResponse publishToGitHub(Long docId, PublishToGitHubRequest request, Long actorId);
+
+    /**
+     * Cập nhật lại / tạo lại tài liệu của một hàm hoặc lớp cụ thể (Regenerate Entity Doc).
+     * Trích xuất mã nguồn hàm/lớp, gọi AI Engine (/v1/docs/rewrite-suggestion) viết lại mô tả của hàm đó
+     * và cập nhật trực tiếp vào tài liệu tổng thể mà không cần sinh lại toàn bộ file.
+     */
+    RegenerateEntityDocResponse regenerateEntityDoc(Long docId, RegenerateEntityDocRequest request, Long actorId, String actorRole);
 }
-
-

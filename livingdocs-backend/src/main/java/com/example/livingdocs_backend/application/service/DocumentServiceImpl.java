@@ -10,6 +10,17 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import com.example.livingdocs_backend.application.dto.RegenerateEntityDocRequest;
+import com.example.livingdocs_backend.application.dto.RegenerateEntityDocResponse;
+import com.example.livingdocs_backend.application.dto.ai.DocRewriteRequestDto;
+import com.example.livingdocs_backend.application.dto.ai.DocRewriteResponseDto;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.CodeEntityJpaEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.DocCodeLinkEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataCodeEntityRepository;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocCodeLinkRepository;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
+import org.springframework.web.client.RestClient;
 import com.example.livingdocs_backend.application.dto.ChangelogResponse;
 import com.example.livingdocs_backend.application.dto.CreateDocumentRequest;
 import com.example.livingdocs_backend.application.dto.DocumentAuditLogResponse;
@@ -56,6 +67,14 @@ public class DocumentServiceImpl implements DocumentServicePort {
     private final SpringDataGitHubConnectionRepository gitHubConnectionRepository;
     private final GitHubClientPort gitHubClient;
     private final TemplateStructureCheck templateStructureCheck;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private SpringDataCodeEntityRepository codeEntityRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private SpringDataDocCodeLinkRepository docCodeLinkRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private RestClient restClient;
 
     @org.springframework.beans.factory.annotation.Autowired
     public DocumentServiceImpl(
@@ -983,5 +1002,193 @@ public class DocumentServiceImpl implements DocumentServicePort {
             return new String[] { repoFullName, repoFullName };
         }
         return new String[] { parts[0].trim(), parts[1].trim() };
+    }
+
+    @Override
+    @Transactional
+    public RegenerateEntityDocResponse regenerateEntityDoc(Long docId, RegenerateEntityDocRequest request, Long actorId, String actorRole) {
+        Document document = documentRepositoryPort.findById(docId)
+                .orElseThrow(() -> new DocumentNotFoundException(docId));
+
+        DocumentVersion latestVersion = documentVersionRepositoryPort.findLatestByDocId(docId)
+                .orElseThrow(() -> new DocumentVersionNotFoundException(docId, document.getCurrentVersion()));
+
+        String currentDocContent = latestVersion.getContent() != null ? latestVersion.getContent() : "";
+
+        // 1. XÃ¡c Ä‘á»‹nh thá»±c thá»ƒ mÃ£ nguá»“n (qua entityId hoáº·c signature hoáº·c docCodeLink)
+        CodeEntityJpaEntity targetEntity = null;
+        if (request.getEntityId() != null && codeEntityRepository != null) {
+            targetEntity = codeEntityRepository.findById(request.getEntityId()).orElse(null);
+        }
+
+        if (targetEntity == null && StringUtils.hasText(request.getSignature()) && codeEntityRepository != null) {
+            var allEntities = codeEntityRepository.findAll();
+            for (CodeEntityJpaEntity ce : allEntities) {
+                if (ce.getSignature() != null && ce.getSignature().contains(request.getSignature())) {
+                    targetEntity = ce;
+                    break;
+                }
+            }
+        }
+
+        String entityName = targetEntity != null ? (targetEntity.getMethodName() != null ? targetEntity.getMethodName() : targetEntity.getClassName()) : null;
+        String entitySig = targetEntity != null ? targetEntity.getSignature() : (StringUtils.hasText(request.getSignature()) ? request.getSignature() : "Unknown Entity");
+        String filePath = targetEntity != null ? targetEntity.getFilePath() : (document.getTargetPath() != null ? document.getTargetPath() : "UnknownPath");
+
+        // 2. TrÃ­ch xuáº¥t mÃ£ nguá»“n hÃ m/lá»›p
+        String sourceSnippet = request.getUpdatedSourceCode();
+        if (!StringUtils.hasText(sourceSnippet)) {
+            // Láº¥y tá»« file qua GitHub náº¿u cÃ³ thÃ´ng tin vá»‹ trÃ­ startLine, endLine
+            if (targetEntity != null && targetEntity.getStartLine() != null && targetEntity.getEndLine() != null && document.getRepoId() != null) {
+                var repoOpt = repositoryRepository.findById(document.getRepoId());
+                if (repoOpt.isPresent() && gitHubClient != null) {
+                    RepositoryEntity repo = repoOpt.get();
+                    String token = resolveGitHubToken(repo);
+                    if (StringUtils.hasText(token)) {
+                        String[] parts = parseOwnerAndRepo(repo.getRepoFullName());
+                        String branch = StringUtils.hasText(repo.getDefaultBranch()) ? repo.getDefaultBranch() : "main";
+                        try {
+                            String fullFileContent = gitHubClient.getFileContent(token, parts[0], parts[1], targetEntity.getFilePath(), branch);
+                            if (StringUtils.hasText(fullFileContent)) {
+                                String[] lines = fullFileContent.split("\r?\n");
+                                int start = Math.max(0, targetEntity.getStartLine() - 1);
+                                int end = Math.min(lines.length, targetEntity.getEndLine());
+                                StringBuilder sb = new StringBuilder();
+                                for (int i = start; i < end; i++) {
+                                    sb.append(lines[i]).append("\n");
+                                }
+                                sourceSnippet = sb.toString();
+                            }
+                        } catch (Exception ex) {
+                            log.debug("KhÃ´ng thá»ƒ láº¥y mÃ£ nguá»“n chi tiáº¿t tá»« GitHub: {}", ex.getMessage());
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!StringUtils.hasText(sourceSnippet)) {
+            sourceSnippet = StringUtils.hasText(entitySig) ? entitySig : "// Thá»±c thá»ƒ: " + (entityName != null ? entityName : "HÃ m/Lá»›p");
+        }
+
+        // 3. Gá»i AI Engine (/v1/docs/rewrite-suggestion) viáº¿t láº¡i mÃ´ táº£ cá»§a hÃ m Ä‘Ã³
+        DocRewriteResponseDto aiResponse = callAiEngineRewriteForEntity(currentDocContent, sourceSnippet, entityName != null ? entityName : entitySig, filePath, request.getInstruction());
+
+        String updatedFullDoc = aiResponse != null && StringUtils.hasText(aiResponse.getUpdated_doc())
+                ? aiResponse.getUpdated_doc()
+                : currentDocContent;
+
+        String summary = aiResponse != null && StringUtils.hasText(aiResponse.getSummary_of_changes())
+                ? aiResponse.getSummary_of_changes()
+                : "Cáº­p nháº­t láº¡i tÃ i liá»‡u cho thá»±c thá»ƒ: " + entitySig;
+
+        // TrÃ­ch xuáº¥t Ä‘oáº¡n tÃ i liá»‡u riÃªng cá»§a entity (tá»« section diffs hoáº·c tá»•ng há»£p)
+        String entityDoc = null;
+        if (aiResponse != null && aiResponse.getSection_diffs() != null && !aiResponse.getSection_diffs().isEmpty()) {
+            entityDoc = aiResponse.getSection_diffs().get(0).getNew_content();
+        }
+        if (!StringUtils.hasText(entityDoc)) {
+            entityDoc = summary;
+        }
+
+        // 4. Táº¡o phiÃªn báº£n má»›i v(N+1) báº£o toÃ n Hash Chain (ActorRole: DEV hoáº·c tá»« actor)
+        ActorRole role = resolveActorRole(null, actorRole);
+        int nextVersionNum = (document.getCurrentVersion() != null ? document.getCurrentVersion() : 1) + 1;
+        String prevHash = (latestVersion.getHash() != null) ? latestVersion.getHash() : HashUtils.GENESIS_HASH;
+        String newHash = HashUtils.calculateVersionHash(prevHash, nextVersionNum, updatedFullDoc, role.name(), "REGENERATE_ENTITY");
+
+        DocumentVersion newVersion = DocumentVersion.builder()
+                .docId(docId)
+                .versionNum(nextVersionNum)
+                .content(updatedFullDoc)
+                .actorRole(role)
+                .triggerType("REGENERATE_ENTITY")
+                .hash(newHash)
+                .prevHash(prevHash)
+                .createdAt(Instant.now())
+                .build();
+
+        DocumentVersion savedVersion = documentVersionRepositoryPort.save(newVersion);
+
+        // Cáº­p nháº­t Document tá»•ng thá»ƒ
+        document.setCurrentVersion(nextVersionNum);
+        document.setUpdatedAt(Instant.now());
+        documentRepositoryPort.save(document);
+
+        // 5. Ghi Changelog & Audit Log
+        if (changelogServicePort != null) {
+            try {
+                changelogServicePort.recordChange(docId, savedVersion.getVersionId(), actorId, role.name(),
+                        "Táº¡o láº¡i tÃ i liá»‡u thá»±c thá»ƒ [" + entitySig + "]: " + summary);
+            } catch (Exception ex) {
+                log.warn("KhÃ´ng thá»ƒ ghi changelog cho regenerateEntity: {}", ex.getMessage());
+            }
+        }
+        if (auditServicePort != null && actorId != null) {
+            try {
+                auditServicePort.recordAction(actorId, role.name(), AuditAction.UPDATE_DOCUMENT,
+                        "DOCUMENT", String.valueOf(docId),
+                        "Cáº­p nháº­t láº¡i tÃ i liá»‡u theo thá»±c thá»ƒ: " + entitySig, null);
+            } catch (Exception ex) {
+                log.warn("KhÃ´ng thá»ƒ ghi audit log: {}", ex.getMessage());
+            }
+        }
+
+        log.info("[RegenerateEntityDoc] HoÃ n táº¥t cáº­p nháº­t tÃ i liá»‡u docId={} cho entity '{}', Version má»›i={}",
+                docId, entitySig, nextVersionNum);
+
+        return RegenerateEntityDocResponse.builder()
+                .documentId(docId)
+                .versionNum(nextVersionNum)
+                .versionHash(newHash)
+                .entityId(targetEntity != null ? targetEntity.getEntityId() : request.getEntityId())
+                .signature(entitySig)
+                .summaryOfChanges(summary)
+                .entityDocumentation(entityDoc)
+                .fullUpdatedContent(updatedFullDoc)
+                .status("SUCCESS")
+                .build();
+    }
+
+    private DocRewriteResponseDto callAiEngineRewriteForEntity(String currentDoc, String sourceCode, String entityName, String filePath, String customInstruction) {
+        String instruction = StringUtils.hasText(customInstruction)
+                ? customInstruction
+                : "Cáº­p nháº­t vÃ  viáº¿t láº¡i mÃ´ táº£ ká»¹ thuáº­t cho thá»±c thá»ƒ mÃ£ nguá»“n [" + entityName + "] dá»±a trÃªn code má»›i. Báº£o Ä‘áº£m vÄƒn phong chuáº©n, cáº­p nháº­t chÃ­nh xÃ¡c pháº§n mÃ´ táº£ cá»§a hÃ m/lá»›p nÃ y vÃ  giá»¯ nguyÃªn cÃ¡c pháº§n tÃ i liá»‡u khÃ¡c.";
+
+        DocRewriteRequestDto requestDto = DocRewriteRequestDto.builder()
+                .current_doc(currentDoc)
+                .code_diff(sourceCode)
+                .entity_name(entityName)
+                .file_path(filePath)
+                .instruction(instruction)
+                .build();
+
+        if (restClient != null) {
+            try {
+                return restClient.post()
+                        .uri("/v1/docs/rewrite-suggestion")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(requestDto)
+                        .retrieve()
+                        .body(DocRewriteResponseDto.class);
+            } catch (Exception ex) {
+                log.warn("[RegenerateEntityDoc] KhÃ´ng thá»ƒ gá»i AI Engine (/v1/docs/rewrite-suggestion): {}. Sá»­ dá»¥ng cáº­p nháº­t dá»± phÃ²ng.", ex.getMessage());
+            }
+        }
+
+        // Dá»± phÃ²ng thÃ´ng minh náº¿u khÃ´ng cÃ³ káº¿t ná»‘i tá»›i AI Engine
+        String updated = currentDoc;
+        String sectionSnippet = "\n\n### Thá»±c thá»ƒ: `" + entityName + "`\n- **MÃ´ táº£:** Cáº­p nháº­t láº¡i tÃ i liá»‡u theo mÃ£ nguá»“n má»›i.\n- **MÃ£ nguá»“n:**\n```\n" + sourceCode + "\n```\n";
+        if (updated.contains(entityName)) {
+            updated = updated.replaceFirst(java.util.regex.Pattern.quote(entityName) + ".*", entityName + " (ÄÃ£ cáº­p nháº­t theo mÃ£ nguá»“n má»›i)");
+        } else {
+            updated = updated + sectionSnippet;
+        }
+
+        return DocRewriteResponseDto.builder()
+                .updated_doc(updated)
+                .summary_of_changes("Tá»± Ä‘á»™ng cáº­p nháº­t mÃ´ táº£ hÃ m/lá»›p " + entityName)
+                .model_used("fallback-local")
+                .build();
     }
 }
