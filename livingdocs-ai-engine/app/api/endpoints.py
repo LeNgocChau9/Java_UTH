@@ -324,6 +324,13 @@ async def rewrite_document_suggestion(request: DocRewriteRequest):
             "public void processPayment(Long orderId, Double amount)",
             "public void processPayment(Long orderId, Double amount, String currency)"
         )
+        item = DocSectionDiffItem(
+            section_title="2.1. processPayment",
+            status="MODIFIED",
+            old_content="- **Tham số:** Long orderId, Double amount",
+            suggested_content="- **Tham số:** Long orderId, Double amount, String currency",
+            reason="Thêm tham số currency mới vào phương thức xử lý thanh toán"
+        )
         return DocRewriteResponse(
             status="success",
             mode="mock",
@@ -333,15 +340,8 @@ async def rewrite_document_suggestion(request: DocRewriteRequest):
             summary_of_changes="[MOCK] Cập nhật tham số String currency cho phương thức processPayment theo thay đổi mới nhất.",
             modified_sections_count=1,
             unchanged_sections_count=3,
-            section_diffs=[
-                DocSectionDiffItem(
-                    section_title="2.1. processPayment",
-                    status="MODIFIED",
-                    old_content="- **Tham số:** Long orderId, Double amount",
-                    new_content="- **Tham số:** Long orderId, Double amount, String currency",
-                    change_reason="Thêm tham số currency mới vào phương thức xử lý thanh toán"
-                )
-            ],
+            section_diffs=[item],
+            suggestions=[item],
             model_used="mock"
         )
 
