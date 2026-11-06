@@ -1118,19 +1118,18 @@ public class DocumentServiceImpl implements DocumentServicePort {
         // 5. Ghi Changelog & Audit Log
         if (changelogServicePort != null) {
             try {
-                changelogServicePort.recordChange(docId, savedVersion.getVersionId(), actorId, role.name(),
-                        "Táº¡o láº¡i tÃ i liá»‡u thá»±c thá»ƒ [" + entitySig + "]: " + summary);
+                changelogServicePort.logChange(docId, savedVersion.getVersionId(), actorId, role.name(),
+                        "Tạo lại tài liệu thực thể [" + entitySig + "]: " + summary);
             } catch (Exception ex) {
-                log.warn("KhÃ´ng thá»ƒ ghi changelog cho regenerateEntity: {}", ex.getMessage());
+                log.warn("Không thể ghi changelog cho regenerateEntity: {}", ex.getMessage());
             }
         }
         if (auditServicePort != null && actorId != null) {
             try {
-                auditServicePort.recordAction(actorId, role.name(), AuditAction.UPDATE_DOCUMENT,
-                        "DOCUMENT", String.valueOf(docId),
-                        "Cáº­p nháº­t láº¡i tÃ i liá»‡u theo thá»±c thá»ƒ: " + entitySig, null);
+                auditServicePort.recordDocumentAction(actorId, docId, AuditAction.DOCUMENT_UPDATED,
+                        "Cập nhật lại tài liệu theo thực thể: " + entitySig);
             } catch (Exception ex) {
-                log.warn("KhÃ´ng thá»ƒ ghi audit log: {}", ex.getMessage());
+                log.warn("Không thể ghi audit log: {}", ex.getMessage());
             }
         }
 
