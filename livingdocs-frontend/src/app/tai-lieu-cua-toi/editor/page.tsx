@@ -176,7 +176,22 @@ function EditorContent() {
         }
         setIsDirty(false);
       } catch (err: any) {
-        notify("error", "Không thể nạp tài liệu: " + (err.response?.data?.message || err.message));
+        const savedDraft = typeof window !== "undefined" ? sessionStorage.getItem(`drift_alert_draft_${docIdParam}`) : null;
+        if (savedDraft) {
+          try {
+            const parsed = JSON.parse(savedDraft);
+            setDocId(null); // Đặt về null để khi bấm Lưu nháp sẽ gọi API Tạo mới (POST /api/documents) thay vì Cập nhật
+            setTitle(parsed.title || "Tài liệu khắc phục sai lệch");
+            setTargetPath(parsed.targetPath || "docs/document.md");
+            setContent(parsed.content || "");
+            setIsDirty(true);
+            notify("info", `Đã nạp nội dung đề xuất AI cho "${parsed.title}". Bấm "Lưu bản nháp" để tạo tài liệu vào hệ thống.`);
+          } catch {
+            notify("error", "Không thể nạp tài liệu: " + (err.response?.data?.message || err.message));
+          }
+        } else {
+          notify("error", "Không thể nạp tài liệu: " + (err.response?.data?.message || err.message));
+        }
       } finally {
         setLoading(false);
       }

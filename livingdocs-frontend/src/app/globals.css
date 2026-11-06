@@ -470,3 +470,1493 @@ div[data-nextjs-route-announcer] {
 .animate-spin {
   animation: spin 1s linear infinite !important;
 }
+
+/* ──────────────────────────────────────────────
+   DARK THEME (Chuẩn bảng màu GitHub Dark / Supabase Dark - Dịu mắt, Hài hòa, Giữ nguyên 100% Light Theme)
+────────────────────────────────────────────── */
+html.dark {
+  color-scheme: dark;
+  --color-bg:             #0d1117;
+  --color-surface:        #161b22;
+  --color-border:         #262c36;
+  --color-muted:          #1c2128;
+  --color-text-primary:   #e6edf3;
+  --color-text-secondary: #9ca3af;
+  --color-text-disabled:  #6e7681;
+  --color-accent:         #10b981;
+  --color-accent-hover:   #059669;
+  --color-accent-subtle:  #132620;
+  --color-accent-dark:    #34d399;
+}
+
+/* 1. Nền chính toàn trang (Neutral Deep Charcoal - #0d1117) */
+html.dark body,
+html.dark .ld-app-shell,
+html.dark .ld-app-content,
+html.dark .bg-\[\#f7faf8\],
+html.dark .min-h-screen.bg-slate-50\/50,
+html.dark .bg-gray-50,
+html.dark .bg-slate-50 {
+  background: #0d1117 !important;
+  background-color: #0d1117 !important;
+  color: #e6edf3 !important;
+}
+
+/* 2. Sidebar & Header (#11161d) */
+html.dark aside,
+html.dark header {
+  background: #11161d !important;
+  border-color: #21262d !important;
+}
+
+html.dark aside nav a,
+html.dark aside nav button {
+  color: #9ca3af !important;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+html.dark aside nav a:hover,
+html.dark aside nav button:hover {
+  background: #1c2128 !important;
+  color: #e6edf3 !important;
+}
+
+html.dark aside nav a.bg-\[\#eaf6ef\],
+html.dark aside nav button.bg-\[\#eaf6ef\] {
+  background: #142922 !important;
+  color: #34d399 !important;
+  border-color: #1f4739 !important;
+}
+
+html.dark aside .hover\:bg-white:hover {
+  background: #1c2128 !important;
+  border-color: #30363d !important;
+}
+
+/* 3. Bề mặt Card chính (Elevated Neutral Dark Slate - #161b22) */
+html.dark .ld-card,
+html.dark .ld-stat,
+html.dark .bg-white,
+html.dark .bg-white\/90,
+html.dark .bg-white\/95 {
+  background: #161b22 !important;
+  border-color: #262c36 !important;
+  color: #e6edf3 !important;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.28) !important;
+}
+
+/* 4. Bề mặt Card phụ / Ô thống kê / Biểu đồ tuần / Khung header (Subtle Slate - #1c2128) */
+html.dark .bg-\[\#fcfdfc\],
+html.dark .bg-\[\#f8fafc\],
+html.dark .bg-\[\#f2f6f3\],
+html.dark .bg-slate-50\/50,
+html.dark .bg-slate-50\/60,
+html.dark .bg-slate-50\/70,
+html.dark .bg-gray-50\/50,
+html.dark .bg-gray-50\/80,
+html.dark .bg-slate-100,
+html.dark .bg-slate-200 {
+  background: #1c2128 !important;
+  border-color: #2d333b !important;
+  color: #e6edf3 !important;
+}
+
+/* 5. Nền các nhãn màu & Ô đang chọn (Màu trầm đặc, không bị loang lổ hay chói) */
+html.dark .bg-\[\#eaf6ef\],
+html.dark .bg-\[\#eaf6ef\]\/40,
+html.dark .bg-\[\#ecfdf5\],
+html.dark .bg-\[\#d8efe1\],
+html.dark .bg-emerald-50,
+html.dark .bg-emerald-100,
+html.dark .bg-emerald-100\/70 {
+  background: #132620 !important;
+  color: #34d399 !important;
+  border-color: #1f4739 !important;
+}
+
+html.dark .bg-amber-50,
+html.dark .bg-amber-100,
+html.dark .bg-orange-50 {
+  background: #271f14 !important;
+  color: #f59e0b !important;
+  border-color: #463418 !important;
+}
+
+html.dark .bg-rose-50,
+html.dark .bg-red-50,
+html.dark .bg-red-100 {
+  background: #28171c !important;
+  color: #f87171 !important;
+  border-color: #49222b !important;
+}
+
+html.dark .bg-sky-50,
+html.dark .bg-blue-50,
+html.dark .bg-blue-100 {
+  background: #142234 !important;
+  color: #60a5fa !important;
+  border-color: #213d5e !important;
+}
+
+html.dark .bg-purple-50,
+html.dark .bg-purple-50\/50,
+html.dark .bg-purple-100 {
+  background: #1f192e !important;
+  color: #c084fc !important;
+  border-color: #38285c !important;
+}
+
+/* 6. Màu chữ Tailwind (Độ tương phản dịu mắt chuẩn GitHub Dark) */
+html.dark .ld-page-title,
+html.dark .ld-stat-value,
+html.dark .text-\[\#17231c\],
+html.dark .text-\[\#0f172a\],
+html.dark .text-slate-900,
+html.dark .text-slate-800,
+html.dark .text-gray-900,
+html.dark .text-gray-800,
+html.dark .text-emerald-950,
+html.dark .text-emerald-900,
+html.dark .text-black {
+  color: #e6edf3 !important;
+}
+
+html.dark .ld-page-subtitle,
+html.dark .text-\[\#475569\],
+html.dark .text-\[\#526158\],
+html.dark .text-slate-700,
+html.dark .text-slate-600,
+html.dark .text-gray-700,
+html.dark .text-gray-600 {
+  color: #9ca3af !important;
+}
+
+html.dark .ld-stat-label,
+html.dark .text-\[\#64748b\],
+html.dark .text-\[\#738078\],
+html.dark .text-slate-500,
+html.dark .text-slate-400,
+html.dark .text-gray-500,
+html.dark .text-gray-400 {
+  color: #7d8590 !important;
+}
+
+html.dark .text-\[\#07543f\],
+html.dark .text-\[\#087f5b\],
+html.dark .text-\[\#066548\],
+html.dark .text-\[\#047857\],
+html.dark .text-\[\#059669\],
+html.dark .text-emerald-800,
+html.dark .text-emerald-700,
+html.dark .text-emerald-600 {
+  color: #34d399 !important;
+}
+
+html.dark .text-blue-800,
+html.dark .text-blue-700,
+html.dark .text-blue-600,
+html.dark .text-sky-800,
+html.dark .text-sky-600 {
+  color: #60a5fa !important;
+}
+
+html.dark .text-amber-800,
+html.dark .text-amber-700,
+html.dark .text-amber-600,
+html.dark .text-orange-800 {
+  color: #f59e0b !important;
+}
+
+html.dark .text-rose-700,
+html.dark .text-rose-600,
+html.dark .text-red-950,
+html.dark .text-red-800,
+html.dark .text-red-700,
+html.dark .text-red-600 {
+  color: #f87171 !important;
+}
+
+html.dark .text-purple-900,
+html.dark .text-purple-800,
+html.dark .text-purple-700,
+html.dark .text-purple-600 {
+  color: #c084fc !important;
+}
+
+/* 7. Viền Tailwind (Borders & Dividers) */
+html.dark .border-\[\#e4eae6\],
+html.dark .border-\[\#e4eae6\]\/60,
+html.dark .border-\[\#e2e8f0\],
+html.dark .border-\[\#f0f4f1\],
+html.dark .border-\[\#cbd5e1\],
+html.dark .border-slate-100,
+html.dark .border-slate-200,
+html.dark .border-slate-300,
+html.dark .border-gray-200,
+html.dark .border-gray-300 {
+  border-color: #262c36 !important;
+}
+
+html.dark .border-\[\#b8dec5\],
+html.dark .border-emerald-200,
+html.dark .border-emerald-300 {
+  border-color: #1f4739 !important;
+}
+
+html.dark .border-amber-200,
+html.dark .border-amber-300,
+html.dark .border-orange-200 {
+  border-color: #463418 !important;
+}
+
+html.dark .border-rose-200,
+html.dark .border-red-200 {
+  border-color: #49222b !important;
+}
+
+html.dark .border-sky-200,
+html.dark .border-blue-200 {
+  border-color: #213d5e !important;
+}
+
+html.dark .border-purple-100,
+html.dark .border-purple-200 {
+  border-color: #38285c !important;
+}
+
+/* 8. Inputs, Selects, Textareas */
+html.dark .ld-input,
+html.dark .ld-select,
+html.dark textarea,
+html.dark input:not([type="radio"]):not([type="checkbox"]),
+html.dark select {
+  background-color: #0d1117 !important;
+  border-color: #30363d !important;
+  color: #e6edf3 !important;
+}
+
+html.dark .ld-input::placeholder,
+html.dark textarea::placeholder,
+html.dark input::placeholder {
+  color: #6e7681 !important;
+}
+
+html.dark .ld-input:focus,
+html.dark .ld-select:focus,
+html.dark textarea:focus,
+html.dark input:focus,
+html.dark select:focus {
+  border-color: #10b981 !important;
+  background-color: #11161d !important;
+}
+
+html.dark option {
+  background-color: #161b22;
+  color: #e6edf3;
+}
+
+/* 9. Buttons & Badges */
+html.dark .ld-btn-secondary {
+  background: #21262d !important;
+  color: #e6edf3 !important;
+  border-color: #30363d !important;
+}
+
+html.dark .ld-btn-secondary:hover {
+  background: #292e36 !important;
+  border-color: #3b424b !important;
+}
+
+html.dark .ld-btn-ghost {
+  color: #9ca3af !important;
+}
+
+html.dark .ld-btn-ghost:hover {
+  background: #1c2128 !important;
+  color: #e6edf3 !important;
+}
+
+html.dark .ld-badge-green {
+  background: #132620 !important;
+  color: #34d399 !important;
+  border-color: #1f4739 !important;
+}
+html.dark .ld-badge-blue {
+  background: #142234 !important;
+  color: #60a5fa !important;
+  border-color: #213d5e !important;
+}
+html.dark .ld-badge-yellow {
+  background: #271f14 !important;
+  color: #f59e0b !important;
+  border-color: #463418 !important;
+}
+html.dark .ld-badge-red {
+  background: #28171c !important;
+  color: #f87171 !important;
+  border-color: #49222b !important;
+}
+html.dark .ld-badge-gray {
+  background: #21262d !important;
+  color: #9ca3af !important;
+  border-color: #30363d !important;
+}
+
+/* 10. Tables & Markdown Viewer */
+html.dark table,
+html.dark .ld-table {
+  border-color: #262c36 !important;
+}
+
+html.dark th,
+html.dark .ld-table th {
+  background: #1c2128 !important;
+  color: #9ca3af !important;
+  border-color: #262c36 !important;
+}
+
+html.dark td,
+html.dark .ld-table td {
+  border-color: #262c36 !important;
+  color: #e6edf3 !important;
+}
+
+html.dark .ld-table tbody tr:hover {
+  background: #1c2128 !important;
+}
+
+html.dark .markdown-viewer {
+  background: #0d1117 !important;
+  border-color: #262c36 !important;
+  color: #e6edf3 !important;
+}
+
+html.dark .markdown-viewer h1,
+html.dark .markdown-viewer h2,
+html.dark .markdown-viewer h3 {
+  color: #e6edf3 !important;
+  border-color: #262c36 !important;
+}
+
+html.dark .markdown-viewer p,
+html.dark .markdown-viewer li {
+  color: #c9d1d9 !important;
+}
+
+html.dark .markdown-viewer pre,
+html.dark .markdown-viewer code {
+  background: #161b22 !important;
+  color: #79c0ff !important;
+  border-color: #30363d !important;
+}
+
+html.dark .markdown-viewer pre code {
+  background: transparent !important;
+  color: #e6edf3 !important;
+}
+
+html.dark .markdown-viewer blockquote {
+  border-left-color: #10b981 !important;
+  color: #8b949e !important;
+}
+
+html.dark .markdown-viewer strong {
+  color: #e6edf3 !important;
+}
+
+html.dark .markdown-viewer table th {
+  background: #161b22 !important;
+  color: #e6edf3 !important;
+  border-color: #30363d !important;
+}
+
+html.dark .markdown-viewer table td {
+  border-color: #30363d !important;
+  color: #c9d1d9 !important;
+}
+
+html.dark pre {
+  background: #0d1117 !important;
+  border-color: #262c36 !important;
+  color: #e6edf3 !important;
+}
+
+/* 11. Inline Backgrounds (White / Light Gray -> Clean Neutral Dark Slate) */
+html.dark [style*="background:#ffffff"],
+html.dark [style*="background: #ffffff"],
+html.dark [style*="background-color:#ffffff"],
+html.dark [style*="background-color: #ffffff"],
+html.dark [style*="background: rgb(255, 255, 255)"],
+html.dark [style*="background-color: rgb(255, 255, 255)"],
+html.dark [style*="background:#fcfdfc"],
+html.dark [style*="background: #fcfdfc"],
+html.dark [style*="background-color:#fcfdfc"],
+html.dark [style*="background-color: #fcfdfc"],
+html.dark [style*="background: rgb(252, 253, 252)"],
+html.dark [style*="background-color: rgb(252, 253, 252)"],
+html.dark [style*="background:#fafbfc"],
+html.dark [style*="background: #fafbfc"],
+html.dark [style*="background-color:#fafbfc"],
+html.dark [style*="background-color: #fafbfc"],
+html.dark [style*="background: rgb(250, 251, 252)"],
+html.dark [style*="background-color: rgb(250, 251, 252)"],
+html.dark [style*="background:#fafafa"],
+html.dark [style*="background: #fafafa"],
+html.dark [style*="background-color:#fafafa"],
+html.dark [style*="background-color: #fafafa"],
+html.dark [style*="background: rgb(250, 250, 250)"],
+html.dark [style*="background-color: rgb(250, 250, 250)"] {
+  background: #161b22 !important;
+  border-color: #262c36 !important;
+}
+
+html.dark [style*="background:#f8fafc"],
+html.dark [style*="background: #f8fafc"],
+html.dark [style*="background-color:#f8fafc"],
+html.dark [style*="background-color: #f8fafc"],
+html.dark [style*="background: rgb(248, 250, 252)"],
+html.dark [style*="background-color: rgb(248, 250, 252)"],
+html.dark [style*="background:#f8faf9"],
+html.dark [style*="background: #f8faf9"],
+html.dark [style*="background-color:#f8faf9"],
+html.dark [style*="background-color: #f8faf9"],
+html.dark [style*="background: rgb(248, 250, 249)"],
+html.dark [style*="background-color: rgb(248, 250, 249)"],
+html.dark [style*="background:#f7faf8"],
+html.dark [style*="background: #f7faf8"],
+html.dark [style*="background-color:#f7faf8"],
+html.dark [style*="background-color: #f7faf8"],
+html.dark [style*="background: rgb(247, 250, 248)"],
+html.dark [style*="background-color: rgb(247, 250, 248)"],
+html.dark [style*="background:#f3f4f6"],
+html.dark [style*="background: #f3f4f6"],
+html.dark [style*="background-color:#f3f4f6"],
+html.dark [style*="background-color: #f3f4f6"],
+html.dark [style*="background: rgb(243, 244, 246)"],
+html.dark [style*="background-color: rgb(243, 244, 246)"],
+html.dark [style*="background:#f2f6f3"],
+html.dark [style*="background: #f2f6f3"],
+html.dark [style*="background-color:#f2f6f3"],
+html.dark [style*="background-color: #f2f6f3"],
+html.dark [style*="background: rgb(242, 246, 243)"],
+html.dark [style*="background-color: rgb(242, 246, 243)"],
+html.dark [style*="background:#f1f5f9"],
+html.dark [style*="background: #f1f5f9"],
+html.dark [style*="background-color:#f1f5f9"],
+html.dark [style*="background-color: #f1f5f9"],
+html.dark [style*="background: rgb(241, 245, 249)"],
+html.dark [style*="background-color: rgb(241, 245, 249)"],
+html.dark [style*="background:#f0f4f1"],
+html.dark [style*="background: #f0f4f1"],
+html.dark [style*="background-color:#f0f4f1"],
+html.dark [style*="background-color: #f0f4f1"],
+html.dark [style*="background: rgb(240, 244, 241)"],
+html.dark [style*="background-color: rgb(240, 244, 241)"] {
+  background: #1c2128 !important;
+  border-color: #2d333b !important;
+}
+
+/* Nhãn xám trung tính (#e2e8f0) giữ màu chữ xám bạc trung tính, không đổi sang xanh chói */
+html.dark [style*="background:#e5e7eb"],
+html.dark [style*="background: #e5e7eb"],
+html.dark [style*="background-color:#e5e7eb"],
+html.dark [style*="background-color: #e5e7eb"],
+html.dark [style*="background: rgb(229, 231, 235)"],
+html.dark [style*="background-color: rgb(229, 231, 235)"],
+html.dark [style*="background:#e4eae6"],
+html.dark [style*="background: #e4eae6"],
+html.dark [style*="background-color:#e4eae6"],
+html.dark [style*="background-color: #e4eae6"],
+html.dark [style*="background: rgb(228, 234, 230)"],
+html.dark [style*="background-color: rgb(228, 234, 230)"],
+html.dark [style*="background:#e2e8f0"],
+html.dark [style*="background: #e2e8f0"],
+html.dark [style*="background-color:#e2e8f0"],
+html.dark [style*="background-color: #e2e8f0"],
+html.dark [style*="background: rgb(226, 232, 240)"],
+html.dark [style*="background-color: rgb(226, 232, 240)"],
+html.dark [style*="background:#dfe7e4"],
+html.dark [style*="background: #dfe7e4"],
+html.dark [style*="background-color:#dfe7e4"],
+html.dark [style*="background-color: #dfe7e4"],
+html.dark [style*="background: rgb(223, 231, 228)"],
+html.dark [style*="background-color: rgb(223, 231, 228)"],
+html.dark [style*="background:#cbd5e1"],
+html.dark [style*="background: #cbd5e1"],
+html.dark [style*="background-color:#cbd5e1"],
+html.dark [style*="background-color: #cbd5e1"],
+html.dark [style*="background: rgb(203, 213, 225)"],
+html.dark [style*="background-color: rgb(203, 213, 225)"] {
+  background: #21262d !important;
+  color: #9ca3af !important;
+  border-color: #30363d !important;
+}
+
+/* 12. Inline Backgrounds (Light Green / Emerald -> Deep Muted Forest #132620) */
+html.dark [style*="background:#f0fdfa"],
+html.dark [style*="background: #f0fdfa"],
+html.dark [style*="background-color:#f0fdfa"],
+html.dark [style*="background-color: #f0fdfa"],
+html.dark [style*="background: rgb(240, 253, 250)"],
+html.dark [style*="background-color: rgb(240, 253, 250)"],
+html.dark [style*="background:#f0fdf4"],
+html.dark [style*="background: #f0fdf4"],
+html.dark [style*="background-color:#f0fdf4"],
+html.dark [style*="background-color: #f0fdf4"],
+html.dark [style*="background: rgb(240, 253, 244)"],
+html.dark [style*="background-color: rgb(240, 253, 244)"],
+html.dark [style*="background:#ecfdf5"],
+html.dark [style*="background: #ecfdf5"],
+html.dark [style*="background-color:#ecfdf5"],
+html.dark [style*="background-color: #ecfdf5"],
+html.dark [style*="background: rgb(236, 253, 245)"],
+html.dark [style*="background-color: rgb(236, 253, 245)"],
+html.dark [style*="background:#eaf6ef"],
+html.dark [style*="background: #eaf6ef"],
+html.dark [style*="background-color:#eaf6ef"],
+html.dark [style*="background-color: #eaf6ef"],
+html.dark [style*="background: rgb(234, 246, 239)"],
+html.dark [style*="background-color: rgb(234, 246, 239)"],
+html.dark [style*="background:#edf5ef"],
+html.dark [style*="background: #edf5ef"],
+html.dark [style*="background-color:#edf5ef"],
+html.dark [style*="background-color: #edf5ef"],
+html.dark [style*="background: rgb(237, 245, 239)"],
+html.dark [style*="background-color: rgb(237, 245, 239)"],
+html.dark [style*="background:#e6f4ea"],
+html.dark [style*="background: #e6f4ea"],
+html.dark [style*="background-color:#e6f4ea"],
+html.dark [style*="background-color: #e6f4ea"],
+html.dark [style*="background: rgb(230, 244, 234)"],
+html.dark [style*="background-color: rgb(230, 244, 234)"],
+html.dark [style*="background:#dcfce7"],
+html.dark [style*="background: #dcfce7"],
+html.dark [style*="background-color:#dcfce7"],
+html.dark [style*="background-color: #dcfce7"],
+html.dark [style*="background: rgb(220, 252, 231)"],
+html.dark [style*="background-color: rgb(220, 252, 231)"],
+html.dark [style*="background:#d8efe1"],
+html.dark [style*="background: #d8efe1"],
+html.dark [style*="background-color:#d8efe1"],
+html.dark [style*="background-color: #d8efe1"],
+html.dark [style*="background: rgb(216, 239, 225)"],
+html.dark [style*="background-color: rgb(216, 239, 225)"],
+html.dark [style*="background:#d1fae5"],
+html.dark [style*="background: #d1fae5"],
+html.dark [style*="background-color:#d1fae5"],
+html.dark [style*="background-color: #d1fae5"],
+html.dark [style*="background: rgb(209, 250, 229)"],
+html.dark [style*="background-color: rgb(209, 250, 229)"],
+html.dark [style*="background:#ccfbf1"],
+html.dark [style*="background: #ccfbf1"],
+html.dark [style*="background-color:#ccfbf1"],
+html.dark [style*="background-color: #ccfbf1"],
+html.dark [style*="background: rgb(204, 251, 241)"],
+html.dark [style*="background-color: rgb(204, 251, 241)"] {
+  background: #132620 !important;
+  border-color: #1f4739 !important;
+}
+
+/* 13. Inline Backgrounds (Light Blue -> Deep Muted Navy #142234) */
+html.dark [style*="background:#eff6ff"],
+html.dark [style*="background: #eff6ff"],
+html.dark [style*="background-color:#eff6ff"],
+html.dark [style*="background-color: #eff6ff"],
+html.dark [style*="background: rgb(239, 246, 255)"],
+html.dark [style*="background-color: rgb(239, 246, 255)"],
+html.dark [style*="background:#e0f2fe"],
+html.dark [style*="background: #e0f2fe"],
+html.dark [style*="background-color:#e0f2fe"],
+html.dark [style*="background-color: #e0f2fe"],
+html.dark [style*="background: rgb(224, 242, 254)"],
+html.dark [style*="background-color: rgb(224, 242, 254)"],
+html.dark [style*="background:#d8e5ff"],
+html.dark [style*="background: #d8e5ff"],
+html.dark [style*="background-color:#d8e5ff"],
+html.dark [style*="background-color: #d8e5ff"],
+html.dark [style*="background: rgb(216, 229, 255)"],
+html.dark [style*="background-color: rgb(216, 229, 255)"] {
+  background: #142234 !important;
+  border-color: #213d5e !important;
+}
+
+/* 14. Inline Backgrounds (Light Amber / Orange / Diff Outdated -> Warm Muted Dark Amber) */
+html.dark [style*="background:#fffaf5"],
+html.dark [style*="background: #fffaf5"],
+html.dark [style*="background-color:#fffaf5"],
+html.dark [style*="background-color: #fffaf5"],
+html.dark [style*="background: rgb(255, 250, 245)"],
+html.dark [style*="background-color: rgb(255, 250, 245)"] {
+  background: #1a1510 !important;
+}
+
+html.dark [style*="background:#fffbeb"],
+html.dark [style*="background: #fffbeb"],
+html.dark [style*="background-color:#fffbeb"],
+html.dark [style*="background-color: #fffbeb"],
+html.dark [style*="background: rgb(255, 251, 235)"],
+html.dark [style*="background-color: rgb(255, 251, 235)"],
+html.dark [style*="background:#fefce8"],
+html.dark [style*="background: #fefce8"],
+html.dark [style*="background-color:#fefce8"],
+html.dark [style*="background-color: #fefce8"],
+html.dark [style*="background: rgb(254, 252, 232)"],
+html.dark [style*="background-color: rgb(254, 252, 232)"],
+html.dark [style*="background:#fff7ed"],
+html.dark [style*="background: #fff7ed"],
+html.dark [style*="background-color:#fff7ed"],
+html.dark [style*="background-color: #fff7ed"],
+html.dark [style*="background: rgb(255, 247, 237)"],
+html.dark [style*="background-color: rgb(255, 247, 237)"],
+html.dark [style*="background:#fef3c7"],
+html.dark [style*="background: #fef3c7"],
+html.dark [style*="background-color:#fef3c7"],
+html.dark [style*="background-color: #fef3c7"],
+html.dark [style*="background: rgb(254, 243, 199)"],
+html.dark [style*="background-color: rgb(254, 243, 199)"],
+html.dark [style*="background:#ffedd5"],
+html.dark [style*="background: #ffedd5"],
+html.dark [style*="background-color:#ffedd5"],
+html.dark [style*="background-color: #ffedd5"],
+html.dark [style*="background: rgb(255, 237, 213)"],
+html.dark [style*="background-color: rgb(255, 237, 213)"] {
+  background: #271f14 !important;
+  border-color: #463418 !important;
+}
+
+/* 15. Inline Backgrounds (Light Red / Rose / Code Diff Old -> Deep Muted Crimson) */
+html.dark [style*="background:#fff5f5"],
+html.dark [style*="background: #fff5f5"],
+html.dark [style*="background-color:#fff5f5"],
+html.dark [style*="background-color: #fff5f5"],
+html.dark [style*="background: rgb(255, 245, 245)"],
+html.dark [style*="background-color: rgb(255, 245, 245)"],
+html.dark [style*="background:#fffafb"],
+html.dark [style*="background: #fffafb"],
+html.dark [style*="background-color:#fffafb"],
+html.dark [style*="background-color: #fffafb"],
+html.dark [style*="background: rgb(255, 250, 251)"],
+html.dark [style*="background-color: rgb(255, 250, 251)"] {
+  background: #1c1215 !important;
+}
+
+html.dark [style*="background:#fef2f2"],
+html.dark [style*="background: #fef2f2"],
+html.dark [style*="background-color:#fef2f2"],
+html.dark [style*="background-color: #fef2f2"],
+html.dark [style*="background: rgb(254, 242, 242)"],
+html.dark [style*="background-color: rgb(254, 242, 242)"],
+html.dark [style*="background:#fff1f2"],
+html.dark [style*="background: #fff1f2"],
+html.dark [style*="background-color:#fff1f2"],
+html.dark [style*="background-color: #fff1f2"],
+html.dark [style*="background: rgb(255, 241, 242)"],
+html.dark [style*="background-color: rgb(255, 241, 242)"],
+html.dark [style*="background:#fee2e2"],
+html.dark [style*="background: #fee2e2"],
+html.dark [style*="background-color:#fee2e2"],
+html.dark [style*="background-color: #fee2e2"],
+html.dark [style*="background: rgb(254, 226, 226)"],
+html.dark [style*="background-color: rgb(254, 226, 226)"] {
+  background: #28171c !important;
+  border-color: #49222b !important;
+}
+
+/* 16. Inline Backgrounds (Light Purple -> Deep Muted Violet) */
+html.dark [style*="background:#faf5ff"],
+html.dark [style*="background: #faf5ff"],
+html.dark [style*="background-color:#faf5ff"],
+html.dark [style*="background-color: #faf5ff"],
+html.dark [style*="background: rgb(250, 245, 255)"],
+html.dark [style*="background-color: rgb(250, 245, 255)"],
+html.dark [style*="background:#f3e8ff"],
+html.dark [style*="background: #f3e8ff"],
+html.dark [style*="background-color:#f3e8ff"],
+html.dark [style*="background-color: #f3e8ff"],
+html.dark [style*="background: rgb(243, 232, 255)"],
+html.dark [style*="background-color: rgb(243, 232, 255)"],
+html.dark [style*="background:#e9d5ff"],
+html.dark [style*="background: #e9d5ff"],
+html.dark [style*="background-color:#e9d5ff"],
+html.dark [style*="background-color: #e9d5ff"],
+html.dark [style*="background: rgb(233, 213, 255)"],
+html.dark [style*="background-color: rgb(233, 213, 255)"] {
+  background: #1f192e !important;
+  border-color: #38285c !important;
+}
+
+/* 17. Inline Gradients (Thanh tiêu đề Card & Khung tiến trình chuyển sang màu xám than đồng bộ #1c2128) */
+html.dark [style*="linear-gradient(135deg, #f8faf9"],
+html.dark [style*="linear-gradient(135deg,#f8faf9"],
+html.dark [style*="linear-gradient(135deg, rgb(248, 250, 249)"],
+html.dark [style*="linear-gradient(135deg, #f0fdf4"],
+html.dark [style*="linear-gradient(135deg,#f0fdf4"],
+html.dark [style*="linear-gradient(135deg, rgb(240, 253, 244)"],
+html.dark [style*="linear-gradient(180deg, #f0fdf4"],
+html.dark [style*="linear-gradient(180deg,#f0fdf4"],
+html.dark [style*="linear-gradient(180deg, rgb(240, 253, 244)"],
+html.dark [style*="linear-gradient(rgb(240, 253, 244)"] {
+  background: #1c2128 !important;
+  border-color: #2d333b !important;
+}
+
+/* 18. Inline Text Colors (Màu chữ dịu mắt, độ tương phản chuẩn) */
+html.dark [style*="color:#0f172a"],
+html.dark [style*="color: #0f172a"],
+html.dark [style*="color: rgb(15, 23, 42)"],
+html.dark [style*="color:#17231c"],
+html.dark [style*="color: #17231c"],
+html.dark [style*="color: rgb(23, 35, 28)"],
+html.dark [style*="color:#1e293b"],
+html.dark [style*="color: #1e293b"],
+html.dark [style*="color: rgb(30, 41, 59)"] {
+  color: #e6edf3 !important;
+}
+
+html.dark [style*="color:#334155"],
+html.dark [style*="color: #334155"],
+html.dark [style*="color: rgb(51, 65, 85)"],
+html.dark [style*="color:#374151"],
+html.dark [style*="color: #374151"],
+html.dark [style*="color: rgb(55, 65, 81)"],
+html.dark [style*="color:#475569"],
+html.dark [style*="color: #475569"],
+html.dark [style*="color: rgb(71, 85, 105)"],
+html.dark [style*="color:#526158"],
+html.dark [style*="color: #526158"],
+html.dark [style*="color: rgb(82, 97, 88)"] {
+  color: #9ca3af !important;
+}
+
+html.dark [style*="color:#64748b"],
+html.dark [style*="color: #64748b"],
+html.dark [style*="color: rgb(100, 116, 139)"],
+html.dark [style*="color:#6b7280"],
+html.dark [style*="color: #6b7280"],
+html.dark [style*="color: rgb(107, 114, 128)"],
+html.dark [style*="color:#738078"],
+html.dark [style*="color: #738078"],
+html.dark [style*="color: rgb(115, 128, 120)"] {
+  color: #7d8590 !important;
+}
+
+/* Chữ trong khung Diff xanh lá & UI Emerald */
+html.dark [style*="color:#064e3b"],
+html.dark [style*="color: #064e3b"],
+html.dark [style*="color: rgb(6, 78, 59)"],
+html.dark [style*="color:#14532d"],
+html.dark [style*="color: #14532d"],
+html.dark [style*="color: rgb(20, 83, 45)"] {
+  color: #a7f3d0 !important;
+}
+
+html.dark [style*="color:#065f46"],
+html.dark [style*="color: #065f46"],
+html.dark [style*="color: rgb(6, 95, 70)"],
+html.dark [style*="color:#066548"],
+html.dark [style*="color: #066548"],
+html.dark [style*="color: rgb(6, 101, 72)"],
+html.dark [style*="color:#07543f"],
+html.dark [style*="color: #07543f"],
+html.dark [style*="color: rgb(7, 84, 63)"],
+html.dark [style*="color:#087f5b"],
+html.dark [style*="color: #087f5b"],
+html.dark [style*="color: rgb(8, 127, 91)"],
+html.dark [style*="color:#0f766e"],
+html.dark [style*="color: #0f766e"],
+html.dark [style*="color: rgb(15, 118, 110)"],
+html.dark [style*="color:#115e59"],
+html.dark [style*="color: #115e59"],
+html.dark [style*="color: rgb(17, 94, 89)"],
+html.dark [style*="color:#134e4a"],
+html.dark [style*="color: #134e4a"],
+html.dark [style*="color: rgb(19, 78, 74)"],
+html.dark [style*="color:#15803d"],
+html.dark [style*="color: #15803d"],
+html.dark [style*="color: rgb(21, 128, 61)"],
+html.dark [style*="color:#166534"],
+html.dark [style*="color: #166534"],
+html.dark [style*="color: rgb(22, 101, 52)"],
+html.dark [style*="color:#047857"],
+html.dark [style*="color: #047857"],
+html.dark [style*="color: rgb(4, 120, 87)"],
+html.dark [style*="color:#059669"],
+html.dark [style*="color: #059669"],
+html.dark [style*="color: rgb(5, 150, 105)"] {
+  color: #34d399 !important;
+}
+
+/* Chữ trong khung Diff tài liệu lỗi thời & Cảnh báo vàng cam */
+html.dark [style*="color:#431407"],
+html.dark [style*="color: #431407"],
+html.dark [style*="color: rgb(67, 20, 7)"] {
+  color: #fde68a !important;
+}
+
+html.dark [style*="color:#9a3412"],
+html.dark [style*="color: #9a3412"],
+html.dark [style*="color: rgb(154, 52, 18)"],
+html.dark [style*="color:#c2410c"],
+html.dark [style*="color: #c2410c"],
+html.dark [style*="color: rgb(194, 65, 12)"],
+html.dark [style*="color:#92400e"],
+html.dark [style*="color: #92400e"],
+html.dark [style*="color: rgb(146, 64, 14)"],
+html.dark [style*="color:#b45309"],
+html.dark [style*="color: #b45309"],
+html.dark [style*="color: rgb(180, 83, 9)"],
+html.dark [style*="color:#d97706"],
+html.dark [style*="color: #d97706"],
+html.dark [style*="color: rgb(217, 119, 6)"] {
+  color: #f59e0b !important;
+}
+
+/* Chữ trong khung Diff code cũ & Cảnh báo đỏ */
+html.dark [style*="color:#7f1d1d"],
+html.dark [style*="color: #7f1d1d"],
+html.dark [style*="color: rgb(127, 29, 29)"],
+html.dark [style*="color:#991b1b"],
+html.dark [style*="color: #991b1b"],
+html.dark [style*="color: rgb(153, 27, 27)"],
+html.dark [style*="color:#9f1239"],
+html.dark [style*="color: #9f1239"],
+html.dark [style*="color: rgb(159, 18, 57)"] {
+  color: #fca5a5 !important;
+}
+
+html.dark [style*="color:#b91c1c"],
+html.dark [style*="color: #b91c1c"],
+html.dark [style*="color: rgb(185, 28, 28)"],
+html.dark [style*="color:#dc2626"],
+html.dark [style*="color: #dc2626"],
+html.dark [style*="color: rgb(220, 38, 38)"] {
+  color: #f87171 !important;
+}
+
+/* Chữ xanh dương & tím */
+html.dark [style*="color:#1e40af"],
+html.dark [style*="color: #1e40af"],
+html.dark [style*="color: rgb(30, 64, 175)"],
+html.dark [style*="color:#1d4ed8"],
+html.dark [style*="color: #1d4ed8"],
+html.dark [style*="color: rgb(29, 78, 216)"],
+html.dark [style*="color:#2563eb"],
+html.dark [style*="color: #2563eb"],
+html.dark [style*="color: rgb(37, 99, 235)"],
+html.dark [style*="color:#0284c7"],
+html.dark [style*="color: #0284c7"],
+html.dark [style*="color: rgb(2, 132, 199)"] {
+  color: #60a5fa !important;
+}
+
+html.dark [style*="color:#7e22ce"],
+html.dark [style*="color: #7e22ce"],
+html.dark [style*="color: rgb(126, 34, 206)"],
+html.dark [style*="color:#9333ea"],
+html.dark [style*="color: #9333ea"],
+html.dark [style*="color: rgb(147, 51, 234)"] {
+  color: #c084fc !important;
+}
+
+/* 19. Inline Borders */
+html.dark [style*="border:1px solid #e2e8f0"],
+html.dark [style*="border: 1px solid #e2e8f0"],
+html.dark [style*="border: 1px solid rgb(226, 232, 240)"],
+html.dark [style*="border:1px solid #dfe7e4"],
+html.dark [style*="border: 1px solid #dfe7e4"],
+html.dark [style*="border: 1px solid rgb(223, 231, 228)"],
+html.dark [style*="border:1px solid #e4eae6"],
+html.dark [style*="border: 1px solid #e4eae6"],
+html.dark [style*="border: 1px solid rgb(228, 234, 230)"],
+html.dark [style*="border:1px solid #f1f5f9"],
+html.dark [style*="border: 1px solid #f1f5f9"],
+html.dark [style*="border: 1px solid rgb(241, 245, 249)"],
+html.dark [style*="border:1.5px solid #e2e8f0"],
+html.dark [style*="border: 1.5px solid #e2e8f0"],
+html.dark [style*="border: 1.5px solid rgb(226, 232, 240)"],
+html.dark [style*="border:2px solid #e2e8f0"],
+html.dark [style*="border: 2px solid #e2e8f0"],
+html.dark [style*="border: 2px solid rgb(226, 232, 240)"],
+html.dark [style*="border-bottom:1px solid #e2e8f0"],
+html.dark [style*="border-bottom: 1px solid #e2e8f0"],
+html.dark [style*="border-bottom: 1px solid rgb(226, 232, 240)"],
+html.dark [style*="border-bottom:1px solid #dfe7e4"],
+html.dark [style*="border-bottom: 1px solid #dfe7e4"],
+html.dark [style*="border-bottom: 1px solid rgb(223, 231, 228)"],
+html.dark [style*="border-bottom:1.5px solid #dfe7e4"],
+html.dark [style*="border-bottom: 1.5px solid #dfe7e4"],
+html.dark [style*="border-bottom: 1.5px solid rgb(223, 231, 228)"],
+html.dark [style*="border-bottom:1px solid #f1f5f9"],
+html.dark [style*="border-bottom: 1px solid #f1f5f9"],
+html.dark [style*="border-bottom: 1px solid rgb(241, 245, 249)"],
+html.dark [style*="border-top:1px solid #e2e8f0"],
+html.dark [style*="border-top: 1px solid #e2e8f0"],
+html.dark [style*="border-top: 1px solid rgb(226, 232, 240)"],
+html.dark [style*="border-right:1px solid #e2e8f0"],
+html.dark [style*="border-right: 1px solid #e2e8f0"],
+html.dark [style*="border-right: 1px solid rgb(226, 232, 240)"] {
+  border-color: #262c36 !important;
+}
+
+/* 20. Hover States */
+html.dark .hover\:bg-slate-100:hover,
+html.dark .hover\:bg-slate-50:hover,
+html.dark .hover\:bg-emerald-50\/40:hover,
+html.dark .hover\:bg-amber-100:hover {
+  background: #21262d !important;
+  background-color: #21262d !important;
+}
+
+html.dark .group:hover .group-hover\:bg-rose-100 {
+  background: #351c23 !important;
+}
+
+html.dark .group:hover .group-hover\:bg-emerald-100 {
+  background: #19332b !important;
+}
+
+html.dark .group:hover .group-hover\:bg-sky-100 {
+  background: #1a2d45 !important;
+}
+
+/* ──────────────────────────────────────────────
+   DARK THEME - TRÌNH SOẠN THẢO MARKDOWN (EDITOR & SPLIT VIEW)
+────────────────────────────────────────────── */
+html.dark [style*="background: #ffffff"],
+html.dark [style*="background:#ffffff"],
+html.dark [style*="background: rgb(255, 255, 255)"] {
+  background: #161b22 !important;
+  color: #e6edf3 !important;
+}
+
+html.dark [style*="background: #fafbfc"],
+html.dark [style*="background:#fafbfc"],
+html.dark [style*="background: rgb(250, 251, 252)"] {
+  background: #0d1117 !important;
+  color: #e6edf3 !important;
+}
+
+html.dark [style*="background: #f8fafc"],
+html.dark [style*="background:#f8fafc"],
+html.dark [style*="background: rgb(248, 250, 252)"] {
+  background: #1c2128 !important;
+  color: #e6edf3 !important;
+}
+
+html.dark [style*="background: #f1f5f9"],
+html.dark [style*="background:#f1f5f9"],
+html.dark [style*="background: rgb(241, 245, 249)"] {
+  background: #21262d !important;
+  color: #c9d1d9 !important;
+}
+
+html.dark [style*="background: #e6fcf5"],
+html.dark [style*="background:#e6fcf5"],
+html.dark [style*="background: rgb(230, 252, 245)"] {
+  background: #132620 !important;
+  color: #34d399 !important;
+  border-color: #1f4739 !important;
+}
+
+html.dark [style*="background: #e7f5ff"],
+html.dark [style*="background:#e7f5ff"],
+html.dark [style*="background: rgb(231, 245, 255)"] {
+  background: #142234 !important;
+  color: #60a5fa !important;
+  border-color: #213d5e !important;
+}
+
+html.dark [style*="background: #fff4e6"],
+html.dark [style*="background:#fff4e6"],
+html.dark [style*="background: rgb(255, 244, 230)"] {
+  background: #271f14 !important;
+  color: #f59e0b !important;
+  border-color: #463418 !important;
+}
+
+html.dark [style*="background: #f1f3f5"],
+html.dark [style*="background:#f1f3f5"],
+html.dark [style*="background: rgb(241, 243, 245)"] {
+  background: #21262d !important;
+  color: #9ca3af !important;
+}
+
+html.dark [style*="background: #fffbeb"],
+html.dark [style*="background:#fffbeb"],
+html.dark [style*="background: rgb(255, 251, 235)"] {
+  background: #281f12 !important;
+  color: #fbbf24 !important;
+}
+
+html.dark [style*="background: #ecfdf5"],
+html.dark [style*="background:#ecfdf5"],
+html.dark [style*="background: rgb(236, 253, 245)"] {
+  background: #132620 !important;
+  color: #34d399 !important;
+}
+
+html.dark textarea {
+  background: #0d1117 !important;
+  color: #e6edf3 !important;
+  caret-color: #34d399 !important;
+}
+
+html.dark textarea::placeholder {
+  color: #6e7681 !important;
+}
+
+html.dark select.ld-select,
+html.dark input.ld-input {
+  background: #0d1117 !important;
+  color: #e6edf3 !important;
+  border-color: #30363d !important;
+}
+
+html.dark select.ld-select option {
+  background: #161b22 !important;
+  color: #e6edf3 !important;
+}
+
+/* Đảm bảo Live Preview Markdown có màu chữ sáng chuẩn */
+html.dark .prose,
+html.dark .markdown-body {
+  color: #e6edf3 !important;
+}
+
+html.dark .prose h1,
+html.dark .prose h2,
+html.dark .prose h3,
+html.dark .prose h4,
+html.dark .prose strong {
+  color: #ffffff !important;
+}
+
+html.dark .prose code {
+  background: #21262d !important;
+  color: #34d399 !important;
+}
+
+html.dark .prose pre {
+  background: #0d1117 !important;
+  border: 1px solid #30363d !important;
+}
+
+html.dark .prose table th {
+  background: #1c2128 !important;
+  color: #e6edf3 !important;
+  border-color: #30363d !important;
+}
+
+html.dark .prose table td {
+  border-color: #30363d !important;
+}
+/* ──────────────────────────────────────────────
+   DARK THEME - FIX KHUNG XEM TRƯỚC TRỰC TIẾP (PREVIEW & MARKDOWN VIEWER)
+────────────────────────────────────────────── */
+html.dark .text-text-primary {
+  color: #e6edf3 !important;
+}
+
+html.dark .text-text-secondary {
+  color: #9ca3af !important;
+}
+
+html.dark .bg-muted {
+  background-color: #1c2128 !important;
+  color: #e6edf3 !important;
+}
+
+html.dark .border-border {
+  border-color: #30363d !important;
+}
+
+/* Fix toàn bộ thẻ trong MarkdownViewer khi render ở Dark Theme */
+html.dark .overflow-x-auto,
+html.dark .overflow-y-auto {
+  color: #e6edf3 !important;
+}
+
+html.dark .overflow-x-auto p,
+html.dark .overflow-y-auto p,
+html.dark .overflow-x-auto li,
+html.dark .overflow-y-auto li,
+html.dark .overflow-x-auto span,
+html.dark .overflow-y-auto span,
+html.dark .overflow-x-auto td,
+html.dark .overflow-y-auto td {
+  color: #c9d1d9 !important;
+}
+
+html.dark .overflow-x-auto h1,
+html.dark .overflow-y-auto h1,
+html.dark .overflow-x-auto h2,
+html.dark .overflow-y-auto h2,
+html.dark .overflow-x-auto h3,
+html.dark .overflow-y-auto h3,
+html.dark .overflow-x-auto h4,
+html.dark .overflow-y-auto h4,
+html.dark .overflow-x-auto strong,
+html.dark .overflow-y-auto strong {
+  color: #ffffff !important;
+}
+
+html.dark .overflow-x-auto code,
+html.dark .overflow-y-auto code {
+  background-color: #21262d !important;
+  color: #34d399 !important;
+  border-radius: 4px;
+}
+
+html.dark .overflow-x-auto pre,
+html.dark .overflow-y-auto pre {
+  background-color: #0d1117 !important;
+  border: 1px solid #30363d !important;
+  color: #e6edf3 !important;
+}
+
+html.dark .overflow-x-auto pre code,
+html.dark .overflow-y-auto pre code {
+  background-color: transparent !important;
+  color: #e6edf3 !important;
+}
+
+html.dark .overflow-x-auto blockquote,
+html.dark .overflow-y-auto blockquote {
+  background-color: #161b22 !important;
+  border-left: 4px solid #34d399 !important;
+  color: #9ca3af !important;
+}
+
+html.dark .overflow-x-auto table,
+html.dark .overflow-y-auto table {
+  background-color: #0d1117 !important;
+  border: 1px solid #30363d !important;
+}
+
+html.dark .overflow-x-auto table th,
+html.dark .overflow-y-auto table th {
+  background-color: #161b22 !important;
+  color: #f0f6fc !important;
+  border: 1px solid #30363d !important;
+}
+
+html.dark .overflow-x-auto table td,
+html.dark .overflow-y-auto table td {
+  background-color: #0d1117 !important;
+  color: #c9d1d9 !important;
+  border: 1px solid #30363d !important;
+}
+
+html.dark .overflow-x-auto hr,
+html.dark .overflow-y-auto hr {
+  border-color: #30363d !important;
+}
+
+html.dark .overflow-x-auto a,
+html.dark .overflow-y-auto a {
+  color: #58a6ff !important;
+}
+/* ──────────────────────────────────────────────
+   TOÀN DIỆN TẤT CẢ CÁC TRANG - DARK THEME COMPREHENSIVE FIX
+   Bao gồm: Dashboard, Kho lưu trữ, Cây mã nguồn, Yêu cầu sinh tài liệu,
+   Tài liệu của tôi, Lịch sử & Diff, Hàng đợi xem xét, Trung tâm phê duyệt,
+   Cảnh báo sai lệch, Quản lý template, Nhật ký hệ thống, Nhật ký thay đổi,
+   Giám sát sức khỏe, Quản trị người dùng & Auth.
+────────────────────────────────────────────── */
+
+/* 1. Reset nền và chữ tổng quát cho mọi thẻ nhập liệu trên toàn hệ thống */
+html.dark input,
+html.dark textarea,
+html.dark select {
+  background-color: #0d1117 !important;
+  color: #e6edf3 !important;
+  border-color: #30363d !important;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #6e7681 !important;
+}
+
+html.dark select option {
+  background-color: #161b22 !important;
+  color: #e6edf3 !important;
+}
+
+/* 2. Bảng biểu (Tables) trên toàn bộ hệ thống */
+html.dark table {
+  background-color: #161b22 !important;
+  border-color: #30363d !important;
+}
+
+html.dark thead,
+html.dark th {
+  background-color: #1c2128 !important;
+  color: #e6edf3 !important;
+  border-color: #30363d !important;
+}
+
+html.dark tbody tr {
+  background-color: #161b22 !important;
+  border-color: #21262d !important;
+  color: #c9d1d9 !important;
+}
+
+html.dark tbody tr:hover {
+  background-color: #1c2128 !important;
+}
+
+html.dark td {
+  border-color: #21262d !important;
+  color: #c9d1d9 !important;
+}
+
+/* 3. Dropdowns, Modals, Popovers & Dialogs */
+html.dark [role="dialog"],
+html.dark .ld-modal,
+html.dark .fixed.inset-0 > div,
+html.dark [style*="box-shadow: 0 20px 25px"] {
+  background-color: #161b22 !important;
+  border-color: #30363d !important;
+  color: #e6edf3 !important;
+}
+
+/* 4. Các nút bấm chuẩn LivingDocs trên nền tối */
+html.dark .ld-btn-secondary {
+  background-color: #21262d !important;
+  color: #c9d1d9 !important;
+  border-color: #30363d !important;
+}
+
+html.dark .ld-btn-secondary:hover {
+  background-color: #30363d !important;
+  color: #ffffff !important;
+  border-color: #8b949e !important;
+}
+
+html.dark .ld-btn-ghost {
+  color: #9ca3af !important;
+}
+
+html.dark .ld-btn-ghost:hover {
+  background-color: #21262d !important;
+  color: #e6edf3 !important;
+}
+
+/* 5. Khung Tree View (Cây mã nguồn & Thư mục) */
+html.dark .ld-tree-node,
+html.dark [style*="cursor: pointer"]:hover {
+  background-color: #1c2128 !important;
+}
+
+/* 6. Fix toàn diện các màu inline cứng xuất hiện nhiều nhất qua regex */
+/* Nền xám/trắng sáng -> Nền tối */
+html.dark [style*="background:#fef2f2"],
+html.dark [style*="background: #fef2f2"],
+html.dark [style*="background: rgb(254, 242, 242)"] {
+  background: #28171c !important;
+  color: #fca5a5 !important;
+  border-color: #49222b !important;
+}
+
+html.dark [style*="background:#f0fdf4"],
+html.dark [style*="background: #f0fdf4"],
+html.dark [style*="background: rgb(240, 253, 244)"] {
+  background: #132620 !important;
+  color: #34d399 !important;
+  border-color: #1f4739 !important;
+}
+
+html.dark [style*="background:#fecaca"],
+html.dark [style*="background: #fecaca"],
+html.dark [style*="background: rgb(254, 202, 202)"] {
+  background: #3c1e24 !important;
+  color: #f87171 !important;
+}
+
+html.dark [style*="background:#bbf7d0"],
+html.dark [style*="background: #bbf7d0"],
+html.dark [style*="background: rgb(187, 247, 208)"],
+html.dark [style*="background:#a7f3d0"],
+html.dark [style*="background: #a7f3d0"],
+html.dark [style*="background: rgb(167, 243, 208)"],
+html.dark [style*="background:#b8dec5"],
+html.dark [style*="background: #b8dec5"],
+html.dark [style*="background: rgb(184, 222, 197)"] {
+  background: #19382b !important;
+  color: #34d399 !important;
+}
+
+html.dark [style*="background:#f8faf9"],
+html.dark [style*="background: #f8faf9"],
+html.dark [style*="background: rgb(248, 250, 249)"] {
+  background: #161b22 !important;
+  color: #e6edf3 !important;
+}
+
+/* Màu chữ tối -> Chữ sáng rõ nét */
+html.dark [style*="color:#0f172a"],
+html.dark [style*="color: #0f172a"],
+html.dark [style*="color: rgb(15, 23, 42)"],
+html.dark [style*="color:#17231c"],
+html.dark [style*="color: #17231c"],
+html.dark [style*="color: rgb(23, 35, 28)"] {
+  color: #f0f6fc !important;
+}
+
+html.dark [style*="color:#334155"],
+html.dark [style*="color: #334155"],
+html.dark [style*="color: rgb(51, 65, 85)"],
+html.dark [style*="color:#475569"],
+html.dark [style*="color: #475569"],
+html.dark [style*="color: rgb(71, 85, 105)"],
+html.dark [style*="color:#64748b"],
+html.dark [style*="color: #64748b"],
+html.dark [style*="color: rgb(100, 116, 139)"] {
+  color: #9ca3af !important;
+}
+
+html.dark [style*="color:#07543f"],
+html.dark [style*="color: #07543f"],
+html.dark [style*="color: rgb(7, 84, 63)"],
+html.dark [style*="color:#0f766e"],
+html.dark [style*="color: #0f766e"],
+html.dark [style*="color: rgb(15, 118, 110)"],
+html.dark [style*="color:#047857"],
+html.dark [style*="color: #047857"],
+html.dark [style*="color: rgb(4, 120, 87)"],
+html.dark [style*="color:#166534"],
+html.dark [style*="color: #166534"],
+html.dark [style*="color: rgb(22, 101, 52)"] {
+  color: #34d399 !important;
+}
+
+html.dark [style*="color:#b45309"],
+html.dark [style*="color: #b45309"],
+html.dark [style*="color: rgb(180, 83, 9)"] {
+  color: #fbbf24 !important;
+}
+
+html.dark [style*="color:#991b1b"],
+html.dark [style*="color: #991b1b"],
+html.dark [style*="color: rgb(153, 27, 27)"],
+html.dark [style*="color:#b91c1c"],
+html.dark [style*="color: #b91c1c"],
+html.dark [style*="color: rgb(185, 28, 28)"] {
+  color: #f87171 !important;
+}
+
+/* 7. Đường viền phân cách toàn bộ hệ thống */
+html.dark [style*="border: 1px dashed var(--color-border)"],
+html.dark [style*="border-top: 1px dashed var(--color-border)"],
+html.dark [style*="border-bottom: 1px dashed var(--color-border)"] {
+  border-color: #30363d !important;
+}
+/* ──────────────────────────────────────────────
+   TỐI ƯU KHỐI CHỮ KÝ CODE & BADGE THỰC THỂ (CÂY MÃ NGUỒN & GROUNDING)
+────────────────────────────────────────────── */
+
+/* 1. Viền bao quanh từng khối Code Entity (Class / Method) */
+html.dark .border-emerald-200,
+html.dark .border-slate-200,
+html.dark .border-amber-200 {
+  border-color: #30363d !important;
+}
+
+html.dark .border-emerald-200:hover,
+html.dark .border-slate-200:hover,
+html.dark .border-amber-200:hover {
+  border-color: #484f58 !important;
+}
+
+/* 2. Badge CLASS, METHOD, CONSTRUCTOR - Dịu mắt, độ tương phản chuẩn IDE */
+html.dark .bg-emerald-100.text-emerald-800 {
+  background-color: #1a2e26 !important;
+  color: #5eead4 !important;
+  border: 1px solid #134e48 !important;
+}
+
+html.dark .bg-blue-100.text-blue-800 {
+  background-color: #172554 !important;
+  color: #93c5fd !important;
+  border: 1px solid #1e40af !important;
+}
+
+html.dark .bg-amber-100.text-amber-800 {
+  background-color: #31210e !important;
+  color: #fde68a !important;
+  border: 1px solid #78350f !important;
+}
+
+/* 3. Badge "Chưa có tài liệu" & "Vị trí dòng mã" (# Dòng 7 -> 15) */
+html.dark .bg-slate-100 {
+  background-color: #21262d !important;
+  color: #9ca3af !important;
+  border: 1px solid #30363d !important;
+}
+
+html.dark .text-slate-600,
+html.dark .text-slate-500 {
+  color: #9ca3af !important;
+}
+
+/* 4. Khung Full Signature Box (Chữ ký hàm) - Nền than trầm chuẩn VS Code Dark / GitHub */
+html.dark .bg-slate-900 {
+  background-color: #0b0f14 !important;
+  border: 1px solid #262c36 !important;
+  box-shadow: none !important;
+}
+
+/* 5. Chữ code trong khung chữ ký - Màu xanh ngọc sáng dịu mắt (Mint Soft), không bị neon chói */
+html.dark .text-emerald-400,
+html.dark code.text-emerald-400 {
+  color: #7ee787 !important;
+  font-weight: 500 !important;
+}
+
+/* Nút copy bên trong hộp code */
+html.dark .bg-slate-900\/90 {
+  background-color: #161b22 !important;
+  color: #8b949e !important;
+}
+
+html.dark .bg-slate-900\/90:hover {
+  background-color: #21262d !important;
+  color: #f0f6fc !important;
+}
+
+/* 6. Tên Class / Method nổi bật */
+html.dark .font-semibold.text-slate-900,
+html.dark .font-mono.text-slate-900,
+html.dark .text-slate-900 {
+  color: #f0f6fc !important;
+}
+
+/* 7. Mũi tên và kiểu trả về (-> void, -> String) */
+html.dark .text-slate-400 {
+  color: #8b949e !important;
+}
+/* ──────────────────────────────────────────────
+   FIX TRIỆT ĐỂ: KHỐI CHỮ KÝ CODE (SIGNATURE BOX) KHÔNG BỊ HIGHLIGHT NỀN
+────────────────────────────────────────────── */
+html.dark .bg-slate-900 code,
+html.dark .bg-slate-900 .overflow-x-auto code,
+html.dark .overflow-x-auto .bg-slate-900 code,
+html.dark .overflow-y-auto .bg-slate-900 code,
+html.dark .overflow-x-auto code.whitespace-pre,
+html.dark .overflow-y-auto code.whitespace-pre,
+html.dark code.text-emerald-400 {
+  background-color: transparent !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  color: #7ee787 !important;
+}
+
+html.dark .bg-slate-900 {
+  background-color: #0d1117 !important;
+  border: 1px solid #30363d !important;
+  border-radius: 6px !important;
+}

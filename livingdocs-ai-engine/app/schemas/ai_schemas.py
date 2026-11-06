@@ -1,5 +1,5 @@
-from typing import List, Optional
-from pydantic import BaseModel, Field
+from typing import List, Optional, Any
+from pydantic import BaseModel, Field, model_validator
 
 class AstExtractRequest(BaseModel):
     repository_id: Optional[int] = Field(default=1, description="ID kho lưu trữ trong hệ thống")
@@ -212,10 +212,35 @@ class DriftAnalyzeResponse(BaseModel):
 class DocSectionDiffItem(BaseModel):
     """Chi tiết thay đổi ở từng section được AI viết lại."""
     section_title: str = Field(..., description="Tiêu đề mục hoặc heading (vd: 2.1. processPayment)")
-    status: str = Field(..., description="MODIFIED (đã sửa đổi) hoặc UNCHANGED (giữ nguyên)")
-    old_content: str = Field(..., description="Nội dung cũ của section này")
-    new_content: str = Field(..., description="Nội dung mới do AI viết lại hoặc giữ nguyên")
-    change_reason: Optional[str] = Field(default=None, description="Lý do kỹ thuật viết lại section này")
+    status: str = Field(default="MODIFIED", description="MODIFIED (đã sửa đổi) hoặc UNCHANGED (giữ nguyên)")
+    old_content: str = Field(default="", description="Nội dung cũ của section này")
+    suggested_content: str = Field(default="", description="Nội dung mới do AI gợi ý viết lại")
+    reason: str = Field(default="", description="Lý do kỹ thuật viết lại section này")
+    new_content: Optional[str] = Field(default=None, description="Tương đương suggested_content")
+    change_reason: Optional[str] = Field(default=None, description="Tương đương reason")
+
+    @model_validator(mode="before")
+    @classmethod
+    def sync_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # Sync suggested_content <-> new_content
+            if "suggested_content" in data and not data.get("new_content"):
+                data["new_content"] = data["suggested_content"]
+            elif "new_content" in data and not data.get("suggested_content"):
+                data["suggested_content"] = data["new_content"]
+            elif "suggested_content" not in data and "new_content" not in data:
+                data["suggested_content"] = ""
+                data["new_content"] = ""
+
+            # Sync reason <-> change_reason
+            if "reason" in data and not data.get("change_reason"):
+                data["change_reason"] = data["reason"]
+            elif "change_reason" in data and not data.get("reason"):
+                data["reason"] = data["change_reason"]
+            elif "reason" not in data and "change_reason" not in data:
+                data["reason"] = ""
+                data["change_reason"] = ""
+        return data
 
 
 class DocRewriteRequest(BaseModel):
@@ -227,6 +252,10 @@ class DocRewriteRequest(BaseModel):
     code_diff: str = Field(
         ...,
         description="Unified code diff hoặc danh sách thay đổi mã nguồn mới nhất"
+    )
+    affected_sections: Optional[List[str]] = Field(
+        default=[],
+        description="Danh sách các phần tài liệu bị ảnh hưởng cần viết lại"
     )
     file_path: Optional[str] = Field(
         default=None,
@@ -249,7 +278,7 @@ class DocRewriteRequest(BaseModel):
 class DocRewriteResponse(BaseModel):
     """Kết quả tài liệu đã được AI viết lại thông minh."""
     status: str = Field(default="success")
-    mode: str = Field(default="real", description="Chế độ xử lý: real hoặc mock")
+    mode: str = Field(default="real", description="Chế độ xử lý: real, smart-rewrite-fallback hoặc mock")
     original_doc_length: int = Field(..., description="Số ký tự của tài liệu ban đầu")
     rewritten_doc_length: int = Field(..., description="Số ký tự của tài liệu sau khi viết lại")
     updated_doc: str = Field(
@@ -272,7 +301,11 @@ class DocRewriteResponse(BaseModel):
         default=[],
         description="Chi tiết đối chiếu từng section cũ và mới"
     )
+    suggestions: List[DocSectionDiffItem] = Field(
+        default=[],
+        description="Danh sách các mục đề xuất viết lại (chứa section_title, old_content, suggested_content, reason)"
+    )
     model_used: str = Field(
         default="gemini-3.5-flash-lite",
-        description="Model Gemini đã thực hiện viết lại"
+        description="Model Gemini hoặc thuật toán phân tích đã thực hiện viết lại"
     )
