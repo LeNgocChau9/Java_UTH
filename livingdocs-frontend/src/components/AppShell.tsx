@@ -51,6 +51,8 @@ import {
   UserCog,
   Check,
   ExternalLink,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { useSession } from "@/hooks/useSession";
 import { useRouter } from "next/navigation";
@@ -264,6 +266,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Dark Mode Theme State
+  const [isDark, setIsDark] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedTheme = localStorage.getItem("livingdocs_theme");
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      if (savedTheme === "dark" || (!savedTheme && prefersDark)) {
+        setIsDark(true);
+        document.documentElement.classList.add("dark");
+      } else {
+        setIsDark(false);
+        document.documentElement.classList.remove("dark");
+      }
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    setIsDark((prev) => {
+      const next = !prev;
+      if (typeof window !== "undefined") {
+        if (next) {
+          document.documentElement.classList.add("dark");
+          localStorage.setItem("livingdocs_theme", "dark");
+        } else {
+          document.documentElement.classList.remove("dark");
+          localStorage.setItem("livingdocs_theme", "light");
+        }
+      }
+      return next;
+    });
+  };
+
   const [notifOpen, setNotifOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
@@ -762,6 +797,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </Link>
             </div>
           )}
+
+          {/* Nút chuyển đổi Dark / Light Theme */}
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="ld-btn ld-btn-ghost"
+            style={{
+              padding: "6px 10px",
+              borderRadius: 8,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            title={isDark ? "Chuyển sang Giao diện Sáng" : "Chuyển sang Giao diện Tối"}
+            aria-label="Chuyển đổi giao diện Sáng / Tối"
+          >
+            {isDark ? (
+              <Sun size={18} className="text-amber-400" />
+            ) : (
+              <Moon size={18} className="text-slate-600" />
+            )}
+          </button>
 
           {/* Notifications */}
           <div style={{ position: "relative" }}>
