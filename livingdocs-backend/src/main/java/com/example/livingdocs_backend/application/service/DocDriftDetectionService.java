@@ -17,17 +17,22 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 
 import java.time.Instant;
 import java.util.*;
 
 /**
- * Service thực thi thuật toán:
- * 1. Tìm tài liệu bị ảnh hưởng qua bảng doc_code_links khi các hàm/class Java thay đổi.
- * 2. Phân tích ngữ nghĩa Drift sâu hơn qua AI Engine (/v1/drift/analyze) dùng Google Gemini.
- * 3. Tạo bản ghi vào bảng document_change_alerts (drift_alerts) với các mức độ nghiêm trọng chính xác từ AI.
- * 4. Tự động comment cảnh báo sai lệch trực tiếp lên Pull Request qua GitHub REST API.
+ * Service thực thi nghiệp vụ:
+ * 1. Kéo Git Diff thời gian thực từ GitHub và đối chiếu AST.
+ * 2. Tìm tài liệu bị ảnh hưởng qua bảng doc_code_links khi các hàm/class
+ * (.java, .py, .ts) thay đổi.
+ * 3. Phân loại mức độ nghiêm trọng (Critical/High/Medium/Low).
+ * 4. Phân tích ngữ nghĩa Drift sâu hơn qua AI Engine (/v1/drift/analyze) dùng
+ * Google Gemini.
+ * 5. Tạo bản ghi vào bảng document_change_alerts và tự động comment cảnh báo
+ * lên Pull Request.
  */
 @Slf4j
 @Service
@@ -55,8 +60,7 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
             SpringDataPullRequestRepository pullRequestRepository,
             SpringDataGitHubConnectionRepository connectionRepository,
             GitHubClientPort gitHubClient,
-            @Value("${ai.engine.url:http://localhost:8000}") String aiEngineUrl
-    ) {
+            @Value("${ai.engine.url:http://localhost:8000}") String aiEngineUrl) {
         this.codeDiffAnalysisService = codeDiffAnalysisService;
         this.docCodeLinkRepository = docCodeLinkRepository;
         this.documentRepository = documentRepository;
@@ -66,7 +70,10 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
         this.pullRequestRepository = pullRequestRepository;
         this.connectionRepository = connectionRepository;
         this.gitHubClient = gitHubClient;
-        this.restClient = RestClient.builder().baseUrl(aiEngineUrl).build();
+        org.springframework.http.client.SimpleClientHttpRequestFactory requestFactory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(2000);
+        requestFactory.setReadTimeout(5000);
+        this.restClient = RestClient.builder().requestFactory(requestFactory).baseUrl(aiEngineUrl).build();
     }
 
     public DocDriftDetectionService(
@@ -77,10 +84,18 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
             SpringDataRepositoryRepository repositoryRepository,
             SpringDataPullRequestRepository pullRequestRepository,
             SpringDataGitHubConnectionRepository connectionRepository,
-            GitHubClientPort gitHubClient
-    ) {
+            GitHubClientPort gitHubClient) {
         this(codeDiffAnalysisService, docCodeLinkRepository, documentRepository, null,
-                alertRepository, repositoryRepository, pullRequestRepository, connectionRepository, gitHubClient, "http://localhost:8000");
+                alertRepository, repositoryRepository, pullRequestRepository, connectionRepository, gitHubClient,
+                "http://localhost:8000");
+    }
+
+    @Override
+    public List<AffectedDocumentResultDto> findAffectedDocumentsForPullRequest(Long repositoryId, int prNumber) {
+        log.info("[DocDrift] Bắt đầu quy trình tự động kéo Git Diff và tìm tài liệu ảnh hưởng cho PR #{} (repo={})",
+                prNumber, repositoryId);
+        AstDiffRequestDto diffRequest = codeDiffAnalysisService.fetchPullRequestDiff(repositoryId, prNumber);
+        return findAffectedDocuments(repositoryId, diffRequest);
     }
 
     @Override
@@ -102,22 +117,26 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
             for (AstDiffResponseDto.AffectedEntityItemDto entity : fileRes.affected_entities()) {
                 String methodName = entity.method_name();
                 String changeType = entity.change_type();
-                String severity = entity.impact_level() != null ? entity.impact_level() : "MEDIUM";
+                String severity = resolveSeverity(entity.impact_level(), changeType);
                 String details = entity.details();
 
                 // 1. Tìm doc_code_links khớp chính xác file_path + methodName hoặc className
-                List<DocCodeLinkEntity> matchedLinks = docCodeLinkRepository.findMatchingLinks(filePath, className, methodName);
+                List<DocCodeLinkEntity> matchedLinks = docCodeLinkRepository.findMatchingLinks(filePath, className,
+                        methodName);
 
                 // Nếu không có link khớp method, tìm link liên kết ở cấp độ file/class
                 if (matchedLinks.isEmpty()) {
                     matchedLinks = docCodeLinkRepository.findMatchingLinks(filePath, className, null);
                 }
 
-                // Nếu vẫn chưa có trong doc_code_links, fallback tìm document theo target_path hoặc title liên quan
+                // Nếu vẫn chưa có trong doc_code_links, fallback tìm document theo target_path
+                // hoặc title liên quan
                 if (matchedLinks.isEmpty()) {
                     List<DocumentEntity> directDocs = documentRepository.findByRepoId(repositoryId);
+                    boolean foundRelated = false;
                     for (DocumentEntity d : directDocs) {
                         if (isDocumentRelatedToPath(d, filePath, className)) {
+                            foundRelated = true;
                             String key = d.getDocId() + ":" + methodName;
                             if (seenDocEntityKeys.add(key)) {
                                 affectedDocs.add(AffectedDocumentResultDto.builder()
@@ -134,12 +153,32 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
                             }
                         }
                     }
+                    // Nếu chưa có tài liệu nào khớp chính xác tên file, gán vào tài liệu đầu tiên
+                    // của repo để theo dõi
+                    if (!foundRelated && !directDocs.isEmpty()) {
+                        DocumentEntity fallbackDoc = directDocs.get(0);
+                        String key = fallbackDoc.getDocId() + ":" + methodName;
+                        if (seenDocEntityKeys.add(key)) {
+                            affectedDocs.add(AffectedDocumentResultDto.builder()
+                                    .documentId(fallbackDoc.getDocId())
+                                    .documentTitle(fallbackDoc.getTitle())
+                                    .documentPath(fallbackDoc.getTargetPath())
+                                    .relatedFilePath(filePath)
+                                    .className(className)
+                                    .methodName(methodName)
+                                    .changeType(changeType)
+                                    .severity(severity)
+                                    .details(details)
+                                    .build());
+                        }
+                    }
                 } else {
                     for (DocCodeLinkEntity link : matchedLinks) {
                         String key = link.getDocumentId() + ":" + methodName;
                         if (seenDocEntityKeys.add(key)) {
                             Optional<DocumentEntity> docOpt = documentRepository.findById(link.getDocumentId());
-                            String title = docOpt.map(DocumentEntity::getTitle).orElse("Tài liệu #" + link.getDocumentId());
+                            String title = docOpt.map(DocumentEntity::getTitle)
+                                    .orElse("Tài liệu #" + link.getDocumentId());
                             String targetPath = docOpt.map(DocumentEntity::getTargetPath).orElse(link.getFilePath());
 
                             affectedDocs.add(AffectedDocumentResultDto.builder()
@@ -164,9 +203,17 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
     }
 
     @Override
+    public PrDriftAnalysisResultDto detectDriftAndCommentOnPr(Long repositoryId, int prNumber) {
+        AstDiffRequestDto diffRequest = codeDiffAnalysisService.fetchPullRequestDiff(repositoryId, prNumber);
+        return detectDriftAndCommentOnPr(repositoryId, prNumber, diffRequest);
+    }
+
+    @Override
     @Transactional
-    public PrDriftAnalysisResultDto detectDriftAndCommentOnPr(Long repositoryId, int prNumber, AstDiffRequestDto diffRequest) {
-        log.info("[DocDrift] Khởi chạy quy trình phát hiện sai lệch và comment lên PR #{} (repo={})", prNumber, repositoryId);
+    public PrDriftAnalysisResultDto detectDriftAndCommentOnPr(Long repositoryId, int prNumber,
+            AstDiffRequestDto diffRequest) {
+        log.info("[DocDrift] Khởi chạy quy trình phát hiện sai lệch và comment lên PR #{} (repo={})", prNumber,
+                repositoryId);
 
         RepositoryEntity repo = repositoryRepository.findById(repositoryId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy repository ID: " + repositoryId));
@@ -178,7 +225,8 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
         Optional<PullRequestEntity> prOpt = pullRequestRepository.findByRepositoryIdAndPrNumber(repositoryId, prNumber);
         Long prId = prOpt.map(PullRequestEntity::getPrId).orElse(null);
 
-        // 3. Tạo bản ghi vào bảng document_change_alerts (drift_alerts) với phân tích AI ngữ nghĩa nếu có
+        // 3. Tạo bản ghi vào bảng document_change_alerts (drift_alerts) với phân tích
+        // AI ngữ nghĩa nếu có
         Instant now = Instant.now();
         List<DocumentChangeAlertEntity> savedAlerts = new ArrayList<>();
 
@@ -193,7 +241,8 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
             String details = String.format("Tài liệu '%s' bị ảnh hưởng do hàm '%s' (%s) tại '%s': %s",
                     item.documentTitle(), item.methodName(), item.changeType(), item.relatedFilePath(), item.details());
 
-            // Gọi AI Semantic Drift (/v1/drift/analyze) để đánh giá ngữ nghĩa chuyên sâu bằng Gemini
+            // Gọi AI Semantic Drift (/v1/drift/analyze) để đánh giá ngữ nghĩa chuyên sâu
+            // bằng Gemini
             AiDriftAnalyzeResponseDto aiDrift = analyzeDriftWithAi(item, diffRequest, prNumber, repositoryId);
             if (aiDrift != null && aiDrift.getSeverity() != null) {
                 severity = aiDrift.getSeverity();
@@ -241,10 +290,14 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
                 String owner = parts[0];
                 String repoName = parts[1];
                 commentId = gitHubClient.createPullRequestComment(token, owner, repoName, prNumber, commentMarkdown);
-                commentUrl = String.format("https://github.com/%s/pull/%d#issuecomment-%s", repoFullName, prNumber, commentId != null ? commentId : "latest");
-                log.info("[DocDrift] Đã đăng comment cảnh báo lên PR #{} thành công! CommentId={}", prNumber, commentId);
+                commentUrl = String.format("https://github.com/%s/pull/%d#issuecomment-%s", repoFullName, prNumber,
+                        commentId != null ? commentId : "latest");
+                log.info("[DocDrift] Đã đăng comment cảnh báo lên PR #{} thành công! CommentId={}", prNumber,
+                        commentId);
             } else {
-                log.warn("[DocDrift] Không có GitHub Token hợp lệ hoặc tên repo sai ({}), bỏ qua gửi HTTP request trực tiếp.", repoFullName);
+                log.warn(
+                        "[DocDrift] Không có GitHub Token hợp lệ hoặc tên repo sai ({}), bỏ qua gửi HTTP comment trực tiếp.",
+                        repoFullName);
             }
         } catch (Exception ex) {
             log.error("[DocDrift] Không thể đăng comment lên GitHub PR #{}: {}", prNumber, ex.getMessage(), ex);
@@ -260,14 +313,31 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
                 .commentId(commentId)
                 .commentUrl(commentUrl)
                 .status("SUCCESS")
-                .message("Phát hiện " + affectedDocs.size() + " tài liệu bị ảnh hưởng. Đã đăng cảnh báo lên PR #" + prNumber)
+                .message("Phát hiện " + affectedDocs.size() + " tài liệu bị ảnh hưởng. Đã đăng cảnh báo lên PR #"
+                        + prNumber)
                 .build();
+    }
+
+    private String resolveSeverity(String impactLevel, String changeType) {
+        if (StringUtils.hasText(impactLevel) && !impactLevel.equalsIgnoreCase("UNKNOWN")) {
+            return impactLevel.toUpperCase();
+        }
+        if (changeType == null)
+            return "MEDIUM";
+        return switch (changeType.toUpperCase()) {
+            case "DELETED" -> "CRITICAL";
+            case "RENAMED", "PARAM_CHANGED", "SIGNATURE_CHANGED" -> "HIGH";
+            case "RETURN_TYPE_CHANGED" -> "MEDIUM";
+            case "ADDED" -> "LOW";
+            default -> "MEDIUM";
+        };
     }
 
     /**
      * Gọi AI Engine (/v1/drift/analyze) để phân tích sai lệch ngữ nghĩa qua Gemini.
      */
-    private AiDriftAnalyzeResponseDto analyzeDriftWithAi(AffectedDocumentResultDto item, AstDiffRequestDto diffRequest, int prNumber, Long repositoryId) {
+    private AiDriftAnalyzeResponseDto analyzeDriftWithAi(AffectedDocumentResultDto item, AstDiffRequestDto diffRequest,
+            int prNumber, Long repositoryId) {
         try {
             String currentDoc = "";
             if (documentVersionRepository != null && item.documentId() != null) {
@@ -302,19 +372,23 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
         }
     }
 
-    private String buildPrDriftCommentMarkdown(int prNumber, List<AffectedDocumentResultDto> affectedDocs, AstDiffRequestDto diffRequest) {
+    private String buildPrDriftCommentMarkdown(int prNumber, List<AffectedDocumentResultDto> affectedDocs,
+            AstDiffRequestDto diffRequest) {
         StringBuilder sb = new StringBuilder();
         sb.append("##  LivingDocs — Cảnh Báo Trôi Dạt Tài Liệu (Documentation Drift Alert)\n\n");
         sb.append(String.format("Phân tích AST tự động cho **Pull Request #%d** (Commit: `%s`):\n\n",
                 prNumber, diffRequest.head_commit_hash() != null ? diffRequest.head_commit_hash() : "HEAD"));
 
         if (affectedDocs.isEmpty()) {
-            sb.append(" **Không phát hiện sự sai lệch tài liệu nào!** Các hàm được thêm mới hoặc giữ nguyên chữ ký tương thích với tài liệu hiện tại.\n\n");
+            sb.append(
+                    " **Không phát hiện sự sai lệch tài liệu nào!** Các hàm được thêm mới hoặc giữ nguyên chữ ký tương thích với tài liệu hiện tại.\n\n");
             sb.append("> *Hệ thống LivingDocs tự động giám sát và bảo vệ tính nhất quán của tài liệu dự án.*");
             return sb.toString();
         }
 
-        sb.append(String.format(">  **Phát hiện %d tài liệu bị ảnh hưởng** cần cập nhật do mã nguồn đã thay đổi chữ ký, bị xóa hoặc đổi tên:\n\n", affectedDocs.size()));
+        sb.append(String.format(
+                ">  **Phát hiện %d tài liệu bị ảnh hưởng** cần cập nhật do mã nguồn đã thay đổi chữ ký, bị xóa hoặc đổi tên:\n\n",
+                affectedDocs.size()));
         sb.append("| Mức độ | Tài liệu liên kết | Hàm thay đổi | Loại thay đổi | Chi tiết |\n");
         sb.append("| :--- | :--- | :--- | :--- | :--- |\n");
 
@@ -331,8 +405,10 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
         }
 
         sb.append("\n###  Hành động đề xuất cho Developer & Reviewer:\n");
-        sb.append("1. Kiểm tra lại các tài liệu kỹ thuật được liệt kê ở trên trước khi tiến hành **Merge** Pull Request.\n");
-        sb.append("2. Truy cập LivingDocs Dashboard để xem đề xuất cập nhật tự động bằng AI (Auto-Update Document).\n\n");
+        sb.append(
+                "1. Kiểm tra lại các tài liệu kỹ thuật được liệt kê ở trên trước khi tiến hành **Merge** Pull Request.\n");
+        sb.append(
+                "2. Truy cập LivingDocs Dashboard để xem đề xuất cập nhật tự động bằng AI (Auto-Update Document).\n\n");
         sb.append("---\n*Automated by LivingDocs CI/CD Bot*");
 
         return sb.toString();
@@ -342,7 +418,8 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
         if (doc.getTargetPath() != null && doc.getTargetPath().contains(filePath)) {
             return true;
         }
-        if (className != null && doc.getTitle() != null && doc.getTitle().toLowerCase().contains(className.toLowerCase())) {
+        if (className != null && doc.getTitle() != null
+                && doc.getTitle().toLowerCase().contains(className.toLowerCase())) {
             return true;
         }
         return false;

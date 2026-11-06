@@ -1,8 +1,23 @@
 package com.example.livingdocs_backend;
 
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.*;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
+
+import com.example.livingdocs_backend.application.dto.drift.AffectedDocumentResultDto;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
 import com.example.livingdocs_backend.application.dto.ai.AstDiffRequestDto;
 import com.example.livingdocs_backend.application.dto.ai.AstDiffResponseDto;
-import com.example.livingdocs_backend.application.dto.drift.AffectedDocumentResultDto;
 import com.example.livingdocs_backend.application.dto.drift.PrDriftAnalysisResultDto;
 import com.example.livingdocs_backend.application.port.CodeDiffAnalysisServicePort;
 import com.example.livingdocs_backend.application.port.GitHubClientPort;
@@ -18,21 +33,6 @@ import com.example.livingdocs_backend.infrastructure.persistence.repository.Spri
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataPullRequestRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-
-import java.util.Collections;
-import java.util.List;
-import java.util.Optional;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.contains;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.*;
 
 class DocDriftDetectionServiceTest {
 
@@ -166,5 +166,107 @@ class DocDriftDetectionServiceTest {
                 // Xác nhận gitHubClient đã được gọi để post comment
                 verify(gitHubClient, times(1)).createPullRequestComment(any(), eq("owner"), eq("test-repo"),
                                 eq(prNumber), contains("LivingDocs — Cảnh Báo Trôi Dạt Tài Liệu"));
+        }
+
+        @Test
+        @DisplayName("Quy trình tự động: Kéo Git Diff và truy vấn doc_code_links trả về AffectedDocumentResultDto đầy đủ mức độ nghiêm trọng")
+        void testFindAffectedDocumentsForPullRequest() {
+                Long repoId = 1L;
+                int prNumber = 10;
+
+                AstDiffRequestDto mockDiffRequest = AstDiffRequestDto.builder()
+                                .repository_id(repoId)
+                                .pr_number(prNumber)
+                                .base_commit_hash("base_sha")
+                                .head_commit_hash("head_sha")
+                                .build();
+                when(codeDiffAnalysisService.fetchPullRequestDiff(repoId, prNumber)).thenReturn(mockDiffRequest);
+
+                AstDiffResponseDto diffResponse = AstDiffResponseDto.builder()
+                                .status("success")
+                                .total_files_analyzed(1)
+                                .files(List.of(
+                                                AstDiffResponseDto.FileDiffResultDto.builder()
+                                                                .file_path("src/UserService.java")
+                                                                .class_name("UserService")
+                                                                .affected_entities(List.of(
+                                                                                AstDiffResponseDto.AffectedEntityItemDto
+                                                                                                .builder()
+                                                                                                .method_name("deleteAccount")
+                                                                                                .change_type("DELETED")
+                                                                                                .details("Hàm xóa tài khoản bị xóa")
+                                                                                                .build(),
+                                                                                AstDiffResponseDto.AffectedEntityItemDto
+                                                                                                .builder()
+                                                                                                .method_name("login")
+                                                                                                .change_type("PARAM_CHANGED")
+                                                                                                .details("Đổi tham số đăng nhập")
+                                                                                                .build(),
+                                                                                AstDiffResponseDto.AffectedEntityItemDto
+                                                                                                .builder()
+                                                                                                .method_name("register")
+                                                                                                .change_type("ADDED")
+                                                                                                .details("Thêm hàm đăng ký mới")
+                                                                                                .build()))
+                                                                .build()))
+                                .build();
+                when(codeDiffAnalysisService.analyzeAstDiff(mockDiffRequest)).thenReturn(diffResponse);
+
+                // Mock liên kết doc_code_links cho deleteAccount -> Doc 1
+                DocCodeLinkEntity link1 = DocCodeLinkEntity.builder()
+                                .documentId(1L)
+                                .filePath("src/UserService.java")
+                                .methodName("deleteAccount")
+                                .build();
+                when(docCodeLinkRepository.findMatchingLinks(eq("src/UserService.java"), eq("UserService"),
+                                eq("deleteAccount")))
+                                .thenReturn(List.of(link1));
+
+                // Mock liên kết doc_code_links cho login -> Doc 2
+                DocCodeLinkEntity link2 = DocCodeLinkEntity.builder()
+                                .documentId(2L)
+                                .filePath("src/UserService.java")
+                                .methodName("login")
+                                .build();
+                when(docCodeLinkRepository.findMatchingLinks(eq("src/UserService.java"), eq("UserService"),
+                                eq("login")))
+                                .thenReturn(List.of(link2));
+
+                // Mock liên kết doc_code_links cho register -> Doc 3
+                DocCodeLinkEntity link3 = DocCodeLinkEntity.builder()
+                                .documentId(3L)
+                                .filePath("src/UserService.java")
+                                .methodName("register")
+                                .build();
+                when(docCodeLinkRepository.findMatchingLinks(eq("src/UserService.java"), eq("UserService"),
+                                eq("register")))
+                                .thenReturn(List.of(link3));
+
+                when(documentRepository.findById(1L)).thenReturn(Optional.of(DocumentEntity.builder().docId(1L)
+                                .title("User API Spec").targetPath("docs/user.md").build()));
+                when(documentRepository.findById(2L)).thenReturn(Optional.of(DocumentEntity.builder().docId(2L)
+                                .title("Auth Flow Spec").targetPath("docs/auth.md").build()));
+                when(documentRepository.findById(3L)).thenReturn(Optional.of(DocumentEntity.builder().docId(3L)
+                                .title("Register Guide").targetPath("docs/reg.md").build()));
+
+                List<AffectedDocumentResultDto> result = docDriftDetectionService
+                                .findAffectedDocumentsForPullRequest(repoId, prNumber);
+
+                assertNotNull(result);
+                assertEquals(3, result.size());
+
+                // 1. DELETED phải có mức độ nghiêm trọng là CRITICAL
+                var deletedDoc = result.stream().filter(r -> "deleteAccount".equals(r.methodName())).findFirst()
+                                .orElseThrow();
+                assertEquals("CRITICAL", deletedDoc.severity());
+                assertEquals("User API Spec", deletedDoc.documentTitle());
+
+                // 2. PARAM_CHANGED phải có mức độ nghiêm trọng là HIGH
+                var paramDoc = result.stream().filter(r -> "login".equals(r.methodName())).findFirst().orElseThrow();
+                assertEquals("HIGH", paramDoc.severity());
+
+                // 3. ADDED phải có mức độ nghiêm trọng là LOW
+                var addedDoc = result.stream().filter(r -> "register".equals(r.methodName())).findFirst().orElseThrow();
+                assertEquals("LOW", addedDoc.severity());
         }
 }

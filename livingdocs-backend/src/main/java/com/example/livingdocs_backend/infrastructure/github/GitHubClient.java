@@ -1,15 +1,12 @@
 package com.example.livingdocs_backend.infrastructure.github;
 
-import com.example.livingdocs_backend.application.dto.github.GitHubCommitDto;
-import com.example.livingdocs_backend.application.dto.github.GitHubFileDto;
-import com.example.livingdocs_backend.application.dto.github.GitHubPublishResultDto;
-import com.example.livingdocs_backend.application.dto.github.GitHubPullRequestDto;
-import com.example.livingdocs_backend.application.port.GitHubClientPort;
-import com.example.livingdocs_backend.domain.exception.GitHubApiException;
-import com.example.livingdocs_backend.domain.exception.GitHubRateLimitException;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import lombok.extern.slf4j.Slf4j;
+import java.time.Instant;
+import java.util.Base64;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -21,12 +18,17 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
 
-import java.time.Instant;
-import java.util.Base64;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import com.example.livingdocs_backend.application.dto.github.GitHubCommitDto;
+import com.example.livingdocs_backend.application.dto.github.GitHubFileDto;
+import com.example.livingdocs_backend.application.dto.github.GitHubPublishResultDto;
+import com.example.livingdocs_backend.application.dto.github.GitHubPullRequestDto;
+import com.example.livingdocs_backend.application.port.GitHubClientPort;
+import com.example.livingdocs_backend.domain.exception.GitHubApiException;
+import com.example.livingdocs_backend.domain.exception.GitHubRateLimitException;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Triển khai gọi GitHub REST API v3 sử dụng RestClient của Spring Framework 6 /
@@ -48,7 +50,13 @@ public class GitHubClient implements GitHubClientPort {
     private final RestClient restClient;
 
     public GitHubClient() {
-        this(RestClient.builder().baseUrl(DEFAULT_BASE_URL).build());
+        org.springframework.http.client.SimpleClientHttpRequestFactory factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(5000);
+        factory.setReadTimeout(10000);
+        this.restClient = RestClient.builder()
+                .requestFactory(factory)
+                .baseUrl(DEFAULT_BASE_URL)
+                .build();
     }
 
     public GitHubClient(RestClient restClient) {
@@ -89,10 +97,13 @@ public class GitHubClient implements GitHubClientPort {
         try {
             return fetchGitTreeResponse(token, uri);
         } catch (Exception ex) {
-            // Tự động thử lại không token nếu token cũ bị 401 Bad credentials (áp dụng cho Public repository)
+            // Tự động thử lại không token nếu token cũ bị 401 Bad credentials (áp dụng cho
+            // Public repository)
             if (StringUtils.hasText(token) && ex.getMessage() != null && ex.getMessage().contains("401")) {
                 try {
-                    log.info("Token GitHub bị 401 Bad credentials cho {}/{}. Tự động fallback sang chế độ Public (anonymous)...", owner, repo);
+                    log.info(
+                            "Token GitHub bị 401 Bad credentials cho {}/{}. Tự động fallback sang chế độ Public (anonymous)...",
+                            owner, repo);
                     return fetchGitTreeResponse(null, uri);
                 } catch (Exception ex2) {
                     log.warn("Thử lại chế độ Public cho {}/{} thất bại: {}", owner, repo, ex2.getMessage());
@@ -131,6 +142,23 @@ public class GitHubClient implements GitHubClientPort {
     }
 
     @Override
+    public List<com.example.livingdocs_backend.application.dto.github.GitHubPrFileDto> getPullRequestFiles(
+            String token, String owner, String repo, int prNumber) {
+        String uri = "/repos/{owner}/{repo}/pulls/{pull_number}/files?per_page=100";
+        try {
+            return executeWithAuth(token, uri, owner, repo, prNumber)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .retrieve()
+                    .body(new org.springframework.core.ParameterizedTypeReference<List<com.example.livingdocs_backend.application.dto.github.GitHubPrFileDto>>() {
+                    });
+        } catch (Exception ex) {
+            log.warn("[GitHubClient] Lỗi khi lấy danh sách files của PR #{} ({}/{}): {}", prNumber, owner, repo,
+                    ex.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    @Override
     public List<GitHubPullRequestDto> listPullRequests(String token, String owner, String repo, String state) {
         String targetState = StringUtils.hasText(state) ? state : "open";
         try {
@@ -138,7 +166,9 @@ public class GitHubClient implements GitHubClientPort {
         } catch (RestClientResponseException ex) {
             if (StringUtils.hasText(token) && ex.getStatusCode().value() == 401) {
                 try {
-                    log.info("Token GitHub bị 401 khi lấy PR cho {}/{}. Tự động fallback sang chế độ Public (anonymous)...", owner, repo);
+                    log.info(
+                            "Token GitHub bị 401 khi lấy PR cho {}/{}. Tự động fallback sang chế độ Public (anonymous)...",
+                            owner, repo);
                     return doFetchPullRequests(null, owner, repo, targetState);
                 } catch (Exception ex2) {
                     log.warn("Thử lại lấy PR chế độ Public thất bại: {}", ex2.getMessage());
@@ -152,7 +182,8 @@ public class GitHubClient implements GitHubClientPort {
         }
     }
 
-    private List<GitHubPullRequestDto> doFetchPullRequests(String token, String owner, String repo, String targetState) {
+    private List<GitHubPullRequestDto> doFetchPullRequests(String token, String owner, String repo,
+            String targetState) {
         String uri = UriComponentsBuilder.fromPath("/repos/{owner}/{repo}/pulls")
                 .queryParam("state", targetState)
                 .queryParam("per_page", 100)
@@ -203,7 +234,9 @@ public class GitHubClient implements GitHubClientPort {
         } catch (RestClientResponseException ex) {
             if (StringUtils.hasText(token) && ex.getStatusCode().value() == 401) {
                 try {
-                    log.info("Token GitHub bị 401 khi lấy Commits cho {}/{}. Tự động fallback sang chế độ Public (anonymous)...", owner, repo);
+                    log.info(
+                            "Token GitHub bị 401 khi lấy Commits cho {}/{}. Tự động fallback sang chế độ Public (anonymous)...",
+                            owner, repo);
                     return doFetchCommits(null, owner, repo, sha, perPage);
                 } catch (Exception ex2) {
                     log.warn("Thử lại lấy Commits chế độ Public thất bại: {}", ex2.getMessage());

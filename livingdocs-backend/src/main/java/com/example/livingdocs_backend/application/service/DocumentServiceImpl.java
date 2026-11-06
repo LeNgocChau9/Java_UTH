@@ -6,21 +6,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
-
-import com.example.livingdocs_backend.application.dto.RegenerateEntityDocRequest;
-import com.example.livingdocs_backend.application.dto.RegenerateEntityDocResponse;
-import com.example.livingdocs_backend.application.dto.ai.DocRewriteRequestDto;
-import com.example.livingdocs_backend.application.dto.ai.DocRewriteResponseDto;
-import com.example.livingdocs_backend.infrastructure.persistence.entity.CodeEntityJpaEntity;
-import com.example.livingdocs_backend.infrastructure.persistence.entity.DocCodeLinkEntity;
-import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataCodeEntityRepository;
-import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocCodeLinkRepository;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
+
 import com.example.livingdocs_backend.application.dto.ChangelogResponse;
 import com.example.livingdocs_backend.application.dto.CreateDocumentRequest;
 import com.example.livingdocs_backend.application.dto.DocumentAuditLogResponse;
@@ -31,9 +22,13 @@ import com.example.livingdocs_backend.application.dto.IntegrityCheckResponse;
 import com.example.livingdocs_backend.application.dto.ManagerReviewDecisionRequest;
 import com.example.livingdocs_backend.application.dto.PublishToGitHubRequest;
 import com.example.livingdocs_backend.application.dto.PublishToGitHubResponse;
+import com.example.livingdocs_backend.application.dto.RegenerateEntityDocRequest;
+import com.example.livingdocs_backend.application.dto.RegenerateEntityDocResponse;
 import com.example.livingdocs_backend.application.dto.RollbackResponse;
 import com.example.livingdocs_backend.application.dto.StaffReviewDecisionRequest;
 import com.example.livingdocs_backend.application.dto.UpdateDocumentRequest;
+import com.example.livingdocs_backend.application.dto.ai.DocRewriteRequestDto;
+import com.example.livingdocs_backend.application.dto.ai.DocRewriteResponseDto;
 import com.example.livingdocs_backend.application.dto.github.GitHubPublishResultDto;
 import com.example.livingdocs_backend.application.port.AuditServicePort;
 import com.example.livingdocs_backend.application.port.DocumentServicePort;
@@ -49,7 +44,10 @@ import com.example.livingdocs_backend.domain.model.DocumentVersion;
 import com.example.livingdocs_backend.domain.repository.DocumentRepositoryPort;
 import com.example.livingdocs_backend.domain.repository.DocumentVersionRepositoryPort;
 import com.example.livingdocs_backend.domain.util.HashUtils;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.CodeEntityJpaEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataCodeEntityRepository;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocCodeLinkRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
 
@@ -1006,7 +1004,8 @@ public class DocumentServiceImpl implements DocumentServicePort {
 
     @Override
     @Transactional
-    public RegenerateEntityDocResponse regenerateEntityDoc(Long docId, RegenerateEntityDocRequest request, Long actorId, String actorRole) {
+    public RegenerateEntityDocResponse regenerateEntityDoc(Long docId, RegenerateEntityDocRequest request, Long actorId,
+            String actorRole) {
         Document document = documentRepositoryPort.findById(docId)
                 .orElseThrow(() -> new DocumentNotFoundException(docId));
 
@@ -1015,7 +1014,7 @@ public class DocumentServiceImpl implements DocumentServicePort {
 
         String currentDocContent = latestVersion.getContent() != null ? latestVersion.getContent() : "";
 
-        // 1. XÃ¡c Ä‘á»‹nh thá»±c thá»ƒ mÃ£ nguá»“n (qua entityId hoáº·c signature hoáº·c docCodeLink)
+        // 1. Xác định thực thể mã nguồn (qua entityId hoặc signature hoặc docCodeLink)
         CodeEntityJpaEntity targetEntity = null;
         if (request.getEntityId() != null && codeEntityRepository != null) {
             targetEntity = codeEntityRepository.findById(request.getEntityId()).orElse(null);
@@ -1031,15 +1030,20 @@ public class DocumentServiceImpl implements DocumentServicePort {
             }
         }
 
-        String entityName = targetEntity != null ? (targetEntity.getMethodName() != null ? targetEntity.getMethodName() : targetEntity.getClassName()) : null;
-        String entitySig = targetEntity != null ? targetEntity.getSignature() : (StringUtils.hasText(request.getSignature()) ? request.getSignature() : "Unknown Entity");
-        String filePath = targetEntity != null ? targetEntity.getFilePath() : (document.getTargetPath() != null ? document.getTargetPath() : "UnknownPath");
+        String entityName = targetEntity != null
+                ? (targetEntity.getMethodName() != null ? targetEntity.getMethodName() : targetEntity.getClassName())
+                : null;
+        String entitySig = targetEntity != null ? targetEntity.getSignature()
+                : (StringUtils.hasText(request.getSignature()) ? request.getSignature() : "Unknown Entity");
+        String filePath = targetEntity != null ? targetEntity.getFilePath()
+                : (document.getTargetPath() != null ? document.getTargetPath() : "UnknownPath");
 
-        // 2. TrÃ­ch xuáº¥t mÃ£ nguá»“n hÃ m/lá»›p
+        // 2. Trích xuất mã nguồn hàm/lớp
         String sourceSnippet = request.getUpdatedSourceCode();
         if (!StringUtils.hasText(sourceSnippet)) {
-            // Láº¥y tá»« file qua GitHub náº¿u cÃ³ thÃ´ng tin vá»‹ trÃ­ startLine, endLine
-            if (targetEntity != null && targetEntity.getStartLine() != null && targetEntity.getEndLine() != null && document.getRepoId() != null) {
+            // Lấy từ file qua GitHub nếu có thông tin vị trí startLine, endLine
+            if (targetEntity != null && targetEntity.getStartLine() != null && targetEntity.getEndLine() != null
+                    && document.getRepoId() != null) {
                 var repoOpt = repositoryRepository.findById(document.getRepoId());
                 if (repoOpt.isPresent() && gitHubClient != null) {
                     RepositoryEntity repo = repoOpt.get();
@@ -1048,7 +1052,8 @@ public class DocumentServiceImpl implements DocumentServicePort {
                         String[] parts = parseOwnerAndRepo(repo.getRepoFullName());
                         String branch = StringUtils.hasText(repo.getDefaultBranch()) ? repo.getDefaultBranch() : "main";
                         try {
-                            String fullFileContent = gitHubClient.getFileContent(token, parts[0], parts[1], targetEntity.getFilePath(), branch);
+                            String fullFileContent = gitHubClient.getFileContent(token, parts[0], parts[1],
+                                    targetEntity.getFilePath(), branch);
                             if (StringUtils.hasText(fullFileContent)) {
                                 String[] lines = fullFileContent.split("\r?\n");
                                 int start = Math.max(0, targetEntity.getStartLine() - 1);
@@ -1060,7 +1065,7 @@ public class DocumentServiceImpl implements DocumentServicePort {
                                 sourceSnippet = sb.toString();
                             }
                         } catch (Exception ex) {
-                            log.debug("KhÃ´ng thá»ƒ láº¥y mÃ£ nguá»“n chi tiáº¿t tá»« GitHub: {}", ex.getMessage());
+                            log.debug("Không thể lấy mã nguồn chi tiết từ GitHub: {}", ex.getMessage());
                         }
                     }
                 }
@@ -1068,11 +1073,14 @@ public class DocumentServiceImpl implements DocumentServicePort {
         }
 
         if (!StringUtils.hasText(sourceSnippet)) {
-            sourceSnippet = StringUtils.hasText(entitySig) ? entitySig : "// Thá»±c thá»ƒ: " + (entityName != null ? entityName : "HÃ m/Lá»›p");
+            sourceSnippet = StringUtils.hasText(entitySig) ? entitySig
+                    : "// Thực thể: " + (entityName != null ? entityName : "Hàm/Lớp");
         }
 
-        // 3. Gá»i AI Engine (/v1/docs/rewrite-suggestion) viáº¿t láº¡i mÃ´ táº£ cá»§a hÃ m Ä‘Ã³
-        DocRewriteResponseDto aiResponse = callAiEngineRewriteForEntity(currentDocContent, sourceSnippet, entityName != null ? entityName : entitySig, filePath, request.getInstruction());
+        // 3. Gọi AI Engine (/v1/docs/rewrite-suggestion) viết lại mô tả của
+        // hàm đó
+        DocRewriteResponseDto aiResponse = callAiEngineRewriteForEntity(currentDocContent, sourceSnippet,
+                entityName != null ? entityName : entitySig, filePath, request.getInstruction());
 
         String updatedFullDoc = aiResponse != null && StringUtils.hasText(aiResponse.getUpdated_doc())
                 ? aiResponse.getUpdated_doc()
@@ -1080,9 +1088,10 @@ public class DocumentServiceImpl implements DocumentServicePort {
 
         String summary = aiResponse != null && StringUtils.hasText(aiResponse.getSummary_of_changes())
                 ? aiResponse.getSummary_of_changes()
-                : "Cáº­p nháº­t láº¡i tÃ i liá»‡u cho thá»±c thá»ƒ: " + entitySig;
+                : "Cập nhật lại tài liệu cho thực thể: " + entitySig;
 
-        // TrÃ­ch xuáº¥t Ä‘oáº¡n tÃ i liá»‡u riÃªng cá»§a entity (tá»« section diffs hoáº·c tá»•ng há»£p)
+        // Trích xuất đoạn tài liệu riêng của entity (từ section diffs
+        // hoặc tổng hợp)
         String entityDoc = null;
         if (aiResponse != null && aiResponse.getSection_diffs() != null && !aiResponse.getSection_diffs().isEmpty()) {
             entityDoc = aiResponse.getSection_diffs().get(0).getNew_content();
@@ -1091,11 +1100,13 @@ public class DocumentServiceImpl implements DocumentServicePort {
             entityDoc = summary;
         }
 
-        // 4. Táº¡o phiÃªn báº£n má»›i v(N+1) báº£o toÃ n Hash Chain (ActorRole: DEV hoáº·c tá»« actor)
+        // 4. Tạo phiên bản mới v(N+1) bảo toàn Hash Chain (ActorRole: DEV
+        // hoặc từ actor)
         ActorRole role = resolveActorRole(null, actorRole);
         int nextVersionNum = (document.getCurrentVersion() != null ? document.getCurrentVersion() : 1) + 1;
         String prevHash = (latestVersion.getHash() != null) ? latestVersion.getHash() : HashUtils.GENESIS_HASH;
-        String newHash = HashUtils.calculateVersionHash(prevHash, nextVersionNum, updatedFullDoc, role.name(), "REGENERATE_ENTITY");
+        String newHash = HashUtils.calculateVersionHash(prevHash, nextVersionNum, updatedFullDoc, role.name(),
+                "REGENERATE_ENTITY");
 
         DocumentVersion newVersion = DocumentVersion.builder()
                 .docId(docId)
@@ -1110,7 +1121,7 @@ public class DocumentServiceImpl implements DocumentServicePort {
 
         DocumentVersion savedVersion = documentVersionRepositoryPort.save(newVersion);
 
-        // Cáº­p nháº­t Document tá»•ng thá»ƒ
+        // Cập nhật Document tổng thể
         document.setCurrentVersion(nextVersionNum);
         document.setUpdatedAt(Instant.now());
         documentRepositoryPort.save(document);
@@ -1118,23 +1129,23 @@ public class DocumentServiceImpl implements DocumentServicePort {
         // 5. Ghi Changelog & Audit Log
         if (changelogServicePort != null) {
             try {
-                changelogServicePort.recordChange(docId, savedVersion.getVersionId(), actorId, role.name(),
-                        "Táº¡o láº¡i tÃ i liá»‡u thá»±c thá»ƒ [" + entitySig + "]: " + summary);
+                changelogServicePort.logChange(docId, savedVersion.getVersionId(), actorId, role.name(),
+                        "Tạo lại tài liệu thực thể [" + entitySig + "]: " + summary);
             } catch (Exception ex) {
-                log.warn("KhÃ´ng thá»ƒ ghi changelog cho regenerateEntity: {}", ex.getMessage());
+                log.warn("Không thể ghi changelog cho regenerateEntity: {}", ex.getMessage());
             }
         }
         if (auditServicePort != null && actorId != null) {
             try {
-                auditServicePort.recordAction(actorId, role.name(), AuditAction.UPDATE_DOCUMENT,
-                        "DOCUMENT", String.valueOf(docId),
-                        "Cáº­p nháº­t láº¡i tÃ i liá»‡u theo thá»±c thá»ƒ: " + entitySig, null);
+                auditServicePort.recordDocumentAction(actorId, docId, AuditAction.DOCUMENT_UPDATED,
+                        "Cập nhật lại tài liệu theo thực thể: " + entitySig);
             } catch (Exception ex) {
-                log.warn("KhÃ´ng thá»ƒ ghi audit log: {}", ex.getMessage());
+                log.warn("Không thể ghi audit log: {}", ex.getMessage());
             }
         }
 
-        log.info("[RegenerateEntityDoc] HoÃ n táº¥t cáº­p nháº­t tÃ i liá»‡u docId={} cho entity '{}', Version má»›i={}",
+        log.info(
+                "[RegenerateEntityDoc] Hoàn tất cập nhật tài liệu docId={} cho entity '{}', Version mới={}",
                 docId, entitySig, nextVersionNum);
 
         return RegenerateEntityDocResponse.builder()
@@ -1150,10 +1161,12 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 .build();
     }
 
-    private DocRewriteResponseDto callAiEngineRewriteForEntity(String currentDoc, String sourceCode, String entityName, String filePath, String customInstruction) {
+    private DocRewriteResponseDto callAiEngineRewriteForEntity(String currentDoc, String sourceCode, String entityName,
+            String filePath, String customInstruction) {
         String instruction = StringUtils.hasText(customInstruction)
                 ? customInstruction
-                : "Cáº­p nháº­t vÃ  viáº¿t láº¡i mÃ´ táº£ ká»¹ thuáº­t cho thá»±c thá»ƒ mÃ£ nguá»“n [" + entityName + "] dá»±a trÃªn code má»›i. Báº£o Ä‘áº£m vÄƒn phong chuáº©n, cáº­p nháº­t chÃ­nh xÃ¡c pháº§n mÃ´ táº£ cá»§a hÃ m/lá»›p nÃ y vÃ  giá»¯ nguyÃªn cÃ¡c pháº§n tÃ i liá»‡u khÃ¡c.";
+                : "Cập nhật và viết lại mô tả kỹ thuật cho thực thể mã nguồn [" + entityName
+                        + "] dựa trên code mới. Bảo đảm văn phong chuẩn, cập nhật chính xác phần mô tả của hàm/lớp này và giữ nguyên các phần tài liệu khác.";
 
         DocRewriteRequestDto requestDto = DocRewriteRequestDto.builder()
                 .current_doc(currentDoc)
@@ -1172,22 +1185,27 @@ public class DocumentServiceImpl implements DocumentServicePort {
                         .retrieve()
                         .body(DocRewriteResponseDto.class);
             } catch (Exception ex) {
-                log.warn("[RegenerateEntityDoc] KhÃ´ng thá»ƒ gá»i AI Engine (/v1/docs/rewrite-suggestion): {}. Sá»­ dá»¥ng cáº­p nháº­t dá»± phÃ²ng.", ex.getMessage());
+                log.warn(
+                        "[RegenerateEntityDoc] Không thể gọi AI Engine (/v1/docs/rewrite-suggestion): {}. Sử dụng cập nhật dự phòng.",
+                        ex.getMessage());
             }
         }
 
-        // Dá»± phÃ²ng thÃ´ng minh náº¿u khÃ´ng cÃ³ káº¿t ná»‘i tá»›i AI Engine
+        // Dự phòng thông minh nếu không có kết nối tới AI Engine
         String updated = currentDoc;
-        String sectionSnippet = "\n\n### Thá»±c thá»ƒ: `" + entityName + "`\n- **MÃ´ táº£:** Cáº­p nháº­t láº¡i tÃ i liá»‡u theo mÃ£ nguá»“n má»›i.\n- **MÃ£ nguá»“n:**\n```\n" + sourceCode + "\n```\n";
+        String sectionSnippet = "\n\n### Thực thể: `" + entityName
+                + "`\n- **Mô tả:** Cập nhật lại tài liệu theo mã nguồn mới.\n- **Mã nguồn:**\n```\n"
+                + sourceCode + "\n```\n";
         if (updated.contains(entityName)) {
-            updated = updated.replaceFirst(java.util.regex.Pattern.quote(entityName) + ".*", entityName + " (ÄÃ£ cáº­p nháº­t theo mÃ£ nguá»“n má»›i)");
+            updated = updated.replaceFirst(java.util.regex.Pattern.quote(entityName) + ".*",
+                    entityName + " (Đã cập nhật theo mã nguồn mới)");
         } else {
             updated = updated + sectionSnippet;
         }
 
         return DocRewriteResponseDto.builder()
                 .updated_doc(updated)
-                .summary_of_changes("Tá»± Ä‘á»™ng cáº­p nháº­t mÃ´ táº£ hÃ m/lá»›p " + entityName)
+                .summary_of_changes("Tự động cập nhật mô tả hàm/lớp " + entityName)
                 .model_used("fallback-local")
                 .build();
     }
