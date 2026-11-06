@@ -62,8 +62,7 @@ class RegenerateEntityDocTest {
         UserPrincipal userPrincipal = new UserPrincipal(
                 1L,
                 "dev@livingdocs.dev",
-                "Password123@",
-                Collections.singletonList(new SimpleGrantedAuthority("ROLE_DEV"))
+                Collections.singletonList("ROLE_DEV")
         );
 
         when(documentServicePort.regenerateEntityDoc(eq(docId), any(RegenerateEntityDocRequest.class), eq(1L), eq("DEV")))

@@ -598,8 +598,7 @@ service.initialize();
       {/* Header */}
       <div className="ld-page-header">
         <div>
-          <h1 className="ld-page-title flex items-center gap-2.5">
-            <Sparkles className="w-7 h-7 text-amber-500 animate-pulse" />
+          <h1 className="ld-page-title">
             Yêu cầu AI sinh tài liệu
           </h1>
 
@@ -1072,10 +1071,7 @@ service.initialize();
                         Đang phân tích & sinh tài liệu...
                       </>
                     ) : (
-                      <>
-                        <Sparkles size={16} className="text-amber-300" />
-                        Kích hoạt AI Sinh tài liệu
-                      </>
+                      "Generate"
                     )}
                   </button>
 
