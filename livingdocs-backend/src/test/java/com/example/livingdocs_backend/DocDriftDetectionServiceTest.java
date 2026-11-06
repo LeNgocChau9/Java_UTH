@@ -15,6 +15,8 @@ import com.example.livingdocs_backend.application.dto.drift.AffectedDocumentResu
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
 
 import com.example.livingdocs_backend.application.dto.ai.AstDiffRequestDto;
 import com.example.livingdocs_backend.application.dto.ai.AstDiffResponseDto;
@@ -36,26 +38,27 @@ import com.example.livingdocs_backend.infrastructure.persistence.repository.Spri
 
 class DocDriftDetectionServiceTest {
 
+        @Mock
         private CodeDiffAnalysisServicePort codeDiffAnalysisService;
+        @Mock
         private SpringDataDocCodeLinkRepository docCodeLinkRepository;
+        @Mock
         private SpringDataDocumentRepository documentRepository;
+        @Mock
         private SpringDataDocumentChangeAlertRepository alertRepository;
+        @Mock
         private SpringDataRepositoryRepository repositoryRepository;
+        @Mock
         private SpringDataPullRequestRepository pullRequestRepository;
+        @Mock
         private SpringDataGitHubConnectionRepository connectionRepository;
+        @Mock
         private GitHubClientPort gitHubClient;
         private DocDriftDetectionService docDriftDetectionService;
 
         @BeforeEach
         void setUp() {
-                codeDiffAnalysisService = mock(CodeDiffAnalysisServicePort.class);
-                docCodeLinkRepository = mock(SpringDataDocCodeLinkRepository.class);
-                documentRepository = mock(SpringDataDocumentRepository.class);
-                alertRepository = mock(SpringDataDocumentChangeAlertRepository.class);
-                repositoryRepository = mock(SpringDataRepositoryRepository.class);
-                pullRequestRepository = mock(SpringDataPullRequestRepository.class);
-                connectionRepository = mock(SpringDataGitHubConnectionRepository.class);
-                gitHubClient = mock(GitHubClientPort.class);
+                MockitoAnnotations.openMocks(this);
 
                 docDriftDetectionService = new DocDriftDetectionService(
                                 codeDiffAnalysisService,
@@ -140,6 +143,10 @@ class DocDriftDetectionServiceTest {
 
                 // Mock lưu alert
                 when(alertRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+                // Mock chưa có comment cũ
+                when(gitHubClient.findExistingPullRequestComment(any(), any(), any(), eq(prNumber), any()))
+                                .thenReturn(null);
 
                 // Mock gọi comment GitHub
                 when(gitHubClient.createPullRequestComment(any(), any(), any(), eq(prNumber), anyString()))
@@ -268,5 +275,98 @@ class DocDriftDetectionServiceTest {
                 // 3. ADDED phải có mức độ nghiêm trọng là LOW
                 var addedDoc = result.stream().filter(r -> "register".equals(r.methodName())).findFirst().orElseThrow();
                 assertEquals("LOW", addedDoc.severity());
+        }
+
+        @Test
+        @DisplayName("Tự động cập nhật comment cũ nếu PR được push thêm commit mới (synchronize)")
+        void testDetectDriftAndSynchronizeExistingCommentOnPr() {
+                Long repoId = 1L;
+                int prNumber = 42;
+                Long existingCommentId = 7788L;
+
+                RepositoryEntity repo = RepositoryEntity.builder()
+                                .repositoryId(repoId)
+                                .repoFullName("owner/test-repo")
+                                .connectionId(10L)
+                                .build();
+                when(repositoryRepository.findById(repoId)).thenReturn(Optional.of(repo));
+
+                GitHubConnectionEntity connection = GitHubConnectionEntity.builder()
+                                .connectionId(10L)
+                                .accessTokenEncrypted("mock-github-token-secret")
+                                .build();
+                when(connectionRepository.findById(10L)).thenReturn(Optional.of(connection));
+
+                when(codeDiffAnalysisService.analyzeAstDiff(any())).thenReturn(AstDiffResponseDto.builder()
+                                .status("success").files(Collections.emptyList()).build());
+
+                // Mock tìm thấy comment cũ có chứa marker
+                when(gitHubClient.findExistingPullRequestComment(any(), eq("owner"), eq("test-repo"), eq(prNumber),
+                                anyString()))
+                                .thenReturn(existingCommentId);
+                when(gitHubClient.updatePullRequestComment(any(), eq("owner"), eq("test-repo"), eq(existingCommentId),
+                                anyString()))
+                                .thenReturn(existingCommentId);
+
+                AstDiffRequestDto requestDto = AstDiffRequestDto.builder()
+                                .repository_id(repoId)
+                                .pr_number(prNumber)
+                                .head_commit_hash("sha-new-sync-456")
+                                .files(Collections.emptyList())
+                                .build();
+
+                PrDriftAnalysisResultDto result = docDriftDetectionService.detectDriftAndCommentOnPr(repoId, prNumber,
+                                requestDto);
+
+                assertNotNull(result);
+                assertEquals(existingCommentId, result.commentId());
+
+                // Xác nhận gitHubClient đã gọi UPDATE (không tạo mới duplicate)
+                verify(gitHubClient, times(1)).updatePullRequestComment(any(), eq("owner"), eq("test-repo"),
+                                eq(existingCommentId), contains("LivingDocs"));
+                verify(gitHubClient, never()).createPullRequestComment(any(), any(), any(), anyInt(), any());
+        }
+
+        @Test
+        @DisplayName("Định dạng Markdown chuyên nghiệp: Có bảng tổng hợp mức độ sai lệch, danh sách tài liệu, tên hàm và nút dẫn link")
+        void testMarkdownFormatWithSummaryTableAndLinks() {
+                List<AffectedDocumentResultDto> affectedDocs = List.of(
+                                AffectedDocumentResultDto.builder()
+                                                .documentId(101L)
+                                                .documentTitle("User Service Guide")
+                                                .documentPath("docs/user.md")
+                                                .methodName("deleteAccount")
+                                                .changeType("DELETED")
+                                                .severity("CRITICAL")
+                                                .details("Hàm deleteAccount bị xóa")
+                                                .build(),
+                                AffectedDocumentResultDto.builder()
+                                                .documentId(102L)
+                                                .documentTitle("Auth Spec")
+                                                .documentPath("docs/auth.md")
+                                                .methodName("login")
+                                                .changeType("PARAM_CHANGED")
+                                                .severity("HIGH")
+                                                .details("Thay đổi chữ ký tham số")
+                                                .build());
+
+                AstDiffRequestDto requestDto = AstDiffRequestDto.builder()
+                                .repository_id(1L)
+                                .pr_number(5)
+                                .head_commit_hash("head_abc_123")
+                                .build();
+
+                String markdown = docDriftDetectionService.generateDriftCommentMarkdown(5, affectedDocs, requestDto);
+
+                assertNotNull(markdown);
+                assertTrue(markdown.contains("<!-- livingdocs-drift-alert -->"), "Phải chứa marker ẩn định danh bot");
+                assertTrue(markdown.contains("Bảng tổng hợp mức độ sai lệch"), "Phải có bảng tổng hợp mức độ");
+                assertTrue(markdown.contains("CRITICAL"), "Bảng phải hiển thị CRITICAL");
+                assertTrue(markdown.contains("HIGH"), "Bảng phải hiển thị HIGH");
+                assertTrue(markdown.contains("deleteAccount"), "Phải hiển thị tên hàm deleteAccount");
+                assertTrue(markdown.contains("login"), "Phải hiển thị tên hàm login");
+                assertTrue(markdown.contains("http://localhost:3000/documents/101"),
+                                "Phải có link dẫn đến tài liệu trên web");
+                assertTrue(markdown.contains("LivingDocs Web App"), "Phải có nút/badge mở Web App");
         }
 }

@@ -38,4 +38,13 @@ public interface DocDriftDetectionServicePort {
      * lên PR.
      */
     PrDriftAnalysisResultDto detectDriftAndCommentOnPr(Long repositoryId, int prNumber);
+
+    /**
+     * Tạo nội dung Markdown chuyên nghiệp cho comment cảnh báo trôi dạt tài liệu
+     * trên Pull Request.
+     */
+    default String generateDriftCommentMarkdown(int prNumber, List<AffectedDocumentResultDto> affectedDocs,
+            AstDiffRequestDto diffRequest) {
+        return "";
+    }
 }

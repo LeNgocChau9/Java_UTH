@@ -1,6 +1,7 @@
 package com.example.livingdocs_backend.infrastructure.github;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
@@ -649,6 +650,114 @@ public class GitHubClient implements GitHubClientPort {
             log.error("Lỗi ngoại lệ khi đăng comment lên PR #{}: {}", prNumber, ex.getMessage(), ex);
             throw new GitHubApiException("Không thể đăng comment lên PR: " + ex.getMessage(), 500, ex);
         }
+    }
+
+    @Override
+    public Long updatePullRequestComment(String token, String owner, String repo, Long commentId, String body) {
+        String uri = UriComponentsBuilder.fromPath("/repos/{owner}/{repo}/issues/comments/{comment_id}")
+                .buildAndExpand(owner, repo, commentId)
+                .toUriString();
+
+        log.info("Cập nhật comment ID={} trên PR của repo {}/{}", commentId, owner, repo);
+        Map<String, String> requestBody = Map.of("body", body);
+
+        try {
+            var requestSpec = restClient.patch()
+                    .uri(uri)
+                    .header(HttpHeaders.USER_AGENT, "LivingDocs-GitHubClient/1.0")
+                    .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .body(requestBody);
+
+            if (StringUtils.hasText(token)) {
+                requestSpec.header(HttpHeaders.AUTHORIZATION, "Bearer " + token.trim());
+            }
+
+            var responseEntity = requestSpec.retrieve().toEntity(GitCommentResponse.class);
+            GitCommentResponse commentResponse = responseEntity.getBody();
+            if (commentResponse != null && commentResponse.id() != null) {
+                log.info("Cập nhật comment thành công ID={}", commentResponse.id());
+                return commentResponse.id();
+            }
+            return commentId;
+        } catch (Exception patchEx) {
+            try {
+                var fallbackSpec = restClient.post()
+                        .uri(uri)
+                        .header(HttpHeaders.USER_AGENT, "LivingDocs-GitHubClient/1.0")
+                        .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
+                        .header("X-HTTP-Method-Override", "PATCH")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.APPLICATION_JSON)
+                        .body(requestBody);
+                if (StringUtils.hasText(token)) {
+                    fallbackSpec.header(HttpHeaders.AUTHORIZATION, "Bearer " + token.trim());
+                }
+                var fallbackEntity = fallbackSpec.retrieve().toEntity(GitCommentResponse.class);
+                GitCommentResponse commentResponse = fallbackEntity.getBody();
+                if (commentResponse != null && commentResponse.id() != null) {
+                    return commentResponse.id();
+                }
+                return commentId;
+            } catch (Exception ex) {
+                log.error("Lỗi khi cập nhật comment ID #{}: {}", commentId, ex.getMessage());
+                return commentId;
+            }
+        }
+    }
+
+    @Override
+    public List<com.example.livingdocs_backend.application.dto.github.GitHubCommentDto> listPullRequestComments(
+            String token, String owner, String repo, int prNumber) {
+        String uri = UriComponentsBuilder.fromPath("/repos/{owner}/{repo}/issues/{issue_number}/comments")
+                .buildAndExpand(owner, repo, prNumber)
+                .toUriString();
+        try {
+            var requestSpec = restClient.get()
+                    .uri(uri)
+                    .header(HttpHeaders.USER_AGENT, "LivingDocs-GitHubClient/1.0")
+                    .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
+                    .accept(MediaType.APPLICATION_JSON);
+            if (StringUtils.hasText(token)) {
+                requestSpec.header(HttpHeaders.AUTHORIZATION, "Bearer " + token.trim());
+            }
+            GitCommentResponse[] responses = requestSpec.retrieve().body(GitCommentResponse[].class);
+            if (responses == null || responses.length == 0) {
+                return Collections.emptyList();
+            }
+            List<com.example.livingdocs_backend.application.dto.github.GitHubCommentDto> dtos = new ArrayList<>();
+            for (GitCommentResponse r : responses) {
+                dtos.add(com.example.livingdocs_backend.application.dto.github.GitHubCommentDto.builder()
+                        .id(r.id())
+                        .htmlUrl(r.htmlUrl())
+                        .body(r.body())
+                        .build());
+            }
+            return dtos;
+        } catch (Exception ex) {
+            log.debug("Không thể lấy danh sách comment PR #{} trên {}/{}: {}", prNumber, owner, repo, ex.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    @Override
+    public Long findExistingPullRequestComment(String token, String owner, String repo, int prNumber, String marker) {
+        if (!StringUtils.hasText(marker)) {
+            return null;
+        }
+        try {
+            var comments = listPullRequestComments(token, owner, repo, prNumber);
+            for (var c : comments) {
+                if (c.getBody() != null && c.getBody().contains(marker)) {
+                    log.info("Tìm thấy comment cũ khớp marker '{}', ID={}", marker, c.getId());
+                    return c.getId();
+                }
+            }
+        } catch (Exception ex) {
+            log.debug("Lỗi khi tìm comment theo marker: {}", ex.getMessage());
+        }
+        return null;
     }
 
     /**

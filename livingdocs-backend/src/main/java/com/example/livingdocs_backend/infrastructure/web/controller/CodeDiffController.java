@@ -10,9 +10,11 @@ import com.example.livingdocs_backend.infrastructure.persistence.entity.Document
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Collections;
 import java.util.List;
 
 @RestController
@@ -93,6 +95,26 @@ public class CodeDiffController {
             result = docDriftDetectionService.detectDriftAndCommentOnPr(repositoryId, prNumber);
         }
         return ResponseEntity.ok(result);
+    }
+
+    @PostMapping(value = "/repositories/{repositoryId}/pull-requests/{prNumber}/preview-comment", produces = MediaType.TEXT_PLAIN_VALUE)
+    @Operation(summary = "Xem trước định dạng Markdown comment chuyên nghiệp sẽ đăng lên PR GitHub (Bảng tổng hợp, link web, danh sách hàm)")
+    public ResponseEntity<String> previewComment(
+            @PathVariable Long repositoryId,
+            @PathVariable int prNumber,
+            @RequestBody(required = false) AstDiffRequestDto requestDto) {
+        List<AffectedDocumentResultDto> affectedDocs;
+        if (requestDto != null && requestDto.files() != null && !requestDto.files().isEmpty()) {
+            affectedDocs = docDriftDetectionService.findAffectedDocuments(repositoryId, requestDto);
+        } else {
+            try {
+                affectedDocs = docDriftDetectionService.findAffectedDocumentsForPullRequest(repositoryId, prNumber);
+            } catch (Exception e) {
+                affectedDocs = Collections.emptyList();
+            }
+        }
+        String markdown = docDriftDetectionService.generateDriftCommentMarkdown(prNumber, affectedDocs, requestDto);
+        return ResponseEntity.ok(markdown);
     }
 
     @GetMapping("/repositories/{repositoryId}/alerts")

@@ -80,6 +80,30 @@ public interface GitHubClientPort {
     Long createPullRequestComment(String token, String owner, String repo, int prNumber, String body);
 
     /**
+     * Cập nhật bình luận (Comment) đã tồn tại trên Pull Request qua GitHub REST
+     * API.
+     */
+    default Long updatePullRequestComment(String token, String owner, String repo, Long commentId, String body) {
+        return commentId;
+    }
+
+    /**
+     * Lấy danh sách bình luận trên Pull Request (Issue Comments).
+     */
+    default List<com.example.livingdocs_backend.application.dto.github.GitHubCommentDto> listPullRequestComments(
+            String token, String owner, String repo, int prNumber) {
+        return Collections.emptyList();
+    }
+
+    /**
+     * Tìm comment cũ của bot trên PR dựa trên marker tag định danh (ví dụ: <!--
+     * livingdocs-drift-alert -->).
+     */
+    default Long findExistingPullRequestComment(String token, String owner, String repo, int prNumber, String marker) {
+        return null;
+    }
+
+    /**
      * Kiểm tra tính hợp lệ của access token kết nối GitHub.
      */
     GitHubTokenValidationResult validateToken(String token);

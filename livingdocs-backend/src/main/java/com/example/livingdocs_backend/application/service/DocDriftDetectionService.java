@@ -9,8 +9,20 @@ import com.example.livingdocs_backend.application.dto.drift.PrDriftAnalysisResul
 import com.example.livingdocs_backend.application.port.CodeDiffAnalysisServicePort;
 import com.example.livingdocs_backend.application.port.DocDriftDetectionServicePort;
 import com.example.livingdocs_backend.application.port.GitHubClientPort;
-import com.example.livingdocs_backend.infrastructure.persistence.entity.*;
-import com.example.livingdocs_backend.infrastructure.persistence.repository.*;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.DocCodeLinkEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentChangeAlertEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentVersionEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.PullRequestEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocCodeLinkRepository;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentChangeAlertRepository;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentRepository;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentVersionRepository;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataPullRequestRepository;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -48,6 +60,9 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
     private final SpringDataGitHubConnectionRepository connectionRepository;
     private final GitHubClientPort gitHubClient;
     private final RestClient restClient;
+    private final String frontendUrl;
+
+    public static final String BOT_MARKER = "<!-- livingdocs-drift-alert -->";
 
     @Autowired
     public DocDriftDetectionService(
@@ -60,7 +75,8 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
             SpringDataPullRequestRepository pullRequestRepository,
             SpringDataGitHubConnectionRepository connectionRepository,
             GitHubClientPort gitHubClient,
-            @Value("${ai.engine.url:http://localhost:8000}") String aiEngineUrl) {
+            @Value("${ai.engine.url:http://localhost:8000}") String aiEngineUrl,
+            @Value("${github.oauth.frontend-url:${github.frontend-url:http://localhost:3000}}") String frontendUrl) {
         this.codeDiffAnalysisService = codeDiffAnalysisService;
         this.docCodeLinkRepository = docCodeLinkRepository;
         this.documentRepository = documentRepository;
@@ -70,10 +86,56 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
         this.pullRequestRepository = pullRequestRepository;
         this.connectionRepository = connectionRepository;
         this.gitHubClient = gitHubClient;
-        org.springframework.http.client.SimpleClientHttpRequestFactory requestFactory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
-        requestFactory.setConnectTimeout(2000);
-        requestFactory.setReadTimeout(5000);
-        this.restClient = RestClient.builder().requestFactory(requestFactory).baseUrl(aiEngineUrl).build();
+        this.frontendUrl = StringUtils.hasText(frontendUrl) ? frontendUrl.trim() : "http://localhost:3000";
+        if (StringUtils.hasText(aiEngineUrl)) {
+            org.springframework.http.client.SimpleClientHttpRequestFactory requestFactory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+            requestFactory.setConnectTimeout(2000);
+            requestFactory.setReadTimeout(5000);
+            this.restClient = RestClient.builder().requestFactory(requestFactory).baseUrl(aiEngineUrl).build();
+        } else {
+            this.restClient = null;
+        }
+    }
+
+    public DocDriftDetectionService(
+            CodeDiffAnalysisServicePort codeDiffAnalysisService,
+            SpringDataDocCodeLinkRepository docCodeLinkRepository,
+            SpringDataDocumentRepository documentRepository,
+            SpringDataDocumentVersionRepository documentVersionRepository,
+            SpringDataDocumentChangeAlertRepository alertRepository,
+            SpringDataRepositoryRepository repositoryRepository,
+            SpringDataPullRequestRepository pullRequestRepository,
+            SpringDataGitHubConnectionRepository connectionRepository,
+            GitHubClientPort gitHubClient,
+            RestClient restClient,
+            String frontendUrl) {
+        this.codeDiffAnalysisService = codeDiffAnalysisService;
+        this.docCodeLinkRepository = docCodeLinkRepository;
+        this.documentRepository = documentRepository;
+        this.documentVersionRepository = documentVersionRepository;
+        this.alertRepository = alertRepository;
+        this.repositoryRepository = repositoryRepository;
+        this.pullRequestRepository = pullRequestRepository;
+        this.connectionRepository = connectionRepository;
+        this.gitHubClient = gitHubClient;
+        this.restClient = restClient;
+        this.frontendUrl = StringUtils.hasText(frontendUrl) ? frontendUrl.trim() : "http://localhost:3000";
+    }
+
+    public DocDriftDetectionService(
+            CodeDiffAnalysisServicePort codeDiffAnalysisService,
+            SpringDataDocCodeLinkRepository docCodeLinkRepository,
+            SpringDataDocumentRepository documentRepository,
+            SpringDataDocumentVersionRepository documentVersionRepository,
+            SpringDataDocumentChangeAlertRepository alertRepository,
+            SpringDataRepositoryRepository repositoryRepository,
+            SpringDataPullRequestRepository pullRequestRepository,
+            SpringDataGitHubConnectionRepository connectionRepository,
+            GitHubClientPort gitHubClient,
+            String aiEngineUrl) {
+        this(codeDiffAnalysisService, docCodeLinkRepository, documentRepository, documentVersionRepository,
+                alertRepository, repositoryRepository, pullRequestRepository, connectionRepository, gitHubClient,
+                aiEngineUrl, "http://localhost:3000");
     }
 
     public DocDriftDetectionService(
@@ -87,7 +149,7 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
             GitHubClientPort gitHubClient) {
         this(codeDiffAnalysisService, docCodeLinkRepository, documentRepository, null,
                 alertRepository, repositoryRepository, pullRequestRepository, connectionRepository, gitHubClient,
-                "http://localhost:8000");
+                (RestClient) null, "http://localhost:3000");
     }
 
     @Override
@@ -278,7 +340,7 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
         // 4. Định dạng Markdown comment chi tiết và chuyên nghiệp
         String commentMarkdown = buildPrDriftCommentMarkdown(prNumber, affectedDocs, diffRequest);
 
-        // 5. Gọi GitHub REST API đăng comment lên PR
+        // 5. Gọi GitHub REST API đăng mới hoặc cập nhật comment cũ trên PR
         Long commentId = null;
         String repoFullName = repo.getRepoFullName();
         String commentUrl = null;
@@ -289,10 +351,25 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
             if (parts.length == 2 && token != null) {
                 String owner = parts[0];
                 String repoName = parts[1];
-                commentId = gitHubClient.createPullRequestComment(token, owner, repoName, prNumber, commentMarkdown);
+
+                // Tự động kiểm tra và cập nhật comment cũ nếu PR được push thêm commit mới
+                // (synchronize)
+                Long existingCommentId = gitHubClient.findExistingPullRequestComment(token, owner, repoName, prNumber,
+                        BOT_MARKER);
+                if (existingCommentId != null && existingCommentId > 0) {
+                    log.info("[DocDrift] Tìm thấy comment cảnh báo cũ ID={} trên PR #{}. Đang cập nhật nội dung mới...",
+                            existingCommentId, prNumber);
+                    commentId = gitHubClient.updatePullRequestComment(token, owner, repoName, existingCommentId,
+                            commentMarkdown);
+                } else {
+                    log.info("[DocDrift] Chưa có comment cũ trên PR #{}. Đăng comment cảnh báo mới...", prNumber);
+                    commentId = gitHubClient.createPullRequestComment(token, owner, repoName, prNumber,
+                            commentMarkdown);
+                }
+
                 commentUrl = String.format("https://github.com/%s/pull/%d#issuecomment-%s", repoFullName, prNumber,
                         commentId != null ? commentId : "latest");
-                log.info("[DocDrift] Đã đăng comment cảnh báo lên PR #{} thành công! CommentId={}", prNumber,
+                log.info("[DocDrift] Đã đăng/cập nhật comment cảnh báo lên PR #{} thành công! CommentId={}", prNumber,
                         commentId);
             } else {
                 log.warn(
@@ -300,7 +377,8 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
                         repoFullName);
             }
         } catch (Exception ex) {
-            log.error("[DocDrift] Không thể đăng comment lên GitHub PR #{}: {}", prNumber, ex.getMessage(), ex);
+            log.error("[DocDrift] Không thể đăng hoặc cập nhật comment lên GitHub PR #{}: {}", prNumber,
+                    ex.getMessage(), ex);
         }
 
         return PrDriftAnalysisResultDto.builder()
@@ -313,9 +391,16 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
                 .commentId(commentId)
                 .commentUrl(commentUrl)
                 .status("SUCCESS")
-                .message("Phát hiện " + affectedDocs.size() + " tài liệu bị ảnh hưởng. Đã đăng cảnh báo lên PR #"
+                .message("Phát hiện " + affectedDocs.size()
+                        + " tài liệu bị ảnh hưởng. Đã đăng/cập nhật cảnh báo lên PR #"
                         + prNumber)
                 .build();
+    }
+
+    @Override
+    public String generateDriftCommentMarkdown(int prNumber, List<AffectedDocumentResultDto> affectedDocs,
+            AstDiffRequestDto diffRequest) {
+        return buildPrDriftCommentMarkdown(prNumber, affectedDocs, diffRequest);
     }
 
     private String resolveSeverity(String impactLevel, String changeType) {
@@ -338,6 +423,9 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
      */
     private AiDriftAnalyzeResponseDto analyzeDriftWithAi(AffectedDocumentResultDto item, AstDiffRequestDto diffRequest,
             int prNumber, Long repositoryId) {
+        if (restClient == null) {
+            return null;
+        }
         try {
             String currentDoc = "";
             if (documentVersionRepository != null && item.documentId() != null) {
@@ -375,41 +463,87 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
     private String buildPrDriftCommentMarkdown(int prNumber, List<AffectedDocumentResultDto> affectedDocs,
             AstDiffRequestDto diffRequest) {
         StringBuilder sb = new StringBuilder();
-        sb.append("##  LivingDocs — Cảnh Báo Trôi Dạt Tài Liệu (Documentation Drift Alert)\n\n");
+        sb.append(BOT_MARKER).append("\n");
+        sb.append("## 🚨 LivingDocs — Cảnh Báo Trôi Dạt Tài Liệu (Documentation Drift Alert)\n\n");
         sb.append(String.format("Phân tích AST tự động cho **Pull Request #%d** (Commit: `%s`):\n\n",
-                prNumber, diffRequest.head_commit_hash() != null ? diffRequest.head_commit_hash() : "HEAD"));
+                prNumber, diffRequest != null && diffRequest.head_commit_hash() != null ? diffRequest.head_commit_hash()
+                        : "HEAD"));
 
-        if (affectedDocs.isEmpty()) {
+        if (affectedDocs == null || affectedDocs.isEmpty()) {
             sb.append(
-                    " **Không phát hiện sự sai lệch tài liệu nào!** Các hàm được thêm mới hoặc giữ nguyên chữ ký tương thích với tài liệu hiện tại.\n\n");
-            sb.append("> *Hệ thống LivingDocs tự động giám sát và bảo vệ tính nhất quán của tài liệu dự án.*");
+                    "> ✨ **Không phát hiện sự sai lệch tài liệu nào!** Các hàm được thêm mới hoặc giữ nguyên chữ ký tương thích với tài liệu hiện tại.\n\n");
+            sb.append(String.format(
+                    "[![LivingDocs Web App](https://img.shields.io/badge/LivingDocs-Mở_Giao_Diện_Web-10b981?style=for-the-badge&logo=googledocs&logoColor=white)](%s/documents)\n\n",
+                    frontendUrl));
+            sb.append("---\n*🤖 Báo cáo được tự động cập nhật bởi **LivingDocs CI/CD Bot**.*");
             return sb.toString();
         }
 
+        // 1. Bảng tổng hợp mức độ sai lệch
+        long criticalCount = affectedDocs.stream().filter(d -> "CRITICAL".equalsIgnoreCase(d.severity())).count();
+        long highCount = affectedDocs.stream().filter(d -> "HIGH".equalsIgnoreCase(d.severity())).count();
+        long mediumCount = affectedDocs.stream().filter(d -> "MEDIUM".equalsIgnoreCase(d.severity())).count();
+        long lowCount = affectedDocs.stream().filter(d -> "LOW".equalsIgnoreCase(d.severity())).count();
+
+        sb.append("### 📊 Bảng tổng hợp mức độ sai lệch\n\n");
+        sb.append("| Mức độ nghiêm trọng | Số lượng | Hành động bắt buộc |\n");
+        sb.append("| :--- | :---: | :--- |\n");
         sb.append(String.format(
-                ">  **Phát hiện %d tài liệu bị ảnh hưởng** cần cập nhật do mã nguồn đã thay đổi chữ ký, bị xóa hoặc đổi tên:\n\n",
+                "| 🔴 **CRITICAL** | `%d` | Hàm bị xóa hoặc đổi tên làm gãy tài liệu, cần cập nhật ngay |\n",
+                criticalCount));
+        sb.append(String.format("| 🟠 **HIGH** | `%d` | Chữ ký tham số hoặc kiểu trả về thay đổi |\n", highCount));
+        sb.append(
+                String.format("| 🟡 **MEDIUM** | `%d` | Logic nội bộ hoặc cấu trúc thay đổi đáng kể |\n", mediumCount));
+        sb.append(String.format("| 🔵 **LOW** | `%d` | Hàm mới được thêm vào, bổ sung tài liệu nếu cần |\n", lowCount));
+        sb.append(String.format("| 📌 **Tổng cộng** | **`%d`** | **Cần xem xét trước khi Merge PR** |\n\n",
                 affectedDocs.size()));
-        sb.append("| Mức độ | Tài liệu liên kết | Hàm thay đổi | Loại thay đổi | Chi tiết |\n");
-        sb.append("| :--- | :--- | :--- | :--- | :--- |\n");
+
+        // 2. Danh sách tài liệu bị ảnh hưởng, tên hàm thay đổi và nút dẫn link tới
+        // trang web LivingDocs
+        sb.append("### 📑 Danh sách tài liệu và hàm bị ảnh hưởng\n\n");
+        sb.append("| Mức độ | Tài liệu liên kết | Hàm thay đổi | Loại thay đổi | Chi tiết thay đổi | Thao tác |\n");
+        sb.append("| :---: | :--- | :--- | :---: | :--- | :---: |\n");
 
         for (AffectedDocumentResultDto item : affectedDocs) {
-            String badge = switch (item.severity()) {
-                case "CRITICAL" -> " **CRITICAL**";
-                case "HIGH" -> " **HIGH**";
-                case "MEDIUM" -> " **MEDIUM**";
-                default -> "ℹ **LOW**";
+            String badge = switch (item.severity() != null ? item.severity().toUpperCase() : "MEDIUM") {
+                case "CRITICAL" -> "🔴 **CRITICAL**";
+                case "HIGH" -> "🟠 **HIGH**";
+                case "MEDIUM" -> "🟡 **MEDIUM**";
+                default -> "🔵 **LOW**";
             };
 
-            sb.append(String.format("| %s | `%s` | `%s` | `%s` | %s |\n",
-                    badge, item.documentTitle(), item.methodName(), item.changeType(), item.details()));
+            String docTitle = item.documentTitle() != null ? item.documentTitle() : "Tài liệu liên kết";
+            String docPath = item.documentPath() != null ? item.documentPath() : item.relatedFilePath();
+            String docLink = item.documentId() != null
+                    ? String.format("[%s](%s/documents/%d)<br>`%s`", docTitle, frontendUrl, item.documentId(), docPath)
+                    : String.format("**%s**<br>`%s`", docTitle, docPath);
+
+            String actionBtn = item.documentId() != null
+                    ? String.format("[🔍 Xem tài liệu](%s/documents/%d)", frontendUrl, item.documentId())
+                    : String.format("[🔍 Mở LivingDocs](%s/documents)", frontendUrl);
+
+            String detailsClean = item.details() != null ? item.details().replace("\n", " ") : "-";
+
+            sb.append(String.format("| %s | %s | `%s` | `%s` | %s | %s |\n",
+                    badge,
+                    docLink,
+                    item.methodName() != null ? item.methodName() : "-",
+                    item.changeType() != null ? item.changeType() : "-",
+                    detailsClean,
+                    actionBtn));
         }
 
-        sb.append("\n###  Hành động đề xuất cho Developer & Reviewer:\n");
+        // 3. Khối hướng dẫn hành động & Nút dẫn link tới LivingDocs Web
+        sb.append("\n### 🛠️ Hành động đề xuất cho Developer & Reviewer:\n");
         sb.append(
-                "1. Kiểm tra lại các tài liệu kỹ thuật được liệt kê ở trên trước khi tiến hành **Merge** Pull Request.\n");
+                "1. ⚠️ **Reviewer:** Yêu cầu cập nhật tài liệu kỹ thuật trước khi chấp thuận **Merge** Pull Request này.\n");
         sb.append(
-                "2. Truy cập LivingDocs Dashboard để xem đề xuất cập nhật tự động bằng AI (Auto-Update Document).\n\n");
-        sb.append("---\n*Automated by LivingDocs CI/CD Bot*");
+                "2. 🤖 **Developer:** Mở ứng dụng LivingDocs để xem đề xuất cập nhật tự động bằng AI (Auto-Update Document):\n\n");
+        sb.append(String.format(
+                "[![LivingDocs Web App](https://img.shields.io/badge/LivingDocs-Mở_Giao_Diện_Web-2563eb?style=for-the-badge&logo=googledocs&logoColor=white)](%s/documents)\n\n",
+                frontendUrl));
+        sb.append(
+                "---\n*🤖 Báo cáo được tự động đăng và cập nhật bởi **LivingDocs CI/CD Bot** mỗi khi PR nhận commit mới (synchronize).*");
 
         return sb.toString();
     }

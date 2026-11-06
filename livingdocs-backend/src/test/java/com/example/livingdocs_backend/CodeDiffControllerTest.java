@@ -101,4 +101,23 @@ class CodeDiffControllerTest {
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("success", response.getBody().status());
     }
+
+    @Test
+    @DisplayName("POST /api/code-diff/repositories/{repoId}/pull-requests/{prNumber}/preview-comment: Xem trước markdown comment")
+    void testPreviewComment() {
+        Long repoId = 1L;
+        int prNumber = 12;
+        AstDiffRequestDto requestDto = AstDiffRequestDto.builder().build();
+
+        when(docDriftDetectionService.findAffectedDocuments(eq(repoId), eq(requestDto)))
+                .thenReturn(Collections.emptyList());
+        when(docDriftDetectionService.generateDriftCommentMarkdown(eq(prNumber), any(), eq(requestDto)))
+                .thenReturn("## LivingDocs Drift Alert");
+
+        ResponseEntity<String> response = controller.previewComment(repoId, prNumber, requestDto);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertTrue(response.getBody().contains("LivingDocs"));
+    }
 }
