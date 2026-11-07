@@ -18,6 +18,8 @@ export const NAV_ITEMS: NavItem[] = [
   { role: "TECH_LEAD", href: "/quan-ly-template", label: "Quản lý Template", icon: "template" },
   { role: "TECH_LEAD", href: "/do-thi-lien-ket", label: "Đồ thị liên kết", icon: "graph" },
   { role: "ADMIN", href: "/nhat-ky-thay-doi", label: "Nhật ký thay đổi", icon: "history" },
+  { role: "ADMIN", href: "/nhat-ky-he-thong", label: "Nhật ký kiểm toán", icon: "history" },
+  { role: "TECH_LEAD", href: "/nhat-ky-he-thong", label: "Nhật ký kiểm toán", icon: "history" },
   { role: "ADMIN", href: "/quan-tri-nguoi-dung", label: "Quản trị người dùng", icon: "users" },
   { role: "ADMIN", href: "/cai-dat-he-thong", label: "Cài đặt hệ thống", icon: "settings" },
   { role: "ADMIN", href: "/giam-sat-suc-khoe", label: "Giám sát sức khỏe", icon: "activity" },
