@@ -31,14 +31,14 @@ from app.core.gemini_retry import (
 
 logger = logging.getLogger(__name__)
 
-# Danh sách model Gemini có cơ chế xoay vòng và fallback tự động
+# Danh sách model Gemini có cơ chế xoay vòng và fallback tự động (Pro -> Flash)
 REWRITE_MODELS = [
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
     "gemini-3.5-flash-lite",
     "gemini-flash-lite-latest",
-    "gemini-3.6-flash",
-    "gemini-3.5-flash",
-    "gemini-3.1-flash-lite",
-    "gemini-3.8-flash",
 ]
 
 

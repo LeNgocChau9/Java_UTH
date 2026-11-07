@@ -23,7 +23,11 @@ from app.services.gemini_doc_service import GeminiDocService
 from app.services.gemini_drift_service import GeminiDriftService
 from app.services.gemini_rewrite_service import GeminiRewriteService
 from app.services.diff_ast_service import DiffAstService
-from app.core.gemini_retry import GeminiQuotaExceededError, GeminiServiceUnavailableError
+from app.core.gemini_retry import (
+    GeminiQuotaExceededError,
+    GeminiServiceUnavailableError,
+    quota_controller,
+)
 
 router = APIRouter(prefix="/v1", tags=["AI Engine Endpoints"])
 
@@ -368,3 +372,13 @@ async def rewrite_document_suggestion(request: DocRewriteRequest):
             status_code=500,
             detail=f"Lỗi nội bộ khi AI viết lại tài liệu: {str(ex)}"
         )
+
+
+@router.get(
+    "/quota/metrics",
+    summary="Giám sát Quota Rate-Limit Controller & Thống kê Retry Full Jitter",
+    description="Trả về thông số sức khỏe, số lượng RPM, số lần thử lại, số lần xoay key và trạng thái model failover (gemini-2.5-pro sang gemini-2.5-flash)."
+)
+def get_quota_metrics():
+    """Trả về trạng thái sức khỏe và số liệu giám sát của Quota Rate-Limit Controller."""
+    return quota_controller.get_metrics()
