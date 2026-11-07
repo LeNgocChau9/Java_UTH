@@ -97,10 +97,16 @@ public class GitHubClient implements GitHubClientPort {
 
         try {
             return fetchGitTreeResponse(token, uri);
-        } catch (Exception ex) {
+        } catch (RestClientResponseException ex) {
+            String remHeader = ex.getResponseHeaders() != null
+                    ? ex.getResponseHeaders().getFirst("x-ratelimit-remaining")
+                    : null;
+            if ("0".equals(remHeader) || ex.getStatusCode().value() == 429) {
+                handleErrorResponse(ex, "getRepositoryTree (" + owner + "/" + repo + ")");
+            }
             // Tự động thử lại không token nếu token cũ bị 401 Bad credentials (áp dụng cho
             // Public repository)
-            if (StringUtils.hasText(token) && ex.getMessage() != null && ex.getMessage().contains("401")) {
+            if (StringUtils.hasText(token) && ex.getStatusCode().value() == 401) {
                 try {
                     log.info(
                             "Token GitHub bị 401 Bad credentials cho {}/{}. Tự động fallback sang chế độ Public (anonymous)...",
@@ -110,6 +116,12 @@ public class GitHubClient implements GitHubClientPort {
                     log.warn("Thử lại chế độ Public cho {}/{} thất bại: {}", owner, repo, ex2.getMessage());
                 }
             }
+            log.warn("Không thể lấy cây git tree từ GitHub API cho {}/{}: {}. Trả về rỗng thay vì throw 500.", owner,
+                    repo, ex.getMessage());
+            return Collections.emptyList();
+        } catch (GitHubRateLimitException ex) {
+            throw ex;
+        } catch (Exception ex) {
             log.warn("Không thể lấy cây git tree từ GitHub API cho {}/{}: {}. Trả về rỗng thay vì throw 500.", owner,
                     repo, ex.getMessage());
             return Collections.emptyList();
@@ -580,22 +592,46 @@ public class GitHubClient implements GitHubClientPort {
         } catch (RestClientResponseException ex) {
             int statusCode = ex.getStatusCode().value();
             String body = ex.getResponseBodyAsString();
+            HttpHeaders responseHeaders = ex.getResponseHeaders();
+            String authHeader = responseHeaders != null ? responseHeaders.getFirst(HttpHeaders.WWW_AUTHENTICATE) : null;
             log.warn("GitHub validateToken trả về HTTP {}: {}", statusCode, body);
 
+            boolean isExpired = (body != null && body.toLowerCase().contains("expired"))
+                    || (authHeader != null && authHeader.toLowerCase().contains("expired"));
+
             if (statusCode == 401) {
-                // Token bị thu hồi (revoked), bad credentials hoặc token sai
-                return com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
-                        .valid(false)
-                        .status("REVOKED")
-                        .message("Token GitHub đã bị thu hồi (Revoked) hoặc không hợp lệ: " + body)
-                        .build();
-            } else if (statusCode == 403 && body != null && body.toLowerCase().contains("expired")) {
-                // Token đã hết hạn
-                return com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
-                        .valid(false)
-                        .status("EXPIRED")
-                        .message("Token GitHub đã hết hạn: " + body)
-                        .build();
+                // Token bị thu hồi (revoked), bad credentials hoặc đã hết hạn
+                if (isExpired) {
+                    return com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
+                            .valid(false)
+                            .status("EXPIRED")
+                            .message("Token GitHub đã hết hạn: "
+                                    + (StringUtils.hasText(body) ? body : "The token has expired"))
+                            .build();
+                } else {
+                    return com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
+                            .valid(false)
+                            .status("REVOKED")
+                            .message("Token GitHub đã bị thu hồi (Revoked) hoặc không hợp lệ: " + body)
+                            .build();
+                }
+            } else if (statusCode == 403) {
+                // Token hết hạn hoặc không đủ quyền / bị revoke
+                if (isExpired) {
+                    return com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
+                            .valid(false)
+                            .status("EXPIRED")
+                            .message("Token GitHub đã hết hạn: "
+                                    + (StringUtils.hasText(body) ? body : "The token has expired"))
+                            .build();
+                } else {
+                    return com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
+                            .valid(false)
+                            .status("REVOKED")
+                            .message("Token GitHub không đủ quyền truy cập hoặc đã bị thu hồi (Revoked) (HTTP 403): "
+                                    + body)
+                            .build();
+                }
             } else {
                 return com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
                         .valid(false)

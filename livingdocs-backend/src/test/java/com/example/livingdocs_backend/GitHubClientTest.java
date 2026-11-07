@@ -360,6 +360,29 @@ class GitHubClientTest {
     }
 
     @Test
+    @DisplayName("Hết hạn (EXPIRED): Token 401 với header WWW-Authenticate expired")
+    void shouldReturnExpiredWhenTokenHasExpiredOn401WithHeader() {
+      HttpHeaders headers = new HttpHeaders();
+      headers.add(HttpHeaders.WWW_AUTHENTICATE,
+          "Bearer error=\"invalid_token\", error_description=\"The token expired\"");
+
+      mockServer.expect(requestTo("https://api.github.com/user"))
+          .andExpect(method(HttpMethod.GET))
+          .andRespond(withStatus(HttpStatus.UNAUTHORIZED)
+              .headers(headers)
+              .body("{\"message\": \"Bad credentials\"}"));
+
+      var result = gitHubClient.validateToken(sampleToken);
+
+      assertNotNull(result);
+      assertFalse(result.isValid());
+      assertEquals("EXPIRED", result.getStatus());
+      assertTrue(result.getMessage().contains("hết hạn"));
+
+      mockServer.verify();
+    }
+
+    @Test
     @DisplayName("Hết hạn (EXPIRED): Token 403 Expired")
     void shouldReturnExpiredWhenTokenHasExpired() {
       mockServer.expect(requestTo("https://api.github.com/user"))

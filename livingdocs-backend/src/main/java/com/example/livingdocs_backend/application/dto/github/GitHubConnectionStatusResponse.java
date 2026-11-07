@@ -26,4 +26,5 @@ public class GitHubConnectionStatusResponse {
     private Instant tokenExpiresAt;
     private Instant lastCheckedAt;
     private String warningMessage;
+    private String renewUrl;
 }
