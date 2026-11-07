@@ -2,6 +2,7 @@ package com.example.livingdocs_backend.application.service;
 
 import com.example.livingdocs_backend.application.dto.*;
 import com.example.livingdocs_backend.application.port.AuditServicePort;
+import com.example.livingdocs_backend.application.port.DocumentServicePort;
 import com.example.livingdocs_backend.application.port.ReviewServicePort;
 import com.example.livingdocs_backend.domain.exception.DocumentNotFoundException;
 import com.example.livingdocs_backend.domain.model.ActorRole;
@@ -15,7 +16,9 @@ import com.example.livingdocs_backend.domain.repository.DocumentRepositoryPort;
 import com.example.livingdocs_backend.domain.repository.DocumentVersionRepositoryPort;
 import com.example.livingdocs_backend.domain.repository.ReviewRepositoryPort;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.ReviewCommentEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataReviewCommentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -37,6 +40,8 @@ public class ReviewServiceImpl implements ReviewServicePort {
     private final SpringDataRepositoryRepository repositoryRepository;
     private final AuditServicePort auditServicePort;
     private final TemplateStructureCheck templateStructureCheck;
+    private final DocumentServicePort documentServicePort;
+    private final SpringDataReviewCommentRepository reviewCommentRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -70,10 +75,12 @@ public class ReviewServiceImpl implements ReviewServicePort {
             targetStatus = DocumentStatus.UNDER_REVIEW_MANAGER;
         }
 
-        // 2. Kiểm tra thẩm quyền nghiêm ngặt theo State Machine (Chỉ STAFF hoặc MANAGER mới có quyền duyệt cấp 1)
-        String effectiveRole = (request != null && request.getActorRole() != null && !request.getActorRole().isBlank())
-                ? request.getActorRole().trim().toUpperCase()
-                : (actorRole != null ? actorRole.trim().toUpperCase() : "STAFF");
+        // Vai trò từ JWT thắng role gửi trong body.
+        String effectiveRole = (actorRole != null && !actorRole.isBlank())
+                ? actorRole.trim().toUpperCase()
+                : (request != null && request.getActorRole() != null && !request.getActorRole().isBlank()
+                        ? request.getActorRole().trim().toUpperCase()
+                        : "STAFF");
 
         DocumentStatus nextStatus = DocumentStateMachine.transition(currentStatus, targetStatus, effectiveRole);
 
@@ -90,6 +97,10 @@ public class ReviewServiceImpl implements ReviewServicePort {
                         ? "Staff đã đối chiếu mã nguồn và phê duyệt chuyển sang Manager."
                         : "Staff yêu cầu chỉnh sửa lại tài liệu."
         );
+        String sectionBlock = formatSectionComments(request);
+        if (!sectionBlock.isEmpty()) {
+            comment = comment + "\n" + sectionBlock;
+        }
 
         DocumentVersion latestVersion = documentVersionRepositoryPort.findLatestByDocId(savedDoc.getDocId()).orElse(null);
         String reviewerIdentity = (actorEmail != null && !actorEmail.isBlank())
@@ -105,6 +116,7 @@ public class ReviewServiceImpl implements ReviewServicePort {
                 .createdAt(Instant.now())
                 .build();
         Review savedReview = reviewRepositoryPort.save(reviewRecord);
+        saveSectionComments(savedReview.getReviewId(), request);
 
         // 5. Ghi nhận Audit Log
         if (auditServicePort != null) {
@@ -160,22 +172,18 @@ public class ReviewServiceImpl implements ReviewServicePort {
 
         DocumentStatus currentStatus = document.getStatus() != null ? document.getStatus() : DocumentStatus.UNDER_REVIEW_MANAGER;
 
-        // 1. Chuẩn hóa quyết định của Manager (APPROVE / PUBLISH -> PUBLISHED, REJECT / RETURN -> REJECTED)
+        // 1. PUBLISH/APPROVE -> PUBLISHED. RETURN_STAFF/REQUEST_CHANGES -> yêu cầu sửa.
+        // REJECT/RETURN giữ REJECTED (tương thích hành động RETURN đã có).
         String rawAction = extractAction(request != null ? request.getAction() : null, request != null ? request.getDecision() : null);
         String actionNormalized = rawAction.trim().toUpperCase();
+        DocumentStatus targetStatus = resolveManagerTarget(actionNormalized);
 
-        DocumentStatus targetStatus;
-        if (actionNormalized.contains("REJECT") || actionNormalized.contains("RETURN")
-                || actionNormalized.contains("TRA_VE") || actionNormalized.contains("TU_CHOI")) {
-            targetStatus = DocumentStatus.REJECTED;
-        } else {
-            targetStatus = DocumentStatus.PUBLISHED; // Phê duyệt xuất bản
-        }
-
-        // 2. Kiểm tra thẩm quyền nghiêm ngặt theo State Machine (Chỉ MANAGER hoặc ADMIN mới có quyền duyệt cấp 2)
-        String effectiveRole = (request != null && request.getActorRole() != null && !request.getActorRole().isBlank())
-                ? request.getActorRole().trim().toUpperCase()
-                : (actorRole != null ? actorRole.trim().toUpperCase() : "MANAGER");
+        // Vai trò từ JWT (tham số actorRole) thắng role gửi trong body.
+        String effectiveRole = (actorRole != null && !actorRole.isBlank())
+                ? actorRole.trim().toUpperCase()
+                : (request != null && request.getActorRole() != null && !request.getActorRole().isBlank()
+                        ? request.getActorRole().trim().toUpperCase()
+                        : "MANAGER");
 
         DocumentStatus nextStatus = DocumentStateMachine.transition(currentStatus, targetStatus, effectiveRole);
 
@@ -184,15 +192,26 @@ public class ReviewServiceImpl implements ReviewServicePort {
         document.setUpdatedAt(Instant.now());
         Document savedDoc = documentRepositoryPort.save(document);
 
+        boolean commitRequested = request != null && Boolean.TRUE.equals(request.getCommitToGithub());
+        String commitSha = null;
+        if (nextStatus == DocumentStatus.PUBLISHED && commitRequested) {
+            if (documentServicePort == null) {
+                throw new IllegalArgumentException("Không đẩy được file .md lên GitHub.");
+            }
+            commitSha = documentServicePort.commitMarkdownToDefaultBranch(savedDoc.getDocId());
+        }
+
         // 4. Ghi nhận Audit Log nếu đã phê duyệt xuất bản
         if (auditServicePort != null) {
             if (nextStatus == DocumentStatus.PUBLISHED) {
+                String publishedDetail = "Manager phê duyệt xuất bản tài liệu chính thức lên hệ thống (PUBLISHED)."
+                        + (commitSha != null ? " Commit SHA: " + commitSha + "." : " Không đẩy file lên GitHub.");
                 auditServicePort.recordDocumentApproval(actorId, savedDoc.getDocId());
                 auditServicePort.recordDocumentAction(actorId, savedDoc.getDocId(), AuditAction.DOCUMENT_PUBLISHED,
-                        "Manager phê duyệt xuất bản tài liệu chính thức lên hệ thống (PUBLISHED).");
+                        publishedDetail);
             } else if (nextStatus == DocumentStatus.UNDER_REVIEW_STAFF) {
                 auditServicePort.recordDocumentAction(actorId, savedDoc.getDocId(), AuditAction.DOCUMENT_RETURNED_STAFF,
-                        "Manager yêu cầu xem xét lại (Trả lại Staff).");
+                        "Manager yêu cầu sửa đổi (trả lại Staff).");
             } else {
                 auditServicePort.recordDocumentAction(actorId, savedDoc.getDocId(), AuditAction.DOCUMENT_REJECTED,
                         "Manager đã từ chối tài liệu.");
@@ -218,7 +237,7 @@ public class ReviewServiceImpl implements ReviewServicePort {
                 .versionId(latestVersion != null ? latestVersion.getVersionId() : null)
                 .reviewer(reviewerIdentity)
                 .generalComment(comment)
-                .result(targetStatus == DocumentStatus.PUBLISHED ? "PUBLISHED" : "REJECTED")
+                .result(reviewResult(targetStatus))
                 .createdAt(Instant.now())
                 .build();
         Review savedReview = reviewRepositoryPort.save(reviewRecord);
@@ -226,9 +245,7 @@ public class ReviewServiceImpl implements ReviewServicePort {
         log.info("Xử lý Manager Action: Manager {} (vai trò: {}) đã phê duyệt tài liệu ID: {} -> Trạng thái mới: {}, Review ID: {}",
                 actorId, effectiveRole, savedDoc.getDocId(), nextStatus, savedReview.getReviewId());
 
-        String message = (nextStatus == DocumentStatus.PUBLISHED)
-                ? String.format("Manager đã phê duyệt và chính thức xuất bản tài liệu \"%s\" (PUBLISHED).", savedDoc.getTitle())
-                : String.format("Manager đã trả về tài liệu \"%s\" (REJECTED) kèm nhận xét chỉnh sửa.", savedDoc.getTitle());
+        String message = managerResultMessage(nextStatus, savedDoc.getTitle(), commitSha);
 
         return ReviewActionResponse.builder()
                 .id(savedDoc.getDocId())
@@ -243,7 +260,46 @@ public class ReviewServiceImpl implements ReviewServicePort {
                 .message(message)
                 .document(toDocumentResponse(savedDoc, latestVersion))
                 .timestamp(Instant.now())
+                .commitSha(commitSha)
                 .build();
+    }
+
+    private DocumentStatus resolveManagerTarget(String actionNormalized) {
+        if (actionNormalized.contains("REQUEST_CHANGE") || actionNormalized.contains("RETURN_STAFF")) {
+            return DocumentStatus.UNDER_REVIEW_STAFF;
+        }
+        if (actionNormalized.contains("REJECT") || actionNormalized.contains("RETURN")
+                || actionNormalized.contains("TRA_VE") || actionNormalized.contains("TU_CHOI")) {
+            return DocumentStatus.REJECTED;
+        }
+        return DocumentStatus.PUBLISHED;
+    }
+
+    private String reviewResult(DocumentStatus targetStatus) {
+        if (targetStatus == DocumentStatus.PUBLISHED) {
+            return "PUBLISHED";
+        }
+        if (targetStatus == DocumentStatus.UNDER_REVIEW_STAFF) {
+            return "CHANGES_REQUESTED";
+        }
+        return "REJECTED";
+    }
+
+    private String managerResultMessage(DocumentStatus nextStatus, String title, String commitSha) {
+        if (nextStatus == DocumentStatus.PUBLISHED) {
+            if (commitSha != null) {
+                return String.format(
+                        "Manager đã phê duyệt xuất bản tài liệu \"%s\" (PUBLISHED) và đẩy file .md lên GitHub. Commit: %s.",
+                        title, commitSha);
+            }
+            return String.format(
+                    "Manager đã phê duyệt xuất bản tài liệu \"%s\" (PUBLISHED). Không đẩy file lên GitHub.",
+                    title);
+        }
+        if (nextStatus == DocumentStatus.UNDER_REVIEW_STAFF) {
+            return String.format("Manager yêu cầu sửa đổi tài liệu \"%s\" và trả về Staff.", title);
+        }
+        return String.format("Manager đã từ chối tài liệu \"%s\" (REJECTED).", title);
     }
 
     private Document resolveDocument(Long id) {
@@ -326,6 +382,7 @@ public class ReviewServiceImpl implements ReviewServicePort {
                 .staffReviewedAt(staffReview != null ? staffReview.getCreatedAt() : null)
                 .structureWarning(structure.isWarning())
                 .missingHeadings(structure.getMissingHeadings())
+                .aiGenerated(isAiGenerated(latestVersion))
                 .build();
     }
 
@@ -371,6 +428,57 @@ public class ReviewServiceImpl implements ReviewServicePort {
         };
     }
 
+    private boolean isAiGenerated(DocumentVersion version) {
+        if (version == null) {
+            return false;
+        }
+        if (version.getActorRole() == ActorRole.AI) {
+            return true;
+        }
+        String trigger = version.getTriggerType() == null ? "" : version.getTriggerType().toUpperCase();
+        return trigger.contains("AI") || trigger.contains("DRIFT") || trigger.contains("AUTO");
+    }
+
+    private String formatSectionComments(StaffActionRequest request) {
+        if (request == null || request.getSectionComments() == null) {
+            return "";
+        }
+        StringBuilder block = new StringBuilder();
+        for (StaffActionRequest.SectionComment item : request.getSectionComments()) {
+            if (item == null || item.getDetailedComment() == null || item.getDetailedComment().isBlank()) {
+                continue;
+            }
+            String heading = item.getTextSegment() == null || item.getTextSegment().isBlank()
+                    ? "Mục"
+                    : item.getTextSegment().trim();
+            if (block.length() > 0) {
+                block.append('\n');
+            }
+            block.append("- [").append(heading).append("] ").append(item.getDetailedComment().trim());
+        }
+        return block.toString();
+    }
+
+    private void saveSectionComments(Long reviewId, StaffActionRequest request) {
+        if (reviewCommentRepository == null || reviewId == null || request == null || request.getSectionComments() == null) {
+            return;
+        }
+        for (StaffActionRequest.SectionComment item : request.getSectionComments()) {
+            if (item == null || item.getDetailedComment() == null || item.getDetailedComment().isBlank()) {
+                continue;
+            }
+            String segment = item.getTextSegment() == null ? "" : item.getTextSegment().trim();
+            if (segment.length() > 255) {
+                segment = segment.substring(0, 255);
+            }
+            reviewCommentRepository.save(ReviewCommentEntity.builder()
+                    .reviewId(reviewId)
+                    .textSegment(segment)
+                    .detailedComment(item.getDetailedComment().trim())
+                    .build());
+        }
+    }
+
     private String extractAction(String primary, String fallback) {
         if (primary != null && !primary.isBlank()) {
             return primary;
@@ -402,6 +510,8 @@ public class ReviewServiceImpl implements ReviewServicePort {
                 .hash(v.getHash())
                 .prevHash(v.getPrevHash())
                 .createdAt(v.getCreatedAt())
+                .commitHash(v.getCommitHash())
+                .commitUrl(v.getCommitUrl())
                 .build();
     }
 

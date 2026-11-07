@@ -7,6 +7,9 @@ import com.example.livingdocs_backend.domain.repository.AuditLogRepositoryPort;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
+import java.util.List;
+
 @Service
 @RequiredArgsConstructor
 public class AuditServiceImpl implements AuditServicePort {
@@ -50,6 +53,16 @@ public class AuditServiceImpl implements AuditServicePort {
     @Override
     public java.util.List<AuditLog> getAuditLogsForResource(String resourceType, String resourceId) {
         return auditLogRepositoryPort.findByResourceTypeAndResourceId(resourceType, resourceId);
+    }
+
+    @Override
+    public List<AuditLog> search(String action, Instant from, Instant to) {
+        String wanted = action == null ? "" : action.trim().toUpperCase();
+        return auditLogRepositoryPort.findRecent().stream()
+                .filter(log -> wanted.isEmpty() || (log.getAction() != null && log.getAction().name().equals(wanted)))
+                .filter(log -> from == null || (log.getCreatedAt() != null && !log.getCreatedAt().isBefore(from)))
+                .filter(log -> to == null || (log.getCreatedAt() != null && !log.getCreatedAt().isAfter(to)))
+                .toList();
     }
 
     private void record(Long actorId, AuditAction action, String resourceType,

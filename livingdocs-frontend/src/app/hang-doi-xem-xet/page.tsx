@@ -5,9 +5,31 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AppShell } from "@/components/AppShell";
 import { documentService } from "@/services/documentService";
+import { reviewService, type ReviewQueueItem } from "@/services/reviewService";
 import { codeEntityService, type CodeEntityDto } from "@/services/codeEntityService";
 import { repoService, type RepoItem } from "@/services/repoService";
-import type { DocumentDetail, DocumentItem } from "@/types/document";
+import type { DocumentDetail } from "@/types/document";
+
+function splitMarkdownSections(markdown: string): { heading: string; body: string }[] {
+  const lines = markdown.split(/\r?\n/);
+  const sections: { heading: string; body: string }[] = [];
+  let current = { heading: "Mở đầu", body: "" };
+  for (const line of lines) {
+    const match = /^(#{1,3})\s+(.+)$/.exec(line);
+    if (match) {
+      if (current.heading !== "Mở đầu" || current.body.trim()) {
+        sections.push(current);
+      }
+      current = { heading: match[2].trim(), body: "" };
+    } else {
+      current.body += (current.body ? "\n" : "") + line;
+    }
+  }
+  if (current.heading !== "Mở đầu" || current.body.trim()) {
+    sections.push(current);
+  }
+  return sections.length > 0 ? sections : [{ heading: "Nội dung", body: markdown }];
+}
 import {
   Inbox,
   Clock,
@@ -31,7 +53,8 @@ import {
 
 export default function HangDoiXemXetStaffPage() {
   // Danh sách tài liệu trong hàng đợi
-  const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [documents, setDocuments] = useState<ReviewQueueItem[]>([]);
+  const [sectionComments, setSectionComments] = useState<Record<string, string>>({});
   const [repositories, setRepositories] = useState<Record<number, RepoItem>>({});
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -62,13 +85,10 @@ export default function HangDoiXemXetStaffPage() {
     setLoading(true);
     setError(null);
     try {
-      const [allDocs, allRepos] = await Promise.all([
-        documentService.getDocuments(),
+      const [staffQueue, allRepos] = await Promise.all([
+        reviewService.getStaffQueue(),
         repoService.getRepositories().catch(() => [] as RepoItem[]),
       ]);
-
-      // Lọc các tài liệu ở trạng thái UNDER_REVIEW_STAFF
-      const staffQueue = allDocs.filter((d) => d.status === "UNDER_REVIEW_STAFF");
       setDocuments(staffQueue);
 
       const repoMap: Record<number, RepoItem> = {};
@@ -104,6 +124,7 @@ export default function HangDoiXemXetStaffPage() {
     setIsEditing(false);
     setActiveTab("preview");
     setReviewComment("");
+    setSectionComments({});
 
     try {
       const detail = await documentService.getDocumentById(docId);
@@ -166,8 +187,15 @@ export default function HangDoiXemXetStaffPage() {
   const handleDecision = async (decision: "APPROVE" | "REJECT") => {
     if (!selectedDocDetail) return;
 
-    if (decision === "REJECT" && !reviewComment.trim()) {
-      setError("Vui lòng nhập lý do từ chối vào ô nhận xét để gửi lại tác giả chỉnh sửa.");
+    const filledSections = Object.entries(sectionComments)
+      .filter(([, text]) => text.trim())
+      .map(([textSegment, detailedComment]) => ({
+        textSegment,
+        detailedComment: detailedComment.trim(),
+      }));
+
+    if (decision === "REJECT" && !reviewComment.trim() && filledSections.length === 0) {
+      setError("Vui lòng nhập lý do từ chối để trả tài liệu về nhà phát triển.");
       return;
     }
 
@@ -176,14 +204,15 @@ export default function HangDoiXemXetStaffPage() {
     setActionSuccessMessage(null);
 
     try {
-      await documentService.processStaffReview(selectedDocDetail.docId, {
+      await reviewService.processStaffAction(selectedDocDetail.docId, {
         decision,
-        comment: reviewComment.trim() || (decision === "APPROVE" ? "Staff đã đối chiếu AST và phê duyệt chuyển Manager." : "Yêu cầu chỉnh sửa lại."),
+        comment: reviewComment.trim() || (decision === "APPROVE" ? "Staff đã đối chiếu AST và phê duyệt chuyển Manager." : "Yêu cầu nhà phát triển chỉnh sửa lại."),
+        sectionComments: filledSections,
       });
 
       const successText = decision === "APPROVE"
-        ? `Tài liệu "${selectedDocDetail.title}" đã được duyệt thành công và chuyển sang Manager (UNDER_REVIEW_MANAGER)!`
-        : `Tài liệu "${selectedDocDetail.title}" đã bị từ chối và chuyển sang trạng thái REJECTED kèm lý do.`;
+        ? `Tài liệu "${selectedDocDetail.title}" đã được duyệt và chuyển Manager (UNDER_REVIEW_MANAGER).`
+        : `Tài liệu "${selectedDocDetail.title}" đã bị từ chối (REJECTED) và trả về nhà phát triển kèm lý do.`;
 
       setActionSuccessMessage(successText);
       setSelectedDocId(null);
@@ -420,6 +449,21 @@ export default function HangDoiXemXetStaffPage() {
                                 Thiếu đề mục bắt buộc
                               </span>
                             )}
+                            {doc.aiGenerated && (
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  background: "#ecfdf5",
+                                  color: "#0f766e",
+                                  border: "1px solid #99f6e4",
+                                  padding: "2px 8px",
+                                  borderRadius: 4,
+                                }}
+                              >
+                                AI tạo / cập nhật
+                              </span>
+                            )}
                             <span style={{ fontSize: 11, color: "#64748b", background: "#f1f5f9", padding: "2px 6px", borderRadius: 4 }}>
                               v{doc.currentVersion}
                             </span>
@@ -602,10 +646,31 @@ export default function HangDoiXemXetStaffPage() {
                   {/* Vùng hiển thị nội dung tài liệu */}
                   <div style={{ padding: 18, maxHeight: "560px", overflowY: "auto" }}>
                     {activeTab === "preview" ? (
-                      <div className="markdown-viewer" style={{ fontSize: 13, lineHeight: 1.6 }}>
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {editingContent || selectedDocDetail?.latestVersion?.content || "Không có nội dung."}
-                        </ReactMarkdown>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                        {splitMarkdownSections(editingContent || selectedDocDetail?.latestVersion?.content || "").map((section) => (
+                          <div key={section.heading} style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: 12 }}>
+                            <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0f766e", margin: "0 0 8px" }}>
+                              {section.heading}
+                            </h3>
+                            <div className="markdown-viewer" style={{ fontSize: 13, lineHeight: 1.6 }}>
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {section.body.trim() || "_Mục này chưa có nội dung._"}
+                              </ReactMarkdown>
+                            </div>
+                            <label style={{ fontSize: 11, fontWeight: 600, color: "#475569", display: "block", marginTop: 8 }}>
+                              Nhận xét mục này
+                            </label>
+                            <textarea
+                              className="ld-input"
+                              style={{ minHeight: 52, fontSize: 12, marginTop: 4, background: "#ffffff" }}
+                              placeholder={`Nhận xét cho "${section.heading}"...`}
+                              value={sectionComments[section.heading] || ""}
+                              onChange={(e) =>
+                                setSectionComments((prev) => ({ ...prev, [section.heading]: e.target.value }))
+                              }
+                            />
+                          </div>
+                        ))}
                       </div>
                     ) : (
                       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -786,7 +851,7 @@ export default function HangDoiXemXetStaffPage() {
                         ) : (
                           <>
                             <CheckCircle size={14} />
-                            Phê duyệt & Chuyển Manager
+                            Phê duyệt trình quản lý
                           </>
                         )}
                       </button>
@@ -819,7 +884,7 @@ export default function HangDoiXemXetStaffPage() {
                         ) : (
                           <>
                             <XCircle size={14} />
-                            Từ chối tài liệu
+                            Từ chối trả về nhà phát triển
                           </>
                         )}
                       </button>

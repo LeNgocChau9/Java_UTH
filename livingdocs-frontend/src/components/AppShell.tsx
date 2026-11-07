@@ -90,6 +90,12 @@ const NAV: NavItem[] = [
     roles: ["DEVELOPER", "STAFF", "MANAGER", "TECH_LEAD", "ADMIN"],
   },
   {
+    href: "/nhat-ky-he-thong",
+    label: "Nhật ký kiểm toán",
+    icon: <History size={16} />,
+    roles: ["TECH_LEAD", "ADMIN"],
+  },
+  {
     href: "/kho-luu-tru",
     label: "Kho lưu trữ",
     icon: <Archive size={16} />,
@@ -499,7 +505,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     {
       title: "Admin",
       role: "ADMIN",
-      items: NAV.filter((n) => n.roles.includes("ADMIN") && !n.roles.includes("TECH_LEAD")),
+      items: NAV.filter((n) => n.roles.includes("ADMIN") && (!n.roles.includes("TECH_LEAD") || n.href === "/nhat-ky-he-thong")),
     },
   ];
 

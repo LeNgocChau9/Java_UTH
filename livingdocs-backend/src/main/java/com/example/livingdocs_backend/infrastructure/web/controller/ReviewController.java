@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
@@ -26,12 +27,14 @@ public class ReviewController {
     private final ReviewServicePort reviewServicePort;
 
     @GetMapping("/staff/queue")
+    @PreAuthorize("hasAnyRole('STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Lấy hàng đợi rà soát của Staff", description = "Lấy danh sách toàn bộ tài liệu đang ở trạng thái UNDER_REVIEW_STAFF kèm thông tin tác giả và kho lưu trữ (repo).")
     public ResponseEntity<List<ReviewQueueItemResponse>> getStaffQueue() {
         return ResponseEntity.ok(reviewServicePort.getStaffQueue());
     }
 
     @PostMapping("/{id}/staff-action")
+    @PreAuthorize("hasAnyRole('STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Xử lý hành động của Staff", description = "Staff hoặc Manager duyệt cấp 1 (chuyển sang UNDER_REVIEW_MANAGER kèm ghi chú) hoặc từ chối (chuyển sang REJECTED).")
     public ResponseEntity<ReviewActionResponse> handleStaffAction(
             @PathVariable Long id,
@@ -41,19 +44,24 @@ public class ReviewController {
 
         Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
         String actorEmail = userPrincipal != null ? userPrincipal.getEmail() : null;
-        String actorRole = resolveRole(userPrincipal, request != null ? request.getActorRole() : null, roleHeader, "STAFF");
+        String actorRole = principalRole(userPrincipal);
+        if (actorRole == null) {
+            actorRole = resolveRole(null, request != null ? request.getActorRole() : null, roleHeader, "STAFF");
+        }
 
         return ResponseEntity.ok(reviewServicePort.handleStaffAction(id, request, actorId, actorRole, actorEmail));
     }
 
     @GetMapping("/manager/queue")
-    @Operation(summary = "Lấy hàng đợi phê duyệt của Manager", description = "Lấy danh sách toàn bộ tài liệu đang ở trạng thái UNDER_REVIEW_MANAGER chờ Manager ký duyệt xuất bản.")
+    @PreAuthorize("hasAnyRole('MANAGER','TECH_LEAD','ADMIN')")
+    @Operation(summary = "Lấy hàng đợi phê duyệt của Manager", description = "Tài liệu Staff đã duyệt (UNDER_REVIEW_MANAGER), kèm nhận xét Staff. Chỉ xuất bản khi Manager đồng ý.")
     public ResponseEntity<List<ReviewQueueItemResponse>> getManagerQueue() {
         return ResponseEntity.ok(reviewServicePort.getManagerQueue());
     }
 
     @PostMapping("/{id}/manager-action")
-    @Operation(summary = "Xử lý hành động của Manager", description = "Manager duyệt cấp 2 (phê duyệt xuất bản -> PUBLISHED) hoặc trả về (-> REJECTED). Chỉ Manager mới có quyền.")
+    @PreAuthorize("hasAnyRole('MANAGER','TECH_LEAD','ADMIN')")
+    @Operation(summary = "Phê duyệt cấp cuối của Manager", description = "PUBLISH chuyển PUBLISHED. commitToGithub=true thì đẩy file .md lên branch mặc định qua GitHub Contents API. RETURN_STAFF yêu cầu sửa. REJECT từ chối. Vai trò lấy từ JWT.")
     public ResponseEntity<ReviewActionResponse> handleManagerAction(
             @PathVariable Long id,
             @RequestBody(required = false) ManagerActionRequest request,
@@ -62,9 +70,20 @@ public class ReviewController {
 
         Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
         String actorEmail = userPrincipal != null ? userPrincipal.getEmail() : null;
-        String actorRole = resolveRole(userPrincipal, request != null ? request.getActorRole() : null, roleHeader, "MANAGER");
+        String actorRole = principalRole(userPrincipal);
+        if (actorRole == null) {
+            actorRole = resolveRole(null, request != null ? request.getActorRole() : null, roleHeader, "MANAGER");
+        }
 
         return ResponseEntity.ok(reviewServicePort.handleManagerAction(id, request, actorId, actorRole, actorEmail));
+    }
+
+    private String principalRole(UserPrincipal userPrincipal) {
+        if (userPrincipal == null || userPrincipal.getAuthorities() == null || userPrincipal.getAuthorities().isEmpty()) {
+            return null;
+        }
+        String auth = userPrincipal.getAuthorities().iterator().next().getAuthority();
+        return auth.startsWith("ROLE_") ? auth.substring(5) : auth;
     }
 
     private String resolveRole(UserPrincipal userPrincipal, String requestRole, String headerRole, String defaultRole) {

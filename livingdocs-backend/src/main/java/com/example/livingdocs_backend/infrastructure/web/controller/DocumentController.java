@@ -6,8 +6,9 @@ import com.example.livingdocs_backend.application.dto.RegenerateEntityDocRespons
 import com.example.livingdocs_backend.application.dto.ai.AiDocGenerateRequestDto;
 import com.example.livingdocs_backend.application.dto.ai.AiDocGenerateResponseDto;
 import com.example.livingdocs_backend.application.port.AiDocumentationServicePort;
-
+import com.example.livingdocs_backend.application.port.AuditServicePort;
 import com.example.livingdocs_backend.application.port.DocumentServicePort;
+import com.example.livingdocs_backend.domain.model.AuditAction;
 import com.example.livingdocs_backend.infrastructure.security.UserPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -20,6 +21,7 @@ import com.example.livingdocs_backend.infrastructure.persistence.repository.Spri
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocCodeLinkRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
@@ -37,6 +39,7 @@ public class DocumentController {
     private final AiDocumentationServicePort aiDocumentationServicePort;
     private final SpringDataDocCodeLinkRepository docCodeLinkRepository;
     private final SpringDataCodeEntityRepository codeEntityRepository;
+    private final AuditServicePort auditServicePort;
 
     @PostMapping
     @Operation(summary = "Tạo tài liệu mới", description = "Tạo mới tài liệu và tự động tạo phiên bản v1 kèm chuỗi băm khởi tạo (Genesis Hash).")
@@ -77,6 +80,7 @@ public class DocumentController {
     }
 
     @PostMapping("/{docId}/staff-review")
+    @PreAuthorize("hasAnyRole('STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Staff đánh giá tài liệu (Duyệt cấp 1)", description = "Chỉ Staff hoặc Manager mới có quyền duyệt cấp 1 để chuyển tài liệu từ UNDER_REVIEW_STAFF sang UNDER_REVIEW_MANAGER hoặc REJECTED.")
     public ResponseEntity<DocumentResponse> processStaffReview(
             @PathVariable Long docId,
@@ -90,6 +94,7 @@ public class DocumentController {
     }
 
     @PostMapping("/{docId}/manager-review")
+    @PreAuthorize("hasAnyRole('MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Manager phê duyệt tài liệu (Duyệt cấp 2)", description = "Chỉ Manager mới có quyền duyệt cấp 2: Phê duyệt xuất bản (PUBLISHED + push GitHub commit), Trả lại Staff (UNDER_REVIEW_STAFF) hoặc Từ chối (REJECTED).")
     public ResponseEntity<DocumentResponse> processManagerReview(
             @PathVariable Long docId,
@@ -158,6 +163,7 @@ public class DocumentController {
     }
 
     @PostMapping("/{docId}/rollback/{targetVersion}")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Khôi phục tài liệu về phiên bản chỉ định", description = "Khôi phục nội dung tài liệu về một phiên bản chỉ định trong quá khứ. Tự động tạo phiên bản mới tiếp theo để bảo toàn tính bất biến và toàn vẹn chuỗi băm lịch sử.")
     public ResponseEntity<RollbackResponse> rollbackToVersion(
             @PathVariable Long docId,
@@ -174,6 +180,7 @@ public class DocumentController {
     }
 
     @PostMapping("/{docId}/rollback")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Khôi phục tài liệu về phiên bản chỉ định (qua Request Body)", description = "Khôi phục nội dung tài liệu với tham số chi tiết trong Request Body bao gồm số phiên bản mục tiêu, lý do khôi phục và vai trò thực hiện.")
     public ResponseEntity<RollbackResponse> rollbackWithBody(
             @PathVariable Long docId,
@@ -190,6 +197,7 @@ public class DocumentController {
     }
 
     @PostMapping("/{docId}/publish-to-github")
+    @PreAuthorize("hasAnyRole('MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Xuất bản tài liệu lên GitHub", description = "Khi Manager duyệt xuất bản, gọi GitHub Contents API (PUT /repos/{owner}/{repo}/contents/{path}) với token người dùng, tự động tạo commit chứa file Markdown vào repo và lưu commit hash, link commit vào bảng document_versions.")
     public ResponseEntity<PublishToGitHubResponse> publishToGitHub(
             @PathVariable Long docId,
@@ -217,6 +225,7 @@ public class DocumentController {
     }
 
     @PostMapping("/generate-ai")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(
             summary = "Điều phối sinh tài liệu AI theo 3 phạm vi (FILE, PACKAGE, REPOSITORY)",
             description = "Hỗ trợ 3 phạm vi (FILE, PACKAGE, REPOSITORY): lấy mã nguồn/AST, gọi FastAPI (/v1/docs/generate), lưu vào bảng documents & document_versions (trạng thái DRAFT) và lưu liên kết vào bảng doc_code_links."
@@ -228,6 +237,11 @@ public class DocumentController {
         Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
         String actorRole = extractRole(userPrincipal);
         AiDocGenerateResponseDto response = aiDocumentationServicePort.generateDocumentation(request, actorId, actorRole);
+        if (auditServicePort != null) {
+            String docId = response != null && response.docId() != null ? response.docId().toString() : null;
+            auditServicePort.recordSecurityAction(actorId, AuditAction.AI_DOCUMENT_GENERATED, "DOCUMENT", docId,
+                    "Sinh tài liệu AI. Phạm vi: " + (request != null ? request.scope() : ""));
+        }
         return ResponseEntity.ok(response);
     }
 

@@ -40,4 +40,10 @@ public class DocumentVersionResponse {
 
     @Schema(description = "Thời điểm tạo phiên bản")
     private Instant createdAt;
+
+    @Schema(description = "Commit Git đã kích hoạt phiên bản này")
+    private String commitHash;
+
+    @Schema(description = "Link commit trên GitHub")
+    private String commitUrl;
 }

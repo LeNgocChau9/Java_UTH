@@ -91,6 +91,9 @@ public class ReviewQueueItemResponse {
     @Schema(description = "Đề mục bắt buộc còn thiếu, Staff cần xem trước khi duyệt")
     private java.util.List<String> missingHeadings;
 
+    @Schema(description = "true khi phiên bản mới nhất do AI tạo hoặc cập nhật tự động")
+    private Boolean aiGenerated;
+
     @Data
     @Builder
     @NoArgsConstructor

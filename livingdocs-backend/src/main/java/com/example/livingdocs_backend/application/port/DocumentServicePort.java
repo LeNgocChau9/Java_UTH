@@ -96,6 +96,12 @@ public interface DocumentServicePort {
     PublishToGitHubResponse publishToGitHub(Long docId, PublishToGitHubRequest request, Long actorId);
 
     /**
+     * Đẩy nội dung Markdown hiện tại lên branch mặc định bằng GitHub Contents API.
+     * Ném IllegalArgumentException nếu không tạo được commit.
+     */
+    String commitMarkdownToDefaultBranch(Long docId);
+
+    /**
      * Cập nhật lại / tạo lại tài liệu của một hàm hoặc lớp cụ thể (Regenerate Entity Doc).
      * Trích xuất mã nguồn hàm/lớp, gọi AI Engine (/v1/docs/rewrite-suggestion) viết lại mô tả của hàm đó
      * và cập nhật trực tiếp vào tài liệu tổng thể mà không cần sinh lại toàn bộ file.

@@ -5,11 +5,12 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AppShell } from "@/components/AppShell";
 import { documentService } from "@/services/documentService";
+import { reviewService, type ReviewQueueItem } from "@/services/reviewService";
 import { repoService, type RepoItem } from "@/services/repoService";
 import type {
-  DocumentItem,
   DocumentDetail,
   DocumentAuditLogItem,
+  GroundingEvidenceItem,
 } from "@/types/document";
 import {
   CheckCircle,
@@ -30,8 +31,10 @@ import {
 } from "lucide-react";
 
 export default function TrungTamPheDuyetManagerPage() {
-  // Danh sách tài liệu UNDER_REVIEW_MANAGER
-  const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  // Tài liệu Staff đã duyệt, đang chờ Manager (UNDER_REVIEW_MANAGER)
+  const [documents, setDocuments] = useState<ReviewQueueItem[]>([]);
+  const [codeLinks, setCodeLinks] = useState<GroundingEvidenceItem[]>([]);
+  const [commitToGithub, setCommitToGithub] = useState(false);
   const [repositories, setRepositories] = useState<Record<number, RepoItem>>({});
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,15 +64,10 @@ export default function TrungTamPheDuyetManagerPage() {
     setLoading(true);
     setError(null);
     try {
-      const [allDocs, allRepos] = await Promise.all([
-        documentService.getDocuments(),
+      const [managerQueue, allRepos] = await Promise.all([
+        reviewService.getManagerQueue(),
         repoService.getRepositories().catch(() => [] as RepoItem[]),
       ]);
-
-      // Lọc các tài liệu đang ở trạng thái UNDER_REVIEW_MANAGER
-      const managerQueue = allDocs.filter(
-        (d) => d.status === "UNDER_REVIEW_MANAGER"
-      );
       setDocuments(managerQueue);
 
       const repoMap: Record<number, RepoItem> = {};
@@ -114,13 +112,16 @@ export default function TrungTamPheDuyetManagerPage() {
     setActionSuccessMsg(null);
     setActionErrorMsg(null);
     setManagerComment("");
+    setCodeLinks([]);
     try {
-      const [detail, logs] = await Promise.all([
+      const [detail, logs, links] = await Promise.all([
         documentService.getDocumentById(docId),
         documentService.getDocumentAuditTrail(docId).catch(() => [] as DocumentAuditLogItem[]),
+        documentService.getDocumentCodeLinks(docId).catch(() => [] as GroundingEvidenceItem[]),
       ]);
       setSelectedDocDetail(detail);
       setAuditLogs(logs);
+      setCodeLinks(links);
     } catch (err) {
       console.error("Lỗi khi tải chi tiết tài liệu:", err);
       setActionErrorMsg("Không thể tải chi tiết tài liệu và nhật ký Audit trail.");
@@ -159,17 +160,20 @@ export default function TrungTamPheDuyetManagerPage() {
         : "Từ chối tài liệu.";
 
     try {
-      await documentService.reviewByManager(selectedDocId, {
+      const result = await reviewService.processManagerAction(selectedDocId, {
         decision,
         comment: managerComment.trim() || defaultComment,
+        commitToGithub: decision === "PUBLISH" && commitToGithub,
       });
 
       const successText =
         decision === "PUBLISH"
-          ? "🎉 Đã phê duyệt và xuất bản tài liệu thành công (PUBLISHED). Đã kích hoạt đẩy commit lên GitHub!"
+          ? result.commitSha
+            ? `Đã phê duyệt (PUBLISHED) và đẩy file .md lên GitHub. Commit: ${result.commitSha}`
+            : "Đã phê duyệt xuất bản (PUBLISHED). Không đẩy file lên GitHub."
           : decision === "RETURN_STAFF"
-          ? "↩️ Đã trả tài liệu về hàng đợi Staff xem xét lại (UNDER_REVIEW_STAFF)."
-          : "🚫 Đã từ chối tài liệu (REJECTED).";
+          ? "Đã yêu cầu sửa đổi và trả tài liệu về Staff (UNDER_REVIEW_STAFF)."
+          : "Đã từ chối tài liệu (REJECTED). Tài liệu không được xuất bản.";
 
       setActionSuccessMsg(successText);
       setManagerComment("");
@@ -180,8 +184,16 @@ export default function TrungTamPheDuyetManagerPage() {
       }, 1200);
     } catch (err: unknown) {
       console.error("Lỗi xử lý quyết định Manager:", err);
+      const apiMessage =
+        typeof err === "object" &&
+        err !== null &&
+        "response" in err &&
+        typeof (err as { response?: { data?: { message?: string } } }).response?.data?.message ===
+          "string"
+          ? (err as { response: { data: { message: string } } }).response.data.message
+          : null;
       setActionErrorMsg(
-        "Thao tác thất bại. Vui lòng kiểm tra quyền Manager hoặc kết nối mạng."
+        apiMessage || "Thao tác thất bại. Chỉ Manager mới xuất bản được, hoặc GitHub token không hợp lệ."
       );
     } finally {
       setProcessingAction(null);
@@ -199,6 +211,11 @@ export default function TrungTamPheDuyetManagerPage() {
     );
     return staffLog || null;
   }, [auditLogs]);
+
+  const selectedQueue = useMemo(
+    () => documents.find((d) => d.docId === selectedDocId) ?? null,
+    [documents, selectedDocId]
+  );
 
   // Lọc tài liệu theo thanh tìm kiếm
   const filteredDocs = useMemo(() => {
@@ -711,11 +728,16 @@ export default function TrungTamPheDuyetManagerPage() {
                       >
                         Nhận xét từ Staff (Duyệt cấp 1):
                       </p>
-                      {staffReviewInfo && (
+                      {(selectedQueue?.staffReviewer || staffReviewInfo) && (
                         <span style={{ fontSize: 11, color: "#64748b" }}>
-                          {new Date(staffReviewInfo.createdAt).toLocaleString(
-                            "vi-VN"
-                          )}
+                          {selectedQueue?.staffReviewer
+                            ? selectedQueue.staffReviewer
+                            : ""}
+                          {selectedQueue?.staffReviewedAt
+                            ? ` · ${new Date(selectedQueue.staffReviewedAt).toLocaleString("vi-VN")}`
+                            : staffReviewInfo
+                            ? new Date(staffReviewInfo.createdAt).toLocaleString("vi-VN")
+                            : ""}
                         </span>
                       )}
                     </div>
@@ -727,10 +749,41 @@ export default function TrungTamPheDuyetManagerPage() {
                         lineHeight: 1.5,
                       }}
                     >
-                      {staffReviewInfo?.detail ||
-                        "Staff đã hoàn thành đối chiếu mã nguồn và xác nhận tài liệu đạt chuẩn, gửi lên Manager phê duyệt xuất bản."}
+                      {selectedQueue?.staffComment ||
+                        staffReviewInfo?.detail ||
+                        "Staff chưa để lại nhận xét."}
                     </p>
                   </div>
+                </div>
+
+                <div
+                  style={{
+                    marginTop: 12,
+                    padding: "12px 14px",
+                    background: "#ffffff",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 8,
+                  }}
+                >
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", margin: "0 0 8px" }}>
+                    Bằng chứng AST ({codeLinks.length})
+                  </p>
+                  {codeLinks.length === 0 ? (
+                    <p style={{ fontSize: 12, color: "#64748b", margin: 0 }}>
+                      Tài liệu chưa gắn thực thể mã nguồn trong doc_code_links.
+                    </p>
+                  ) : (
+                    <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: "#334155" }}>
+                      {codeLinks.map((link) => (
+                        <li key={link.linkId ?? `${link.filePath}-${link.methodName}`} style={{ marginBottom: 4 }}>
+                          <code>{link.filePath}</code>
+                          {link.className ? ` · ${link.className}` : ""}
+                          {link.methodName ? `.${link.methodName}` : ""}
+                          {link.startLine ? ` (dòng ${link.startLine}${link.endLine ? `–${link.endLine}` : ""})` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               </div>
 
@@ -1028,8 +1081,28 @@ export default function TrungTamPheDuyetManagerPage() {
                   }}
                   value={managerComment}
                   onChange={(e) => setManagerComment(e.target.value)}
-                  placeholder="Nhập nhận xét phê duyệt xuất bản, hoặc lý do yêu cầu Staff xem xét lại / từ chối..."
+                  placeholder="Nhập nhận xét phê duyệt xuất bản, hoặc lý do yêu cầu sửa / từ chối..."
                 />
+
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    fontSize: 13,
+                    color: "#134e4a",
+                    marginBottom: 14,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={commitToGithub}
+                    onChange={(e) => setCommitToGithub(e.target.checked)}
+                  />
+                  <GitBranch size={14} />
+                  Commit vào GitHub Repository (file .md, branch{" "}
+                  {selectedQueue?.defaultBranch || selectedRepo?.defaultBranch || "mặc định"})
+                </label>
 
                 <div
                   style={{
@@ -1059,8 +1132,8 @@ export default function TrungTamPheDuyetManagerPage() {
                   >
                     <CheckCircle size={16} />
                     {processingAction === "PUBLISH"
-                      ? "Đang xuất bản & Đẩy commit..."
-                      : "Phê duyệt xuất bản (Approve & Publish)"}
+                      ? "Đang phê duyệt..."
+                      : "Phê duyệt & Xuất bản"}
                   </button>
 
                   {/* Nút 2: Từ chối / Trả lại Staff */}
@@ -1083,8 +1156,8 @@ export default function TrungTamPheDuyetManagerPage() {
                   >
                     <RotateCcw size={15} />
                     {processingAction === "RETURN_STAFF"
-                      ? "Đang trả lại Staff..."
-                      : "Từ chối / Trả lại Staff"}
+                      ? "Đang gửi yêu cầu sửa..."
+                      : "Yêu cầu sửa đổi"}
                   </button>
 
                   {/* Nút 3: Từ chối hẳn (REJECT) */}

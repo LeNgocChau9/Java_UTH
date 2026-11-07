@@ -16,6 +16,8 @@ export interface DocumentVersionItem {
   hash: string;
   prevHash: string;
   createdAt: string;
+  commitHash?: string | null;
+  commitUrl?: string | null;
 }
 
 export interface DocumentItem {

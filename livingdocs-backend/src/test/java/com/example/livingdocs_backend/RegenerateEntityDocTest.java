@@ -32,6 +32,7 @@ class RegenerateEntityDocTest {
                                 documentServicePort,
                                 null,
                                 null,
+                                null,
                                 null);
         }
 

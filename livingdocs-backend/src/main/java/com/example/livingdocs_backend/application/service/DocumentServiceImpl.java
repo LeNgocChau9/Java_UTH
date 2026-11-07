@@ -485,9 +485,12 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 "Duyệt cấp 2: Manager {} (vai trò: {}) đã quyết định tài liệu ID: {} -> Quyết định: {}, Trạng thái mới: {}, Ghi chú: {}",
                 actorId, actorRole, docId, decisionStr, nextStatus, comment);
 
-        // Kích hoạt xuất bản và đẩy commit lên GitHub khi chuyển sang PUBLISHED
+        // Chỉ đẩy GitHub khi xuất bản và Manager không tắt tùy chọn commit.
+        // commitToGithub null giữ hành vi cũ: luôn đẩy.
+        boolean commitRequested = request == null || request.getCommitToGithub() == null
+                || Boolean.TRUE.equals(request.getCommitToGithub());
         String gitCommitSha = null;
-        if (nextStatus == DocumentStatus.PUBLISHED && latest != null) {
+        if (nextStatus == DocumentStatus.PUBLISHED && latest != null && commitRequested) {
             gitCommitSha = pushCommitToGitHub(saved, latest);
         }
 
@@ -682,6 +685,8 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 .triggerType(triggerType)
                 .prevHash(prevHash)
                 .hash(newHash)
+                .commitHash(targetVersionEntity.getCommitHash())
+                .commitUrl(targetVersionEntity.getCommitUrl())
                 .createdAt(Instant.now())
                 .build();
         DocumentVersion savedVersion = documentVersionRepositoryPort.save(newVersion);
@@ -709,14 +714,15 @@ public class DocumentServiceImpl implements DocumentServicePort {
 
         // Tự động ghi nhận Changelog khi Khôi phục (Rollback)
         if (changelogServicePort != null) {
-            String summary = "Khôi phục tài liệu về phiên bản v" + targetVersion + " (tạo phiên bản mới v"
-                    + nextVersionNum + ")" + msgReason;
-            changelogServicePort.logChange(
+            changelogServicePort.recordRollback(
                     docId,
                     savedVersion.getVersionId(),
                     actorId,
                     role.name(),
-                    summary);
+                    targetVersion,
+                    nextVersionNum,
+                    reason,
+                    targetVersionEntity.getCommitHash());
         }
 
         String message = "Đã khôi phục thành công tài liệu về nội dung của phiên bản v" + targetVersion
@@ -892,6 +898,8 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 .hash(v.getHash())
                 .prevHash(v.getPrevHash())
                 .createdAt(v.getCreatedAt())
+                .commitHash(v.getCommitHash())
+                .commitUrl(v.getCommitUrl())
                 .build();
     }
 
@@ -929,6 +937,22 @@ public class DocumentServiceImpl implements DocumentServicePort {
             return List.of();
         }
         return changelogServicePort.getChangelogsByDocument(docId);
+    }
+
+    @Override
+    public String commitMarkdownToDefaultBranch(Long docId) {
+        Document doc = documentRepositoryPort.findById(docId)
+                .orElseThrow(() -> new DocumentNotFoundException(docId));
+        DocumentVersion latest = documentVersionRepositoryPort.findLatestByDocId(docId)
+                .orElseThrow(() -> new DocumentVersionNotFoundException(docId, doc.getCurrentVersion()));
+        String sha = pushCommitToGitHub(doc, latest);
+        if (!StringUtils.hasText(sha)) {
+            throw new IllegalArgumentException(
+                    "Không tạo được commit .md trên branch mặc định. Kiểm tra GitHub token và repository.");
+        }
+        latest.setCommitHash(sha);
+        documentVersionRepositoryPort.save(latest);
+        return sha;
     }
 
     /**

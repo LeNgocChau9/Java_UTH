@@ -11,6 +11,7 @@ import type {
   DocumentItem,
   DocumentVersionItem,
   IntegrityCheckResult,
+  ChangelogItem,
 } from "@/types/document";
 import {
   computeDocumentDiff,
@@ -51,28 +52,35 @@ const ACTOR_CONFIG: Record<
   { label: string; icon: React.ReactNode; bg: string; color: string; border: string }
 > = {
   AI: {
-    label: "AI Bot",
+    label: "AI",
+    icon: <Bot size={12} />,
+    bg: "#faf5ff",
+    color: "#7e22ce",
+    border: "#e9d5ff",
+  },
+  AI_AGENT: {
+    label: "AI",
     icon: <Bot size={12} />,
     bg: "#faf5ff",
     color: "#7e22ce",
     border: "#e9d5ff",
   },
   DEV: {
-    label: "Developer",
+    label: "Nhà phát triển",
     icon: <User size={12} />,
     bg: "#eff6ff",
     color: "#1d4ed8",
     border: "#bfdbfe",
   },
   STAFF: {
-    label: "Staff Reviewer",
+    label: "Nhân viên",
     icon: <Shield size={12} />,
     bg: "#fffbeb",
     color: "#b45309",
     border: "#fde68a",
   },
   MANAGER: {
-    label: "Manager",
+    label: "Quản lý",
     icon: <Award size={12} />,
     bg: "#ecfdf5",
     color: "#047857",
@@ -87,7 +95,17 @@ const TRIGGER_LABELS: Record<string, string> = {
   ROLLBACK: "Khôi phục phiên bản",
   AI_SYNC: "Đồng bộ từ Git",
   AI_GENERATE: "Tự động sinh bởi AI",
+  AUTO_DRIFT_AI_REWRITE: "AI cập nhật tự động theo cảnh báo drift",
+  STAFF_INLINE_EDIT: "Nhân viên sửa lỗi nhỏ khi xem xét",
 };
+
+function triggerLabel(triggerType: string | null | undefined): string {
+  if (!triggerType) return "Cập nhật";
+  if (triggerType.startsWith("ROLLBACK_TO_V")) {
+    return `Khôi phục nội dung ${triggerType.replace("ROLLBACK_TO_", "")}`;
+  }
+  return TRIGGER_LABELS[triggerType] || triggerType;
+}
 
 function VersionHistoryDiffContent() {
   const router = useRouter();
@@ -101,6 +119,7 @@ function VersionHistoryDiffContent() {
   const [allDocs, setAllDocs] = useState<DocumentItem[]>([]);
   const [docDetail, setDocDetail] = useState<DocumentDetail | null>(null);
   const [versions, setVersions] = useState<DocumentVersionItem[]>([]);
+  const [changelogs, setChangelogs] = useState<ChangelogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -164,16 +183,18 @@ function VersionHistoryDiffContent() {
 
       setVerifyingIntegrity(true);
       try {
-        const [detail, vers, integrity] = await Promise.all([
+        const [detail, vers, integrity, logs] = await Promise.all([
           documentService.getDocumentById(id),
           documentService.getDocumentVersions(id),
           documentService.verifyIntegrity(id).catch((err) => {
             console.warn("Không thể tự động kiểm tra toàn vẹn chuỗi băm:", err);
             return null;
           }),
+          documentService.getDocumentChangelogs(id).catch(() => [] as ChangelogItem[]),
         ]);
 
         setDocDetail(detail);
+        setChangelogs(logs);
         if (integrity) {
           setIntegrityResult(integrity);
         }
@@ -713,6 +734,16 @@ function VersionHistoryDiffContent() {
               </button>
             </div>
 
+            {changelogs.length > 0 && (
+              <div style={{ fontSize: 11, color: "#475569", margin: "8px 0", display: "flex", flexDirection: "column", gap: 4 }}>
+                {changelogs.slice(0, 3).map((log) => (
+                  <div key={log.id}>
+                    {new Date(log.createdAt).toLocaleString("vi-VN")} — {log.changeSummary}
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Hướng dẫn chọn bản A và B */}
             <div
               style={{
@@ -763,7 +794,7 @@ function VersionHistoryDiffContent() {
                   const isA = versionAId === ver.versionNum;
                   const isB = versionBId === ver.versionNum;
                   const actorMeta = ACTOR_CONFIG[ver.actorRole] || ACTOR_CONFIG.DEV;
-                  const triggerText = TRIGGER_LABELS[ver.triggerType] || ver.triggerType;
+                  const triggerText = triggerLabel(ver.triggerType);
 
                   return (
                     <div
@@ -861,8 +892,20 @@ function VersionHistoryDiffContent() {
                       </div>
 
                       {/* Dòng 2: Loại kích hoạt */}
-                      <div style={{ fontSize: 11, color: "#64748b", marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div style={{ fontSize: 11, color: "#64748b", marginBottom: 6, display: "flex", flexDirection: "column", gap: 3 }}>
                         <span style={{ fontWeight: 500 }}>{triggerText}</span>
+                        {ver.commitHash && (
+                          <span>
+                            Commit:{" "}
+                            {ver.commitUrl ? (
+                              <a href={ver.commitUrl} target="_blank" rel="noreferrer" style={{ color: "#0f766e" }}>
+                                {ver.commitHash.slice(0, 7)}
+                              </a>
+                            ) : (
+                              <code>{ver.commitHash.slice(0, 7)}</code>
+                            )}
+                          </span>
+                        )}
                       </div>
 
                       {/* Trạng thái xác thực toàn vẹn chuỗi băm của từng mắt xích phiên bản */}
@@ -1102,7 +1145,8 @@ function VersionHistoryDiffContent() {
                             <Eye size={12} />
                           </button>
 
-                          {/* Khôi phục (Rollback) */}
+                          {/* Khôi phục (Rollback) — bản mới nhất không cần khôi phục chính nó */}
+                          {!isLatest && (
                           <button
                             type="button"
                             onClick={() => {
@@ -1116,6 +1160,7 @@ function VersionHistoryDiffContent() {
                             <RotateCcw size={11} />
                             <span>Khôi phục</span>
                           </button>
+                          )}
                         </div>
                       </div>
                     </div>

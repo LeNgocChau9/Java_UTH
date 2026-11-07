@@ -5,7 +5,9 @@ import com.example.livingdocs_backend.application.dto.GitHubProfileRequest;
 import com.example.livingdocs_backend.application.dto.LoginRequest;
 import com.example.livingdocs_backend.application.dto.RegisterRequest;
 import com.example.livingdocs_backend.application.dto.UserProfileResponse;
+import com.example.livingdocs_backend.application.port.AuditServicePort;
 import com.example.livingdocs_backend.application.port.AuthServicePort;
+import com.example.livingdocs_backend.domain.model.AuditAction;
 import com.example.livingdocs_backend.infrastructure.config.GitHubOAuthProperties;
 import com.example.livingdocs_backend.infrastructure.github.GitHubOAuthClient;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity;
@@ -50,6 +52,7 @@ public class AuthController {
     private final com.example.livingdocs_backend.application.port.AdminUserServicePort adminUserServicePort;
     private final com.example.livingdocs_backend.domain.repository.UserRepositoryPort userRepositoryPort;
     private final com.example.livingdocs_backend.infrastructure.security.JwtTokenProvider jwtTokenProvider;
+    private final AuditServicePort auditServicePort;
 
     // Lưu tạm state -> userId/redirect trong bộ nhớ để đảm bảo không bị mất cookie khi đi qua Next.js proxy
     private final Map<String, Long> pendingLinkUsers = new ConcurrentHashMap<>();
@@ -223,6 +226,7 @@ public class AuthController {
                     conn.setStatus("CONNECTED");
                     conn.setUpdatedAt(Instant.now());
                     conn = gitHubConnectionRepository.save(conn);
+                    recordGitHubLink(linkUserId, conn);
 
                     // 2. Chuyển quyền sở hữu repo và gỡ liên kết GitHub trùng lặp khỏi tài khoản cũ (nếu có)
                     reassignAndRemoveDuplicateConnections(linkUserId, conn, identity);
@@ -276,6 +280,7 @@ public class AuthController {
                 conn.setStatus("CONNECTED");
                 conn.setUpdatedAt(Instant.now());
                 conn = gitHubConnectionRepository.save(conn);
+                recordGitHubLink(userId, conn);
 
                 autoSyncGitHubRepositories(workspaceId, conn);
             } catch (Exception connEx) {
@@ -290,6 +295,18 @@ public class AuthController {
         } catch (Exception ex) {
             response.sendRedirect(loginUrl + "?error=oauth_failed");
         }
+    }
+
+    private void recordGitHubLink(Long userId, GitHubConnectionEntity conn) {
+        if (auditServicePort == null || conn == null) {
+            return;
+        }
+        auditServicePort.recordSecurityAction(
+                userId,
+                AuditAction.GITHUB_LINKED,
+                "GITHUB_CONNECTION",
+                conn.getConnectionId() != null ? conn.getConnectionId().toString() : null,
+                "Liên kết GitHub @" + conn.getGithubUsername());
     }
 
     private void reassignAndRemoveDuplicateConnections(Long linkUserId,

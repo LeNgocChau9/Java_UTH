@@ -5,6 +5,7 @@ import com.example.livingdocs_backend.application.dto.ReviewActionResponse;
 import com.example.livingdocs_backend.application.dto.ReviewQueueItemResponse;
 import com.example.livingdocs_backend.application.dto.StaffActionRequest;
 import com.example.livingdocs_backend.application.port.AuditServicePort;
+import com.example.livingdocs_backend.application.port.DocumentServicePort;
 import com.example.livingdocs_backend.application.service.ReviewServiceImpl;
 import com.example.livingdocs_backend.domain.exception.DocumentNotFoundException;
 import com.example.livingdocs_backend.domain.exception.UnauthorizedDocumentReviewException;
@@ -17,7 +18,9 @@ import com.example.livingdocs_backend.domain.repository.DocumentRepositoryPort;
 import com.example.livingdocs_backend.domain.repository.DocumentVersionRepositoryPort;
 import com.example.livingdocs_backend.domain.repository.ReviewRepositoryPort;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.ReviewCommentEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataReviewCommentRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -54,6 +57,12 @@ class ReviewServiceTest {
 
     @Mock
     private AuditServicePort auditServicePort;
+
+    @Mock
+    private DocumentServicePort documentServicePort;
+
+    @Mock
+    private SpringDataReviewCommentRepository reviewCommentRepository;
 
     @InjectMocks
     private ReviewServiceImpl reviewService;
@@ -188,6 +197,34 @@ class ReviewServiceTest {
                     eq(201L), eq(10L),
                     eq(com.example.livingdocs_backend.domain.model.AuditAction.DOCUMENT_STAFF_REVIEWED),
                     contains("Staff đã phê duyệt tài liệu"));
+        }
+
+        @Test
+        @DisplayName("Staff lưu nhận xét theo từng mục vào review_comments khi duyệt")
+        void shouldSaveSectionCommentsOnApprove() {
+            when(documentRepositoryPort.findById(10L)).thenReturn(Optional.of(sampleStaffDoc));
+            when(documentRepositoryPort.save(any(Document.class))).thenAnswer(i -> i.getArgument(0));
+            when(documentVersionRepositoryPort.findLatestByDocId(10L)).thenReturn(Optional.of(sampleVersion1));
+            when(reviewRepositoryPort.save(any(Review.class))).thenAnswer(i -> {
+                Review r = i.getArgument(0);
+                r.setReviewId(503L);
+                return r;
+            });
+
+            StaffActionRequest request = StaffActionRequest.builder()
+                    .action("APPROVE")
+                    .comment("Đã rà soát.")
+                    .sectionComments(java.util.List.of(
+                            new StaffActionRequest.SectionComment("Luồng đăng nhập", "Thiếu bước hết hạn token.")))
+                    .build();
+
+            reviewService.handleStaffAction(10L, request, 201L, "STAFF", "staff@livingdocs.internal");
+
+            verify(reviewCommentRepository).save(argThat((ReviewCommentEntity c) ->
+                    c.getReviewId().equals(503L)
+                            && "Luồng đăng nhập".equals(c.getTextSegment())
+                            && c.getDetailedComment().contains("token")));
+            verify(reviewRepositoryPort).save(argThat(r -> r.getGeneralComment().contains("Luồng đăng nhập")));
         }
 
         @Test
@@ -347,6 +384,62 @@ class ReviewServiceTest {
                     eq(301L), eq(20L),
                     eq(com.example.livingdocs_backend.domain.model.AuditAction.DOCUMENT_REJECTED),
                     contains("Manager đã từ chối tài liệu"));
+            verify(documentServicePort, never()).commitMarkdownToDefaultBranch(any());
+        }
+
+        @Test
+        @DisplayName("Manager yêu cầu sửa (RETURN_STAFF) -> UNDER_REVIEW_STAFF, không xuất bản")
+        void shouldRequestChangesWithoutPublishing() {
+            when(documentRepositoryPort.findById(20L)).thenReturn(Optional.of(sampleManagerDoc));
+            when(documentRepositoryPort.save(any(Document.class))).thenAnswer(i -> i.getArgument(0));
+            when(documentVersionRepositoryPort.findLatestByDocId(20L)).thenReturn(Optional.of(sampleVersion1));
+            when(reviewRepositoryPort.save(any(Review.class))).thenAnswer(i -> {
+                Review r = i.getArgument(0);
+                r.setReviewId(603L);
+                return r;
+            });
+
+            ManagerActionRequest request = ManagerActionRequest.builder()
+                    .decision("RETURN_STAFF")
+                    .comment("Bổ sung ví dụ API.")
+                    .commitToGithub(true)
+                    .build();
+
+            ReviewActionResponse response = reviewService.handleManagerAction(
+                    20L, request, 301L, "MANAGER", "manager@livingdocs.internal");
+
+            assertEquals(DocumentStatus.UNDER_REVIEW_STAFF, response.getStatus());
+            assertNull(response.getCommitSha());
+            verify(documentRepositoryPort).save(argThat(d -> d.getStatus() == DocumentStatus.UNDER_REVIEW_STAFF));
+            verify(documentServicePort, never()).commitMarkdownToDefaultBranch(any());
+            verify(reviewRepositoryPort).save(argThat(r -> "CHANGES_REQUESTED".equals(r.getResult())));
+        }
+
+        @Test
+        @DisplayName("Phê duyệt kèm commitToGithub gọi Contents API trên branch mặc định")
+        void shouldCommitMarkdownOnlyWhenRequested() {
+            when(documentRepositoryPort.findById(20L)).thenReturn(Optional.of(sampleManagerDoc));
+            when(documentRepositoryPort.save(any(Document.class))).thenAnswer(i -> i.getArgument(0));
+            when(documentVersionRepositoryPort.findLatestByDocId(20L)).thenReturn(Optional.of(sampleVersion1));
+            when(reviewRepositoryPort.save(any(Review.class))).thenAnswer(i -> {
+                Review r = i.getArgument(0);
+                r.setReviewId(604L);
+                return r;
+            });
+            when(documentServicePort.commitMarkdownToDefaultBranch(20L)).thenReturn("sha-md-1");
+
+            ManagerActionRequest request = ManagerActionRequest.builder()
+                    .action("PUBLISH")
+                    .commitToGithub(true)
+                    .build();
+
+            ReviewActionResponse response = reviewService.handleManagerAction(
+                    20L, request, 301L, "MANAGER", "manager@livingdocs.internal");
+
+            assertEquals(DocumentStatus.PUBLISHED, response.getStatus());
+            assertEquals("sha-md-1", response.getCommitSha());
+            assertTrue(response.getMessage().contains("sha-md-1"));
+            verify(documentServicePort).commitMarkdownToDefaultBranch(20L);
         }
 
         @Test

@@ -26,4 +26,7 @@ public class ManagerActionRequest {
 
     @Schema(description = "Vai trò người thực hiện (tùy chọn nếu đã đăng nhập JWT)", example = "MANAGER")
     private String actorRole;
+
+    @Schema(description = "true thì gọi GitHub Contents API, đẩy file .md lên branch mặc định. false hoặc bỏ trống thì chỉ chuyển PUBLISHED.", example = "false")
+    private Boolean commitToGithub;
 }

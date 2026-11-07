@@ -6,6 +6,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 @Data
 @Builder
 @NoArgsConstructor
@@ -26,4 +28,18 @@ public class StaffActionRequest {
 
     @Schema(description = "Vai trò người thực hiện (tùy chọn nếu đã đăng nhập JWT)", example = "STAFF")
     private String actorRole;
+
+    @Schema(description = "Nhận xét gắn từng mục (heading) của tài liệu")
+    private List<SectionComment> sectionComments;
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class SectionComment {
+        @Schema(description = "Tiêu đề mục trong tài liệu", example = "Luồng đăng nhập")
+        private String textSegment;
+
+        @Schema(description = "Nhận xét chi tiết cho mục đó")
+        private String detailedComment;
+    }
 }

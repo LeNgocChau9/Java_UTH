@@ -52,6 +52,36 @@ public class ChangelogServiceImpl implements ChangelogServicePort {
         }
 
         @Override
+        @Transactional
+        public Changelog recordRollback(Long documentId, Long newVersionId, Long actorId, String actorRole,
+                        int restoredFromVersion, int newVersion, String reason, String commitHash) {
+                String summary = "Khôi phục tài liệu về phiên bản v" + restoredFromVersion
+                                + " (tạo phiên bản mới v" + newVersion + ", không xóa lịch sử cũ)."
+                                + rolePhrase(actorRole)
+                                + commitPhrase(commitHash)
+                                + (reason != null && !reason.isBlank() ? " Lý do: " + reason.trim() + "." : "");
+                return logChange(documentId, newVersionId, actorId, actorRole, summary);
+        }
+
+        private String rolePhrase(String actorRole) {
+                String role = actorRole == null ? "" : actorRole.trim().toUpperCase();
+                String label = switch (role) {
+                        case "AI", "AI_AGENT" -> "AI";
+                        case "STAFF" -> "NHÂN VIÊN";
+                        case "MANAGER" -> "QUẢN LÝ";
+                        default -> "NHÀ PHÁT TRIỂN";
+                };
+                return " Vai trò: " + label + ".";
+        }
+
+        private String commitPhrase(String commitHash) {
+                if (commitHash == null || commitHash.isBlank()) {
+                        return "";
+                }
+                return " Commit kích hoạt: " + commitHash.trim() + ".";
+        }
+
+        @Override
         @Transactional(readOnly = true)
         public List<ChangelogResponse> getChangelogsByDocument(Long documentId) {
                 return changelogRepositoryPort.findByDocumentId(documentId)

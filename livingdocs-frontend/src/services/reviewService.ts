@@ -33,6 +33,9 @@ export interface ReviewQueueItem {
   staffComment?: string | null;
   staffReviewer?: string | null;
   staffReviewedAt?: string | null;
+  structureWarning?: boolean;
+  missingHeadings?: string[];
+  aiGenerated?: boolean;
 }
 
 export interface ReviewActionResponse {
@@ -48,6 +51,7 @@ export interface ReviewActionResponse {
   message: string;
   document?: DocumentItem;
   timestamp: string;
+  commitSha?: string | null;
 }
 
 export const reviewService = {
@@ -66,7 +70,14 @@ export const reviewService = {
    */
   async processStaffAction(
     id: number,
-    payload: { action?: string; decision?: string; comment?: string; note?: string; actorRole?: string }
+    payload: {
+      action?: string;
+      decision?: string;
+      comment?: string;
+      note?: string;
+      actorRole?: string;
+      sectionComments?: { textSegment: string; detailedComment: string }[];
+    }
   ): Promise<ReviewActionResponse> {
     const res = await apiClient.post<ReviewActionResponse>(`/api/reviews/${id}/staff-action`, payload);
     return res.data;
@@ -87,7 +98,14 @@ export const reviewService = {
    */
   async processManagerAction(
     id: number,
-    payload: { action?: string; decision?: string; comment?: string; note?: string; actorRole?: string }
+    payload: {
+      action?: string;
+      decision?: string;
+      comment?: string;
+      note?: string;
+      actorRole?: string;
+      commitToGithub?: boolean;
+    }
   ): Promise<ReviewActionResponse> {
     const res = await apiClient.post<ReviewActionResponse>(`/api/reviews/${id}/manager-action`, payload);
     return res.data;

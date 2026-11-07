@@ -55,4 +55,26 @@ public class AuditLogRepositoryAdapter implements AuditLogRepositoryPort {
                         .build())
                 .toList();
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public java.util.List<AuditLog> findRecent() {
+        return springDataAuditLogRepository.findTop300ByOrderByCreatedAtDesc()
+                .stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
+    private AuditLog toDomain(AuditLogEntity saved) {
+        return AuditLog.builder()
+                .logId(saved.getLogId())
+                .actorId(saved.getActorId())
+                .action(saved.getAction())
+                .resourceType(saved.getResourceType())
+                .resourceId(saved.getResourceId())
+                .detail(saved.getDetail())
+                .ipAddress(saved.getIpAddress())
+                .createdAt(saved.getCreatedAt())
+                .build();
+    }
 }

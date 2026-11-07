@@ -8,6 +8,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -15,6 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class AuditServiceImplTest {
 
@@ -70,5 +72,19 @@ class AuditServiceImplTest {
         assertEquals(AuditAction.DOCUMENT_APPROVED, logs.get(2).getAction());
         assertEquals(2L, logs.get(2).getActorId());
         assertEquals("45", logs.get(2).getResourceId());
+    }
+
+    @Test
+    void filtersRecentLogsByActionAndTime() {
+        Instant now = Instant.parse("2026-11-08T00:00:00Z");
+        when(auditLogRepositoryPort.findRecent()).thenReturn(List.of(
+                AuditLog.builder().action(AuditAction.GITHUB_LINKED).createdAt(now).detail("a").build(),
+                AuditLog.builder().action(AuditAction.LOGIN_SUCCESS).createdAt(now.minusSeconds(3600)).detail("b").build()
+        ));
+
+        List<AuditLog> found = auditService.search("github_linked", now.minusSeconds(60), now.plusSeconds(60));
+
+        assertEquals(1, found.size());
+        assertEquals(AuditAction.GITHUB_LINKED, found.get(0).getAction());
     }
 }

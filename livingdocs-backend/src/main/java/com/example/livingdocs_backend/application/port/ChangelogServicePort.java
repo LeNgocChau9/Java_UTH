@@ -12,6 +12,12 @@ public interface ChangelogServicePort {
 
     Changelog logChange(Long documentId, Long versionId, Long actorId, String actorRole, String changeSummary);
 
+    /**
+     * Ghi lịch sử khôi phục: phiên bản mới mang nội dung cũ, không xóa bản ghi cũ.
+     */
+    Changelog recordRollback(Long documentId, Long newVersionId, Long actorId, String actorRole,
+            int restoredFromVersion, int newVersion, String reason, String commitHash);
+
     List<ChangelogResponse> getChangelogsByDocument(Long documentId);
 
     List<ChangelogResponse> getChangelogs(Long documentId, String actorRole);

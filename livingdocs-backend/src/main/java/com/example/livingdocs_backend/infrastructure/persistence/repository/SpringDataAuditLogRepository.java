@@ -9,4 +9,6 @@ import java.util.List;
 @Repository
 public interface SpringDataAuditLogRepository extends JpaRepository<AuditLogEntity, Long> {
     List<AuditLogEntity> findByResourceTypeAndResourceIdOrderByCreatedAtDesc(String resourceType, String resourceId);
+
+    List<AuditLogEntity> findTop300ByOrderByCreatedAtDesc();
 }

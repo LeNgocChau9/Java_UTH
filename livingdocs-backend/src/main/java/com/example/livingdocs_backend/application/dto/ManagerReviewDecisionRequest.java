@@ -22,4 +22,7 @@ public class ManagerReviewDecisionRequest {
 
     @Schema(description = "Ghi chú/Nhận xét của Manager hoặc lý do từ chối/trả lại Staff", example = "Tài liệu đạt chuẩn chất lượng, đồng ý xuất bản lên GitHub.")
     private String comment;
+
+    @Schema(description = "true hoặc bỏ trống: đẩy file .md lên branch mặc định khi xuất bản. false: chỉ chuyển PUBLISHED.", example = "true")
+    private Boolean commitToGithub;
 }

@@ -3,6 +3,7 @@ package com.example.livingdocs_backend.application.port;
 import com.example.livingdocs_backend.domain.model.AuditAction;
 import com.example.livingdocs_backend.domain.model.AuditLog;
 
+import java.time.Instant;
 import java.util.List;
 
 public interface AuditServicePort {
@@ -20,5 +21,7 @@ public interface AuditServicePort {
     void recordSecurityAction(Long actorId, AuditAction action, String resourceType, String resourceId, String detail);
 
     List<AuditLog> getAuditLogsForResource(String resourceType, String resourceId);
+
+    List<AuditLog> search(String action, Instant from, Instant to);
 }
 

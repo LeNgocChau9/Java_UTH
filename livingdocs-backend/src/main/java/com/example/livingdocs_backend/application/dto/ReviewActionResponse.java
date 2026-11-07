@@ -50,4 +50,7 @@ public class ReviewActionResponse {
 
     @Schema(description = "Thời điểm thực hiện")
     private Instant timestamp;
+
+    @Schema(description = "SHA commit GitHub khi Manager chọn đẩy file .md. Null nếu không commit.")
+    private String commitSha;
 }
