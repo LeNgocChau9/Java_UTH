@@ -14,6 +14,11 @@ import {
   Folder,
   FolderOpen,
   FileCode,
+  FileText,
+  FileSpreadsheet,
+  FileJson,
+  Database,
+  Settings,
   ChevronRight,
   ChevronDown,
   Box,
@@ -544,7 +549,7 @@ export default function SourceTreePage() {
 
   return (
     <AppShell>
-      <div className="h-[calc(100vh-56px)] max-h-[calc(100vh-56px)] flex flex-col p-4 sm:p-6 space-y-3.5 overflow-hidden">
+      <div className="flex flex-col p-4 sm:p-6 space-y-3.5 overflow-hidden">
         {/* Header trang */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 pb-3 shrink-0">
           <div>
@@ -623,7 +628,7 @@ export default function SourceTreePage() {
             <button type="button" onClick={() => setRenewNotice(null)} className="text-emerald-600 hover:text-emerald-900 font-bold ml-2">✕</button>
           </div>
         )}
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-5 min-h-0 overflow-hidden">
+        <div className="h-[calc(100vh-210px)] max-h-[calc(100vh-210px)] grid grid-cols-1 lg:grid-cols-12 gap-5 min-h-0 overflow-hidden">
           {/* CỘT TRÁI: Cây thư mục mã nguồn (4 cols) */}
           <div className="lg:col-span-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col h-full min-h-0 overflow-hidden">
             <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-2.5 shrink-0">
@@ -710,7 +715,7 @@ export default function SourceTreePage() {
                     />
                     <input
                       type="text"
-                      placeholder="Tìm method, class..."
+                      placeholder="Tìm kiếm tức thời (Class, Method, Field, SQL)..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="w-36 sm:w-44 rounded-lg border border-slate-300 bg-white pl-8 pr-2.5 py-1.5 text-xs text-slate-800 placeholder-slate-400 shadow-sm focus:border-emerald-500 focus:outline-none   "
