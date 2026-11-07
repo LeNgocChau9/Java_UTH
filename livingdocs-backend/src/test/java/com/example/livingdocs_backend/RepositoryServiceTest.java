@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -68,7 +69,6 @@ class RepositoryServiceTest {
                                 gitHubClient,
                                 auditServicePort);
         }
-
 
         @Test
         @DisplayName("Thêm Repo: Lưu repo vào database và trả về RepoResponse")
@@ -148,11 +148,11 @@ class RepositoryServiceTest {
                                 .authorEmail("dev1@example.com")
                                 .authorDate(Instant.now())
                                 .build();
-                when(gitHubClient.listCommits(any(), eq("owner"), eq("project"), eq("main"), eq(50)))
+                when(gitHubClient.listCommits(any(), eq("owner"), eq("project"), eq("main"), anyInt()))
                                 .thenReturn(List.of(commit1));
 
-                when(pullRequestRepository.findByRepositoryIdAndPrNumber(repoId, 1)).thenReturn(Optional.empty());
-                when(commitRepository.findByRepositoryIdAndCommitHash(repoId, "hash_abc")).thenReturn(Optional.empty());
+                when(pullRequestRepository.findByRepositoryId(repoId)).thenReturn(List.of());
+                when(commitRepository.findByRepositoryId(repoId)).thenReturn(List.of());
 
                 SyncRepoResponse syncResponse = repositoryService.syncRepository(repoId, "ghp_direct_token", 10L);
 
@@ -161,8 +161,8 @@ class RepositoryServiceTest {
                 assertEquals(1, syncResponse.syncedPullRequestsCount());
                 assertEquals(1, syncResponse.syncedCommitsCount());
 
-                verify(pullRequestRepository, times(1)).save(any(PullRequestEntity.class));
-                verify(commitRepository, times(1)).save(any(CommitEntity.class));
+                verify(pullRequestRepository).saveAll(any());
+                verify(commitRepository).saveAll(any());
                 verify(repositoryRepository).save(repo);
                 assertNotNull(repo.getLastSyncedAt());
         }
@@ -182,7 +182,8 @@ class RepositoryServiceTest {
 
                 when(gitHubConnectionRepository.findById(connId)).thenReturn(Optional.of(conn));
                 when(gitHubClient.validateToken("ghp_valid_secret")).thenReturn(
-                                com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
+                                com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult
+                                                .builder()
                                                 .valid(true)
                                                 .status("CONNECTED")
                                                 .githubUsername("valid_dev")
@@ -196,6 +197,7 @@ class RepositoryServiceTest {
                 assertTrue(result.isValid());
                 assertEquals("CONNECTED", result.getStatus());
                 assertNull(result.getWarningMessage());
+                assertNull(result.getRenewUrl());
 
                 verify(gitHubConnectionRepository).save(conn);
                 verifyNoInteractions(auditServicePort);
@@ -216,7 +218,8 @@ class RepositoryServiceTest {
 
                 when(gitHubConnectionRepository.findById(connId)).thenReturn(Optional.of(conn));
                 when(gitHubClient.validateToken("ghp_revoked_token")).thenReturn(
-                                com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
+                                com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult
+                                                .builder()
                                                 .valid(false)
                                                 .status("REVOKED")
                                                 .message("Token đã bị revoke bởi người dùng")
@@ -229,6 +232,7 @@ class RepositoryServiceTest {
                 assertEquals("REVOKED", result.getStatus());
                 assertNotNull(result.getWarningMessage());
                 assertTrue(result.getWarningMessage().contains("CẢNH BÁO"));
+                assertEquals("/api/auth/github?mode=link", result.getRenewUrl());
 
                 verify(gitHubConnectionRepository).save(conn);
                 verify(auditServicePort).recordSecurityAction(eq(10L), eq(AuditAction.GITHUB_TOKEN_REVOKED),
@@ -251,7 +255,8 @@ class RepositoryServiceTest {
 
                 when(gitHubConnectionRepository.findById(connId)).thenReturn(Optional.of(conn));
                 when(gitHubClient.validateToken("ghp_expired_token")).thenReturn(
-                                com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult.builder()
+                                com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult
+                                                .builder()
                                                 .valid(false)
                                                 .status("EXPIRED")
                                                 .message("Token expired")
@@ -263,10 +268,67 @@ class RepositoryServiceTest {
                 assertFalse(result.isValid());
                 assertEquals("EXPIRED", result.getStatus());
                 assertTrue(result.getWarningMessage().contains("đã hết hạn"));
+                assertEquals("/api/auth/github?mode=link", result.getRenewUrl());
 
                 verify(gitHubConnectionRepository).save(conn);
                 verify(auditServicePort).recordSecurityAction(eq(10L), eq(AuditAction.GITHUB_TOKEN_EXPIRED),
                                 eq("GITHUB_CONNECTION"), eq("102"), anyString());
         }
-}
 
+        @Test
+        @DisplayName("Quét toàn bộ kết nối trong Workspace: Xác thực nhiều token và cập nhật độc lập")
+        void testVerifyWorkspaceConnections_byWorkspaceId() {
+                Long workspaceId = 1L;
+                GitHubConnectionEntity conn1 = GitHubConnectionEntity.builder()
+                                .connectionId(201L)
+                                .workspaceId(workspaceId)
+                                .userId(10L)
+                                .githubUsername("dev1")
+                                .accessTokenEncrypted("token1")
+                                .status("CONNECTED")
+                                .build();
+
+                GitHubConnectionEntity conn2 = GitHubConnectionEntity.builder()
+                                .connectionId(202L)
+                                .workspaceId(workspaceId)
+                                .userId(11L)
+                                .githubUsername("dev2")
+                                .accessTokenEncrypted("token2")
+                                .status("CONNECTED")
+                                .build();
+
+                when(gitHubConnectionRepository.findByWorkspaceId(workspaceId)).thenReturn(List.of(conn1, conn2));
+
+                when(gitHubClient.validateToken("token1")).thenReturn(
+                                com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult
+                                                .builder()
+                                                .valid(true)
+                                                .status("CONNECTED")
+                                                .githubUsername("dev1")
+                                                .build());
+
+                when(gitHubClient.validateToken("token2")).thenReturn(
+                                com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult
+                                                .builder()
+                                                .valid(false)
+                                                .status("REVOKED")
+                                                .githubUsername("dev2")
+                                                .message("Revoked")
+                                                .build());
+
+                var results = repositoryService.verifyWorkspaceConnections(workspaceId, 10L);
+
+                assertNotNull(results);
+                assertEquals(2, results.size());
+                assertEquals("CONNECTED", results.get(0).getStatus());
+                assertTrue(results.get(0).isValid());
+                assertEquals("REVOKED", results.get(1).getStatus());
+                assertFalse(results.get(1).isValid());
+                assertEquals("/api/auth/github?mode=link", results.get(1).getRenewUrl());
+
+                verify(gitHubConnectionRepository).save(conn1);
+                verify(gitHubConnectionRepository).save(conn2);
+                verify(auditServicePort, times(1)).recordSecurityAction(eq(10L), eq(AuditAction.GITHUB_TOKEN_REVOKED),
+                                eq("GITHUB_CONNECTION"), eq("202"), anyString());
+        }
+}

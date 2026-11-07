@@ -1,5 +1,21 @@
 package com.example.livingdocs_backend.infrastructure.web.controller;
 
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.util.StringUtils;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
 import com.example.livingdocs_backend.application.dto.github.CreateRepoRequest;
 import com.example.livingdocs_backend.application.dto.github.RepoResponse;
 import com.example.livingdocs_backend.application.dto.github.SyncRepoResponse;
@@ -11,19 +27,11 @@ import com.example.livingdocs_backend.infrastructure.persistence.repository.Spri
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
 import com.example.livingdocs_backend.infrastructure.security.UserPrincipal;
+
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.util.StringUtils;
-import org.springframework.web.bind.annotation.*;
-
-import java.time.Instant;
-import java.util.List;
-import java.util.Optional;
 
 /**
  * Controller cung cấp REST API quản lý kho lưu trữ GitHub và đồng bộ dữ liệu.
@@ -44,8 +52,7 @@ public class RepositoryController {
     @Operation(summary = "Thêm kho lưu trữ GitHub vào Workspace")
     public ResponseEntity<RepoResponse> addRepository(
             @Valid @RequestBody CreateRepoRequest request,
-            @AuthenticationPrincipal UserPrincipal userPrincipal
-    ) {
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
         Long userId = userPrincipal != null ? userPrincipal.getUserId() : 1L;
         RepoResponse response = repositoryService.addRepository(request, userId);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
@@ -56,8 +63,7 @@ public class RepositoryController {
     public ResponseEntity<SyncRepoResponse> syncRepository(
             @PathVariable("id") Long id,
             @RequestParam(value = "token", required = false) String token,
-            @AuthenticationPrincipal UserPrincipal userPrincipal
-    ) {
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
         Long userId = userPrincipal != null ? userPrincipal.getUserId() : 1L;
         SyncRepoResponse response = repositoryService.syncRepository(id, token, userId);
         return ResponseEntity.ok(response);
@@ -67,8 +73,7 @@ public class RepositoryController {
     @Operation(summary = "Lấy danh sách các Repository trong Workspace")
     public ResponseEntity<List<RepoResponse>> listRepositories(
             @RequestParam(value = "workspaceId", required = false) Long workspaceId,
-            @AuthenticationPrincipal UserPrincipal userPrincipal
-    ) {
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
         Long targetWorkspaceId = workspaceId != null ? workspaceId : 1L;
         Long userId = userPrincipal != null ? userPrincipal.getUserId() : null;
         autoImportReposIfNeeded(targetWorkspaceId, userId);
@@ -87,8 +92,7 @@ public class RepositoryController {
     @Operation(summary = "Lấy danh sách PR đã lưu của Repository")
     public ResponseEntity<List<com.example.livingdocs_backend.infrastructure.persistence.entity.PullRequestEntity>> getPullRequests(
             @PathVariable("id") Long id,
-            @AuthenticationPrincipal UserPrincipal userPrincipal
-    ) {
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
         autoSyncRepoIfNeverSynced(id, userPrincipal != null ? userPrincipal.getUserId() : 1L);
         return ResponseEntity.ok(repositoryService.getRepoPullRequests(id));
     }
@@ -97,8 +101,7 @@ public class RepositoryController {
     @Operation(summary = "Lấy danh sách Commits đã lưu của Repository")
     public ResponseEntity<List<com.example.livingdocs_backend.infrastructure.persistence.entity.CommitEntity>> getCommits(
             @PathVariable("id") Long id,
-            @AuthenticationPrincipal UserPrincipal userPrincipal
-    ) {
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
         autoSyncRepoIfNeverSynced(id, userPrincipal != null ? userPrincipal.getUserId() : 1L);
         return ResponseEntity.ok(repositoryService.getRepoCommits(id));
     }
@@ -108,8 +111,7 @@ public class RepositoryController {
     public ResponseEntity<List<com.example.livingdocs_backend.application.dto.github.GitHubFileDto>> getRepositoryTree(
             @PathVariable("id") Long id,
             @RequestParam(value = "sha", required = false) String sha,
-            @AuthenticationPrincipal UserPrincipal userPrincipal
-    ) {
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
         Long userId = userPrincipal != null ? userPrincipal.getUserId() : 1L;
         return ResponseEntity.ok(repositoryService.getRepositoryTree(id, sha, userId));
     }
@@ -118,8 +120,7 @@ public class RepositoryController {
     @Operation(summary = "Kiểm tra tính hợp lệ của GitHub Access Token và bắn cảnh báo nếu hết hạn/bị revoke")
     public ResponseEntity<com.example.livingdocs_backend.application.dto.github.GitHubConnectionStatusResponse> verifyConnection(
             @PathVariable("connectionId") Long connectionId,
-            @AuthenticationPrincipal UserPrincipal userPrincipal
-    ) {
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
         Long userId = userPrincipal != null ? userPrincipal.getUserId() : 1L;
         return ResponseEntity.ok(repositoryService.verifyConnectionToken(connectionId, userId));
     }
@@ -128,17 +129,41 @@ public class RepositoryController {
     @Operation(summary = "Quét kiểm tra toàn bộ kết nối GitHub Token trong workspace và bắn cảnh báo")
     public ResponseEntity<List<com.example.livingdocs_backend.application.dto.github.GitHubConnectionStatusResponse>> verifyAllConnections(
             @RequestParam(value = "workspaceId", required = false) Long workspaceId,
-            @AuthenticationPrincipal UserPrincipal userPrincipal
-    ) {
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
         Long userId = userPrincipal != null ? userPrincipal.getUserId() : 1L;
         return ResponseEntity.ok(repositoryService.verifyWorkspaceConnections(workspaceId, userId));
+    }
+
+    @GetMapping("/connections")
+    @Operation(summary = "Lấy danh sách các kết nối GitHub và trạng thái hiện tại trong workspace")
+    public ResponseEntity<List<com.example.livingdocs_backend.application.dto.github.GitHubConnectionStatusResponse>> listConnections(
+            @RequestParam(value = "workspaceId", required = false) Long workspaceId) {
+        Long targetWorkspaceId = workspaceId != null ? workspaceId : 1L;
+        List<GitHubConnectionEntity> connections = gitHubConnectionRepository.findByWorkspaceId(targetWorkspaceId);
+        List<com.example.livingdocs_backend.application.dto.github.GitHubConnectionStatusResponse> list = connections
+                .stream()
+                .map(conn -> com.example.livingdocs_backend.application.dto.github.GitHubConnectionStatusResponse
+                        .builder()
+                        .connectionId(conn.getConnectionId())
+                        .workspaceId(conn.getWorkspaceId())
+                        .userId(conn.getUserId())
+                        .githubUsername(conn.getGithubUsername())
+                        .status(conn.getStatus())
+                        .valid("CONNECTED".equalsIgnoreCase(conn.getStatus()))
+                        .tokenScope(conn.getTokenScope())
+                        .tokenExpiresAt(conn.getTokenExpiresAt())
+                        .lastCheckedAt(conn.getUpdatedAt())
+                        .renewUrl(!"CONNECTED".equalsIgnoreCase(conn.getStatus()) ? "/api/auth/github?mode=link" : null)
+                        .build())
+                .toList();
+        return ResponseEntity.ok(list);
     }
 
     private void autoImportReposIfNeeded(Long workspaceId, Long userId) {
         try {
             if (userId != null) {
-                Optional<GitHubConnectionEntity> userConnOpt =
-                        gitHubConnectionRepository.findByWorkspaceIdAndUserId(workspaceId, userId);
+                Optional<GitHubConnectionEntity> userConnOpt = gitHubConnectionRepository
+                        .findByWorkspaceIdAndUserId(workspaceId, userId);
                 if (userConnOpt.isEmpty()) {
                     userConnOpt = gitHubConnectionRepository.findFirstByUserIdOrderByCreatedAtDesc(userId);
                 }
@@ -163,8 +188,8 @@ public class RepositoryController {
         if (conn == null || conn.getConnectionId() == null) {
             return;
         }
-        List<GitHubOAuthClient.GitHubRepoItem> ghRepos =
-                gitHubOAuthClient.fetchUserRepositories(conn.getAccessTokenEncrypted(), conn.getGithubUsername());
+        List<GitHubOAuthClient.GitHubRepoItem> ghRepos = gitHubOAuthClient
+                .fetchUserRepositories(conn.getAccessTokenEncrypted(), conn.getGithubUsername());
         for (GitHubOAuthClient.GitHubRepoItem item : ghRepos) {
             if (!StringUtils.hasText(item.fullName())) {
                 continue;
@@ -193,7 +218,8 @@ public class RepositoryController {
                         .repoName(name)
                         .repoFullName(fullName)
                         .defaultBranch(StringUtils.hasText(item.defaultBranch()) ? item.defaultBranch().trim() : "main")
-                        .cloneUrl(StringUtils.hasText(item.cloneUrl()) ? item.cloneUrl().trim() : "https://github.com/" + fullName + ".git")
+                        .cloneUrl(StringUtils.hasText(item.cloneUrl()) ? item.cloneUrl().trim()
+                                : "https://github.com/" + fullName + ".git")
                         .isActive(true)
                         .autoDocEnabled(true)
                         .createdAt(Instant.now())

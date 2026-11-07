@@ -45,7 +45,6 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
     private final GitHubClientPort gitHubClient;
     private final AuditServicePort auditServicePort;
 
-
     private static final Long DEFAULT_WORKSPACE_ID = 1L;
 
     @Override
@@ -58,7 +57,8 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
                 : extractRepoName(repoFullName);
 
         // Kiểm tra xem repo đã tồn tại trong workspace này chưa
-        Optional<RepositoryEntity> existing = repositoryRepository.findByWorkspaceIdAndRepoFullName(workspaceId, repoFullName);
+        Optional<RepositoryEntity> existing = repositoryRepository.findByWorkspaceIdAndRepoFullName(workspaceId,
+                repoFullName);
         if (existing.isPresent()) {
             return mapToRepoResponse(existing.get());
         }
@@ -77,7 +77,8 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
                 .repoName(repoName)
                 .repoFullName(repoFullName)
                 .defaultBranch(StringUtils.hasText(request.defaultBranch()) ? request.defaultBranch().trim() : "main")
-                .cloneUrl(StringUtils.hasText(request.cloneUrl()) ? request.cloneUrl().trim() : "https://github.com/" + repoFullName + ".git")
+                .cloneUrl(StringUtils.hasText(request.cloneUrl()) ? request.cloneUrl().trim()
+                        : "https://github.com/" + repoFullName + ".git")
                 .isActive(true)
                 .autoDocEnabled(true)
                 .createdAt(Instant.now())
@@ -95,7 +96,8 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
         Object lock = repoSyncLocks.computeIfAbsent(repositoryId, k -> new Object());
         synchronized (lock) {
             RepositoryEntity repo = repositoryRepository.findById(repositoryId)
-                    .orElseThrow(() -> new GitHubApiException("Không tìm thấy repository với ID: " + repositoryId, 404));
+                    .orElseThrow(
+                            () -> new GitHubApiException("Không tìm thấy repository với ID: " + repositoryId, 404));
 
             String[] parts = parseOwnerAndRepo(repo.getRepoFullName());
             String owner = parts[0];
@@ -137,7 +139,8 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
         Long targetWorkspaceId = workspaceId != null ? workspaceId : DEFAULT_WORKSPACE_ID;
         List<RepositoryEntity> list = repositoryRepository.findByWorkspaceId(targetWorkspaceId);
         if (list.isEmpty() && workspaceId == null) {
-            // ponytail: fallback lấy tất cả repository nếu workspaceId mặc định (1L) chưa có repo
+            // ponytail: fallback lấy tất cả repository nếu workspaceId mặc định (1L) chưa
+            // có repo
             list = repositoryRepository.findAll();
         }
         return list.stream()
@@ -182,11 +185,11 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
         try {
             return gitHubClient.getRepositoryTree(token, owner, repoName, sha, true);
         } catch (Exception ex) {
-            log.warn("Không thể lấy cây Git tree từ GitHub API cho {}: {}. Trả về rỗng.", repo.getRepoFullName(), ex.getMessage());
+            log.warn("Không thể lấy cây Git tree từ GitHub API cho {}: {}. Trả về rỗng.", repo.getRepoFullName(),
+                    ex.getMessage());
             return Collections.emptyList();
         }
     }
-
 
     private int syncPullRequests(RepositoryEntity repo, String token, String owner, String repoName) {
         List<GitHubPullRequestDto> prs;
@@ -201,7 +204,8 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
             return 0;
         }
 
-        // ponytail: Tải tất cả PR hiện có vào Map để update in-place, tránh duplicate key uk_pr_repo_number và N+1 queries
+        // ponytail: Tải tất cả PR hiện có vào Map để update in-place, tránh duplicate
+        // key uk_pr_repo_number và N+1 queries
         Map<Integer, PullRequestEntity> existingPrMap = pullRequestRepository
                 .findByRepositoryId(repo.getRepositoryId()).stream()
                 .collect(Collectors.toMap(PullRequestEntity::getPrNumber, p -> p, (p1, p2) -> p1));
@@ -250,7 +254,8 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
             return 0;
         }
 
-        // ponytail: Tải tất cả Commits hiện có vào Map để update in-place, tránh duplicate key uk_commit_repo_hash và N+1 queries
+        // ponytail: Tải tất cả Commits hiện có vào Map để update in-place, tránh
+        // duplicate key uk_commit_repo_hash và N+1 queries
         Map<String, CommitEntity> existingCommitMap = commitRepository
                 .findByRepositoryId(repo.getRepositoryId()).stream()
                 .collect(Collectors.toMap(CommitEntity::getCommitHash, c -> c, (c1, c2) -> c1));
@@ -340,7 +345,8 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
             return wsConn.get().getAccessTokenEncrypted();
         }
 
-        // 4. Nếu chuỗi có tiền tố enc:v1: cũ (do mock data trước đây), trả về null để gọi API công khai hoặc báo lỗi xác thực
+        // 4. Nếu chuỗi có tiền tố enc:v1: cũ (do mock data trước đây), trả về null để
+        // gọi API công khai hoặc báo lỗi xác thực
         return null;
     }
 
@@ -352,16 +358,17 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
     private String[] parseOwnerAndRepo(String repoFullName) {
         String[] parts = repoFullName.split("/", 2);
         if (parts.length < 2) {
-            return new String[]{repoFullName, repoFullName};
+            return new String[] { repoFullName, repoFullName };
         }
-        return new String[]{parts[0].trim(), parts[1].trim()};
+        return new String[] { parts[0].trim(), parts[1].trim() };
     }
 
     @Override
     @Transactional
     public GitHubConnectionStatusResponse verifyConnectionToken(Long connectionId, Long currentUserId) {
         GitHubConnectionEntity connection = gitHubConnectionRepository.findById(connectionId)
-                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy kết nối GitHub với ID: " + connectionId));
+                .orElseThrow(
+                        () -> new IllegalArgumentException("Không tìm thấy kết nối GitHub với ID: " + connectionId));
 
         return doVerifyAndProcessConnection(connection, currentUserId);
     }
@@ -383,7 +390,8 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
         return results;
     }
 
-    private GitHubConnectionStatusResponse doVerifyAndProcessConnection(GitHubConnectionEntity connection, Long currentUserId) {
+    private GitHubConnectionStatusResponse doVerifyAndProcessConnection(GitHubConnectionEntity connection,
+            Long currentUserId) {
         String token = connection.getAccessTokenEncrypted();
         Instant now = Instant.now();
 
@@ -400,11 +408,11 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
         if (locallyExpired || "EXPIRED".equalsIgnoreCase(valResult.getStatus())) {
             newStatus = "EXPIRED";
             warningMessage = "CẢNH BÁO: Access Token GitHub cho tài khoản @" + connection.getGithubUsername()
-                    + " đã hết hạn. Vui lòng kết nối lại tài khoản GitHub để không làm gián đoạn tự động hóa tài liệu.";
+                    + " đã hết hạn. Vui lòng bấm nút 'Gia hạn phiên' để kết nối lại tài khoản GitHub mà không làm gián đoạn tự động hóa tài liệu.";
         } else if (!valResult.isValid() || "REVOKED".equalsIgnoreCase(valResult.getStatus())) {
             newStatus = "REVOKED";
             warningMessage = "CẢNH BÁO: Access Token GitHub cho tài khoản @" + connection.getGithubUsername()
-                    + " không hợp lệ hoặc đã bị thu hồi (Revoked). Vui lòng cấp lại token mới.";
+                    + " không hợp lệ hoặc đã bị thu hồi (Revoked). Vui lòng bấm nút 'Gia hạn phiên' để cấp lại quyền truy cập.";
         } else {
             newStatus = "CONNECTED";
         }
@@ -420,14 +428,16 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
         connection.setUpdatedAt(now);
         gitHubConnectionRepository.save(connection);
 
-        // 4. Nếu trạng thái token bị lỗi (hết hạn hoặc revoked), bắn cảnh báo tới người dùng và ghi nhật ký kiểm toán
+        // 4. Nếu trạng thái token bị lỗi (hết hạn hoặc revoked), bắn cảnh báo tới người
+        // dùng và ghi nhật ký kiểm toán
         if (!"CONNECTED".equals(newStatus)) {
             AuditAction auditAction = "EXPIRED".equals(newStatus)
                     ? AuditAction.GITHUB_TOKEN_EXPIRED
                     : AuditAction.GITHUB_TOKEN_REVOKED;
 
             Long actorId = currentUserId != null ? currentUserId : connection.getUserId();
-            String detail = String.format("Token GitHub của user @%s (connectionId=%d, workspaceId=%d) không còn hợp lệ: %s. Trạng thái chuyển từ %s -> %s",
+            String detail = String.format(
+                    "Token GitHub của user @%s (connectionId=%d, workspaceId=%d) không còn hợp lệ: %s. Trạng thái chuyển từ %s -> %s",
                     connection.getGithubUsername(), connection.getConnectionId(), connection.getWorkspaceId(),
                     warningMessage, previousStatus, newStatus);
 
@@ -436,6 +446,8 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
 
             log.warn("[SECURITY ALERT] {}", detail);
         }
+
+        String renewUrl = !"CONNECTED".equals(newStatus) ? "/api/auth/github?mode=link" : null;
 
         return GitHubConnectionStatusResponse.builder()
                 .connectionId(connection.getConnectionId())
@@ -448,6 +460,7 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
                 .tokenExpiresAt(connection.getTokenExpiresAt())
                 .lastCheckedAt(now)
                 .warningMessage(warningMessage)
+                .renewUrl(renewUrl)
                 .build();
     }
 
@@ -469,4 +482,3 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
                 .build();
     }
 }
-
