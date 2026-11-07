@@ -1,15 +1,13 @@
 package com.example.livingdocs_backend.infrastructure.github;
 
-import com.example.livingdocs_backend.application.dto.github.GitHubCommitDto;
-import com.example.livingdocs_backend.application.dto.github.GitHubFileDto;
-import com.example.livingdocs_backend.application.dto.github.GitHubPublishResultDto;
-import com.example.livingdocs_backend.application.dto.github.GitHubPullRequestDto;
-import com.example.livingdocs_backend.application.port.GitHubClientPort;
-import com.example.livingdocs_backend.domain.exception.GitHubApiException;
-import com.example.livingdocs_backend.domain.exception.GitHubRateLimitException;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import lombok.extern.slf4j.Slf4j;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -21,12 +19,17 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
 
-import java.time.Instant;
-import java.util.Base64;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import com.example.livingdocs_backend.application.dto.github.GitHubCommitDto;
+import com.example.livingdocs_backend.application.dto.github.GitHubFileDto;
+import com.example.livingdocs_backend.application.dto.github.GitHubPublishResultDto;
+import com.example.livingdocs_backend.application.dto.github.GitHubPullRequestDto;
+import com.example.livingdocs_backend.application.port.GitHubClientPort;
+import com.example.livingdocs_backend.domain.exception.GitHubApiException;
+import com.example.livingdocs_backend.domain.exception.GitHubRateLimitException;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Triển khai gọi GitHub REST API v3 sử dụng RestClient của Spring Framework 6 /
@@ -48,7 +51,13 @@ public class GitHubClient implements GitHubClientPort {
     private final RestClient restClient;
 
     public GitHubClient() {
-        this(RestClient.builder().baseUrl(DEFAULT_BASE_URL).build());
+        org.springframework.http.client.SimpleClientHttpRequestFactory factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(5000);
+        factory.setReadTimeout(10000);
+        this.restClient = RestClient.builder()
+                .requestFactory(factory)
+                .baseUrl(DEFAULT_BASE_URL)
+                .build();
     }
 
     public GitHubClient(RestClient restClient) {
@@ -89,10 +98,13 @@ public class GitHubClient implements GitHubClientPort {
         try {
             return fetchGitTreeResponse(token, uri);
         } catch (Exception ex) {
-            // Tự động thử lại không token nếu token cũ bị 401 Bad credentials (áp dụng cho Public repository)
+            // Tự động thử lại không token nếu token cũ bị 401 Bad credentials (áp dụng cho
+            // Public repository)
             if (StringUtils.hasText(token) && ex.getMessage() != null && ex.getMessage().contains("401")) {
                 try {
-                    log.info("Token GitHub bị 401 Bad credentials cho {}/{}. Tự động fallback sang chế độ Public (anonymous)...", owner, repo);
+                    log.info(
+                            "Token GitHub bị 401 Bad credentials cho {}/{}. Tự động fallback sang chế độ Public (anonymous)...",
+                            owner, repo);
                     return fetchGitTreeResponse(null, uri);
                 } catch (Exception ex2) {
                     log.warn("Thử lại chế độ Public cho {}/{} thất bại: {}", owner, repo, ex2.getMessage());
@@ -131,6 +143,23 @@ public class GitHubClient implements GitHubClientPort {
     }
 
     @Override
+    public List<com.example.livingdocs_backend.application.dto.github.GitHubPrFileDto> getPullRequestFiles(
+            String token, String owner, String repo, int prNumber) {
+        String uri = "/repos/{owner}/{repo}/pulls/{pull_number}/files?per_page=100";
+        try {
+            return executeWithAuth(token, uri, owner, repo, prNumber)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .retrieve()
+                    .body(new org.springframework.core.ParameterizedTypeReference<List<com.example.livingdocs_backend.application.dto.github.GitHubPrFileDto>>() {
+                    });
+        } catch (Exception ex) {
+            log.warn("[GitHubClient] Lỗi khi lấy danh sách files của PR #{} ({}/{}): {}", prNumber, owner, repo,
+                    ex.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    @Override
     public List<GitHubPullRequestDto> listPullRequests(String token, String owner, String repo, String state) {
         String targetState = StringUtils.hasText(state) ? state : "open";
         try {
@@ -138,7 +167,9 @@ public class GitHubClient implements GitHubClientPort {
         } catch (RestClientResponseException ex) {
             if (StringUtils.hasText(token) && ex.getStatusCode().value() == 401) {
                 try {
-                    log.info("Token GitHub bị 401 khi lấy PR cho {}/{}. Tự động fallback sang chế độ Public (anonymous)...", owner, repo);
+                    log.info(
+                            "Token GitHub bị 401 khi lấy PR cho {}/{}. Tự động fallback sang chế độ Public (anonymous)...",
+                            owner, repo);
                     return doFetchPullRequests(null, owner, repo, targetState);
                 } catch (Exception ex2) {
                     log.warn("Thử lại lấy PR chế độ Public thất bại: {}", ex2.getMessage());
@@ -152,7 +183,8 @@ public class GitHubClient implements GitHubClientPort {
         }
     }
 
-    private List<GitHubPullRequestDto> doFetchPullRequests(String token, String owner, String repo, String targetState) {
+    private List<GitHubPullRequestDto> doFetchPullRequests(String token, String owner, String repo,
+            String targetState) {
         String uri = UriComponentsBuilder.fromPath("/repos/{owner}/{repo}/pulls")
                 .queryParam("state", targetState)
                 .queryParam("per_page", 100)
@@ -203,7 +235,9 @@ public class GitHubClient implements GitHubClientPort {
         } catch (RestClientResponseException ex) {
             if (StringUtils.hasText(token) && ex.getStatusCode().value() == 401) {
                 try {
-                    log.info("Token GitHub bị 401 khi lấy Commits cho {}/{}. Tự động fallback sang chế độ Public (anonymous)...", owner, repo);
+                    log.info(
+                            "Token GitHub bị 401 khi lấy Commits cho {}/{}. Tự động fallback sang chế độ Public (anonymous)...",
+                            owner, repo);
                     return doFetchCommits(null, owner, repo, sha, perPage);
                 } catch (Exception ex2) {
                     log.warn("Thử lại lấy Commits chế độ Public thất bại: {}", ex2.getMessage());
@@ -616,6 +650,114 @@ public class GitHubClient implements GitHubClientPort {
             log.error("Lỗi ngoại lệ khi đăng comment lên PR #{}: {}", prNumber, ex.getMessage(), ex);
             throw new GitHubApiException("Không thể đăng comment lên PR: " + ex.getMessage(), 500, ex);
         }
+    }
+
+    @Override
+    public Long updatePullRequestComment(String token, String owner, String repo, Long commentId, String body) {
+        String uri = UriComponentsBuilder.fromPath("/repos/{owner}/{repo}/issues/comments/{comment_id}")
+                .buildAndExpand(owner, repo, commentId)
+                .toUriString();
+
+        log.info("Cập nhật comment ID={} trên PR của repo {}/{}", commentId, owner, repo);
+        Map<String, String> requestBody = Map.of("body", body);
+
+        try {
+            var requestSpec = restClient.patch()
+                    .uri(uri)
+                    .header(HttpHeaders.USER_AGENT, "LivingDocs-GitHubClient/1.0")
+                    .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .body(requestBody);
+
+            if (StringUtils.hasText(token)) {
+                requestSpec.header(HttpHeaders.AUTHORIZATION, "Bearer " + token.trim());
+            }
+
+            var responseEntity = requestSpec.retrieve().toEntity(GitCommentResponse.class);
+            GitCommentResponse commentResponse = responseEntity.getBody();
+            if (commentResponse != null && commentResponse.id() != null) {
+                log.info("Cập nhật comment thành công ID={}", commentResponse.id());
+                return commentResponse.id();
+            }
+            return commentId;
+        } catch (Exception patchEx) {
+            try {
+                var fallbackSpec = restClient.post()
+                        .uri(uri)
+                        .header(HttpHeaders.USER_AGENT, "LivingDocs-GitHubClient/1.0")
+                        .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
+                        .header("X-HTTP-Method-Override", "PATCH")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.APPLICATION_JSON)
+                        .body(requestBody);
+                if (StringUtils.hasText(token)) {
+                    fallbackSpec.header(HttpHeaders.AUTHORIZATION, "Bearer " + token.trim());
+                }
+                var fallbackEntity = fallbackSpec.retrieve().toEntity(GitCommentResponse.class);
+                GitCommentResponse commentResponse = fallbackEntity.getBody();
+                if (commentResponse != null && commentResponse.id() != null) {
+                    return commentResponse.id();
+                }
+                return commentId;
+            } catch (Exception ex) {
+                log.error("Lỗi khi cập nhật comment ID #{}: {}", commentId, ex.getMessage());
+                return commentId;
+            }
+        }
+    }
+
+    @Override
+    public List<com.example.livingdocs_backend.application.dto.github.GitHubCommentDto> listPullRequestComments(
+            String token, String owner, String repo, int prNumber) {
+        String uri = UriComponentsBuilder.fromPath("/repos/{owner}/{repo}/issues/{issue_number}/comments")
+                .buildAndExpand(owner, repo, prNumber)
+                .toUriString();
+        try {
+            var requestSpec = restClient.get()
+                    .uri(uri)
+                    .header(HttpHeaders.USER_AGENT, "LivingDocs-GitHubClient/1.0")
+                    .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
+                    .accept(MediaType.APPLICATION_JSON);
+            if (StringUtils.hasText(token)) {
+                requestSpec.header(HttpHeaders.AUTHORIZATION, "Bearer " + token.trim());
+            }
+            GitCommentResponse[] responses = requestSpec.retrieve().body(GitCommentResponse[].class);
+            if (responses == null || responses.length == 0) {
+                return Collections.emptyList();
+            }
+            List<com.example.livingdocs_backend.application.dto.github.GitHubCommentDto> dtos = new ArrayList<>();
+            for (GitCommentResponse r : responses) {
+                dtos.add(com.example.livingdocs_backend.application.dto.github.GitHubCommentDto.builder()
+                        .id(r.id())
+                        .htmlUrl(r.htmlUrl())
+                        .body(r.body())
+                        .build());
+            }
+            return dtos;
+        } catch (Exception ex) {
+            log.debug("Không thể lấy danh sách comment PR #{} trên {}/{}: {}", prNumber, owner, repo, ex.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    @Override
+    public Long findExistingPullRequestComment(String token, String owner, String repo, int prNumber, String marker) {
+        if (!StringUtils.hasText(marker)) {
+            return null;
+        }
+        try {
+            var comments = listPullRequestComments(token, owner, repo, prNumber);
+            for (var c : comments) {
+                if (c.getBody() != null && c.getBody().contains(marker)) {
+                    log.info("Tìm thấy comment cũ khớp marker '{}', ID={}", marker, c.getId());
+                    return c.getId();
+                }
+            }
+        } catch (Exception ex) {
+            log.debug("Lỗi khi tìm comment theo marker: {}", ex.getMessage());
+        }
+        return null;
     }
 
     /**

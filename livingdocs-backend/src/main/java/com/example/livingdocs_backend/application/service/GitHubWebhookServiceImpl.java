@@ -24,6 +24,7 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -356,19 +357,39 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
     }
 
     private RepositoryEntity findRepository(Long githubRepoId, String repoFullName) {
+        List<RepositoryEntity> allRepos = repositoryRepository.findAll();
+        if (allRepos.isEmpty()) {
+            return null;
+        }
+
         if (githubRepoId != null && githubRepoId > 0) {
-            Optional<RepositoryEntity> byId = repositoryRepository.findAll().stream()
+            Optional<RepositoryEntity> byId = allRepos.stream()
                     .filter(r -> githubRepoId.equals(r.getGithubRepoId()) || githubRepoId.equals(r.getRepositoryId()))
                     .findFirst();
-            if (byId.isPresent())
+            if (byId.isPresent()) {
                 return byId.get();
+            }
         }
 
         if (StringUtils.hasText(repoFullName)) {
-            return repositoryRepository.findAll().stream()
-                    .filter(r -> repoFullName.equalsIgnoreCase(r.getRepoFullName()))
-                    .findFirst()
-                    .orElse(null);
+            Optional<RepositoryEntity> byName = allRepos.stream()
+                    .filter(r -> repoFullName.equalsIgnoreCase(r.getRepoFullName())
+                            || (r.getRepoName() != null
+                                    && repoFullName.toLowerCase().endsWith("/" + r.getRepoName().toLowerCase()))
+                            || (r.getRepoFullName() != null
+                                    && r.getRepoFullName().toLowerCase().endsWith("/" + repoFullName.toLowerCase())))
+                    .findFirst();
+            if (byName.isPresent()) {
+                return byName.get();
+            }
+        }
+
+        // Dự phòng cho môi trường dev/local test khi trong DB chỉ có duy nhất 1
+        // repository
+        if (allRepos.size() == 1) {
+            log.info("[Webhook] Sử dụng repository duy nhất [{}] làm fallback cho testing",
+                    allRepos.get(0).getRepoFullName());
+            return allRepos.get(0);
         }
 
         return null;

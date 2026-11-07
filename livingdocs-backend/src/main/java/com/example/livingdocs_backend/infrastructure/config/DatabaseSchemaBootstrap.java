@@ -25,6 +25,12 @@ public class DatabaseSchemaBootstrap implements ApplicationRunner {
             jdbcTemplate.execute("ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS commit_url VARCHAR(1024)");
             jdbcTemplate.execute("ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS published_at TIMESTAMP");
 
+            // Tự động bổ sung các cột còn thiếu trong bảng jobs nếu DB đã tạo từ phiên bản cũ
+            jdbcTemplate.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS result_json TEXT");
+            jdbcTemplate.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS payload_json TEXT NOT NULL DEFAULT '{}'");
+            jdbcTemplate.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS last_error TEXT");
+            jdbcTemplate.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP WITH TIME ZONE");
+
             jdbcTemplate.execute("""
                 INSERT INTO doc_templates (id, name, type, structure_json, is_default)
                 VALUES
@@ -34,7 +40,7 @@ public class DatabaseSchemaBootstrap implements ApplicationRunner {
                   (4, 'Architecture ADR', 'ARCHITECTURE_ADR', '{}'::jsonb, false)
                 ON CONFLICT (id) DO NOTHING
             """);
-            log.info("[DatabaseSchemaBootstrap] Đã kiểm tra và đồng bộ doc_templates + document_versions thành công.");
+            log.info("[DatabaseSchemaBootstrap] Đã kiểm tra và đồng bộ doc_templates, document_versions, jobs thành công.");
         } catch (Exception ex) {
             log.debug("[DatabaseSchemaBootstrap] Bỏ qua đồng bộ schema tự động (có thể đang chạy môi trường H2/Test): {}", ex.getMessage());
         }

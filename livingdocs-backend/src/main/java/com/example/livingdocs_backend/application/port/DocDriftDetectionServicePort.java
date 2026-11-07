@@ -10,16 +10,41 @@ public interface DocDriftDetectionServicePort {
 
     /**
      * Thuật toán tìm các tài liệu bị ảnh hưởng thông qua bảng doc_code_links
-     * dựa trên danh sách các hàm/class Java bị sửa, xóa, đổi tên từ Pull Request.
+     * dựa trên danh sách các hàm/class bị sửa, xóa, đổi tên từ Pull Request.
      */
     List<AffectedDocumentResultDto> findAffectedDocuments(Long repositoryId, AstDiffRequestDto diffRequest);
+
+    /**
+     * Tự động kéo Git Diff thời gian thực từ GitHub cho PR và tìm toàn bộ tài liệu
+     * bị ảnh hưởng qua doc_code_links.
+     * Trả về danh sách AffectedDocumentResultDto kèm mức độ nghiêm trọng
+     * (Critical/High/Medium/Low).
+     */
+    List<AffectedDocumentResultDto> findAffectedDocumentsForPullRequest(Long repositoryId, int prNumber);
 
     /**
      * Quy trình hoàn chỉnh:
      * 1. Đối chiếu AST code giữa base và head của Pull Request.
      * 2. Truy vấn doc_code_links xác định tài liệu bị ảnh hưởng.
-     * 3. Lưu bản ghi cảnh báo vào bảng document_change_alerts (drift_alerts) với mức độ tương ứng.
-     * 4. Gọi GitHub REST API đăng comment cảnh báo chi tiết trực tiếp lên Pull Request.
+     * 3. Lưu bản ghi cảnh báo vào bảng document_change_alerts (drift_alerts) với
+     * mức độ tương ứng.
+     * 4. Gọi GitHub REST API đăng comment cảnh báo chi tiết trực tiếp lên Pull
+     * Request.
      */
     PrDriftAnalysisResultDto detectDriftAndCommentOnPr(Long repositoryId, int prNumber, AstDiffRequestDto diffRequest);
+
+    /**
+     * Tự động kéo Git Diff thời gian thực, đối chiếu AST, lưu cảnh báo và comment
+     * lên PR.
+     */
+    PrDriftAnalysisResultDto detectDriftAndCommentOnPr(Long repositoryId, int prNumber);
+
+    /**
+     * Tạo nội dung Markdown chuyên nghiệp cho comment cảnh báo trôi dạt tài liệu
+     * trên Pull Request.
+     */
+    default String generateDriftCommentMarkdown(int prNumber, List<AffectedDocumentResultDto> affectedDocs,
+            AstDiffRequestDto diffRequest) {
+        return "";
+    }
 }

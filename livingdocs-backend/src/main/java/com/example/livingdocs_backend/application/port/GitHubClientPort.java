@@ -2,10 +2,12 @@ package com.example.livingdocs_backend.application.port;
 
 import com.example.livingdocs_backend.application.dto.github.GitHubCommitDto;
 import com.example.livingdocs_backend.application.dto.github.GitHubFileDto;
+import com.example.livingdocs_backend.application.dto.github.GitHubPrFileDto;
 import com.example.livingdocs_backend.application.dto.github.GitHubPublishResultDto;
 import com.example.livingdocs_backend.application.dto.github.GitHubPullRequestDto;
 import com.example.livingdocs_backend.application.dto.github.GitHubTokenValidationResult;
 
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -26,6 +28,13 @@ public interface GitHubClientPort {
      * Lấy thông tin chi tiết một Pull Request.
      */
     GitHubPullRequestDto getPullRequest(String token, String owner, String repo, int prNumber);
+
+    /**
+     * Lấy danh sách các file bị thay đổi (diff) trong một Pull Request.
+     */
+    default List<GitHubPrFileDto> getPullRequestFiles(String token, String owner, String repo, int prNumber) {
+        return Collections.emptyList();
+    }
 
     /**
      * Lấy danh sách Pull Request của repository.
@@ -57,7 +66,8 @@ public interface GitHubClientPort {
     String getCurrentFileSha(String token, String owner, String repo, String filePath);
 
     /**
-     * Lấy nội dung văn bản (UTF-8) của một file từ GitHub Contents API tại một branch hoặc ref.
+     * Lấy nội dung văn bản (UTF-8) của một file từ GitHub Contents API tại một
+     * branch hoặc ref.
      * Trả về null nếu file không tồn tại hoặc không thể đọc.
      */
     default String getFileContent(String token, String owner, String repo, String filePath, String ref) {
@@ -68,6 +78,30 @@ public interface GitHubClientPort {
      * Đăng bình luận (Comment) lên Pull Request qua GitHub REST API.
      */
     Long createPullRequestComment(String token, String owner, String repo, int prNumber, String body);
+
+    /**
+     * Cập nhật bình luận (Comment) đã tồn tại trên Pull Request qua GitHub REST
+     * API.
+     */
+    default Long updatePullRequestComment(String token, String owner, String repo, Long commentId, String body) {
+        return commentId;
+    }
+
+    /**
+     * Lấy danh sách bình luận trên Pull Request (Issue Comments).
+     */
+    default List<com.example.livingdocs_backend.application.dto.github.GitHubCommentDto> listPullRequestComments(
+            String token, String owner, String repo, int prNumber) {
+        return Collections.emptyList();
+    }
+
+    /**
+     * Tìm comment cũ của bot trên PR dựa trên marker tag định danh (ví dụ: <!--
+     * livingdocs-drift-alert -->).
+     */
+    default Long findExistingPullRequestComment(String token, String owner, String repo, int prNumber, String marker) {
+        return null;
+    }
 
     /**
      * Kiểm tra tính hợp lệ của access token kết nối GitHub.
