@@ -52,6 +52,7 @@ export default function AdminUsersPage() {
     email: "",
     password: "",
     role: "DEVELOPER",
+    avatarUrl: "",
   });
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -108,7 +109,7 @@ export default function AdminUsersPage() {
     try {
       await createUser(createForm);
       setShowCreateModal(false);
-      setCreateForm({ fullName: "", email: "", password: "", role: "DEVELOPER" });
+      setCreateForm({ fullName: "", email: "", password: "", role: "DEVELOPER", avatarUrl: "" });
       setSuccessMsg("Tạo tài khoản người dùng mới thành công!");
       await load();
     } catch (err: any) {
@@ -323,8 +324,23 @@ export default function AdminUsersPage() {
                   <tr key={u.userId} className="hover:bg-slate-50/60">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
-                        <div className="grid size-8 place-items-center rounded-full bg-slate-200 text-xs font-bold text-slate-700">
-                          {initials(u.fullName)}
+                        <div className="relative size-8 shrink-0 overflow-hidden rounded-full bg-slate-100 ring-1 ring-slate-300 flex items-center justify-center">
+                          {u.avatarUrl ? (
+                            <img
+                              src={u.avatarUrl}
+                              alt={u.fullName}
+                              className="size-full object-cover"
+                              onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).src = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(u.email || u.fullName)}`;
+                              }}
+                            />
+                          ) : (
+                            <img
+                              src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(u.email || u.fullName)}`}
+                              alt={u.fullName}
+                              className="size-full object-cover"
+                            />
+                          )}
                         </div>
                         <span className="font-semibold text-slate-900">{u.fullName}</span>
                       </div>
@@ -491,6 +507,15 @@ export default function AdminUsersPage() {
                   />
                 </div>
                 <div>
+                  <label className="block text-xs font-semibold text-slate-700">Ảnh đại diện (URL Avatar - Tùy chọn)</label>
+                  <input
+                    type="url"
+                    placeholder="https://example.com/avatar.png (để trống sẽ tạo tự động)"
+                    value={createForm.avatarUrl}
+                    onChange={(e) => setCreateForm({ ...createForm, avatarUrl: e.target.value })}
+                    className="mt-1 w-full rounded border border-slate-300 px-3 py-1.5 text-sm outline-none focus:border-emerald-500"
+                  />
+                </div>
                   <label className="block text-xs font-semibold text-slate-700">Vai trò ban đầu</label>
                   <select
                     value={createForm.role}
