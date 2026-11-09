@@ -174,10 +174,10 @@ const NAV: NavItem[] = [
     roles: ["ADMIN"],
   },
   {
-    href: "/cai-dat-he-thong",
-    label: "Cài đặt hệ thống",
+    href: "/cai-dat",
+    label: "Cài đặt",
     icon: <Settings size={16} />,
-    roles: ["ADMIN"],
+    roles: ["DEVELOPER", "TECH_LEAD", "ADMIN", "STAFF", "MANAGER"],
   },
   {
     href: "/giam-sat-suc-khoe",

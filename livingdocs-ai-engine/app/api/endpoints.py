@@ -20,9 +20,11 @@ from app.schemas.ai_schemas import (
 )
 from app.services.tree_sitter_ast_parser import parse_multilingual_ast, parse_java_with_treesitter
 from app.services.gemini_doc_service import GeminiDocService
+from app.services.ollama_doc_service import OllamaDocService
 from app.services.gemini_drift_service import GeminiDriftService
 from app.services.gemini_rewrite_service import GeminiRewriteService
 from app.services.diff_ast_service import DiffAstService
+from app.core.gemini_key_manager import GeminiKeyManager
 from app.core.gemini_retry import (
     GeminiQuotaExceededError,
     GeminiServiceUnavailableError,
@@ -382,3 +384,33 @@ async def rewrite_document_suggestion(request: DocRewriteRequest):
 def get_quota_metrics():
     """Trả về trạng thái sức khỏe và số liệu giám sát của Quota Rate-Limit Controller."""
     return quota_controller.get_metrics()
+
+
+@router.get(
+    "/ai/providers",
+    summary="Kiểm tra trạng thái các nhà cung cấp AI (Google Gemini & Ollama GPU Local)",
+    description="Trả về tình trạng kết nối của Google Gemini Cloud API và Ollama GPU Local Engine."
+)
+def get_ai_providers():
+    """Trả về thông tin kết nối và model của các AI Provider khả dụng."""
+    settings = get_settings()
+    ollama_ready = OllamaDocService.is_available()
+    gemini_key = GeminiKeyManager.get_active_api_key()
+    return {
+        "status": "UP",
+        "default_provider": settings.ai_provider,
+        "providers": {
+            "gemini": {
+                "available": bool(gemini_key),
+                "type": "cloud",
+                "models": ["gemini-2.5-pro", "gemini-2.5-flash"],
+            },
+            "ollama": {
+                "available": ollama_ready,
+                "type": "local-gpu",
+                "base_url": settings.ollama_base_url,
+                "model": settings.ollama_model,
+                "device": "NVIDIA GeForce RTX 4060 Laptop GPU (8GB VRAM)" if ollama_ready else "N/A",
+            }
+        }
+    }

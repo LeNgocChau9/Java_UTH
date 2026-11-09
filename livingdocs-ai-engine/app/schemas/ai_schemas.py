@@ -36,6 +36,7 @@ class DocGenerateRequest(BaseModel):
     entities: Optional[List[CodeEntityItem]] = Field(default=None, description="Danh sách các entity bóc tách từ AST")
     source_code: Optional[str] = Field(default=None, description="Mã nguồn tham chiếu nếu có")
     commit_hash: Optional[str] = Field(default=None, description="Mã băm commit của mã nguồn")
+    provider: Optional[str] = Field(default=None, description="Nhà cung cấp AI: 'auto', 'gemini', hoặc 'ollama' (chạy offline GPU)")
 
 class GroundingEvidence(BaseModel):
     file_path: str

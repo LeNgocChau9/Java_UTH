@@ -13,6 +13,7 @@ import re
 from typing import List, Optional
 from google import genai
 from google.genai import types as genai_types
+from app.core.config import get_settings
 from app.core.gemini_key_manager import GeminiKeyManager
 from app.schemas.ai_schemas import (
     DocGenerateRequest,
@@ -213,11 +214,11 @@ Thành phần `{target_name}` nằm trong tệp `{file_path}`, đóng vai trò �
         entities_json = json.dumps(entities_summary, ensure_ascii=False, indent=2)
         code_context = ""
         if source_code:
-            trimmed_code = source_code[:2500] if len(source_code) > 2500 else source_code
+            trimmed_code = source_code[:15000] if len(source_code) > 15000 else source_code
             code_context = f"\n### ĐOẠN MÃ NGUỒN THAM CHIẾU:\n```java\n{trimmed_code}\n```\n"
 
         base_instructions = f"""Bạn là một Chuyên gia Kiến trúc Phần mềm và Senior Technical Writer cao cấp của hệ thống LivingDocs.
-Nhiệm vụ của bạn là phân tích cấu trúc mã nguồn (bóc tách từ Tree-sitter AST) và viết một bản TÀI LIỆU KỸ THUẬT HOÀN CHỈNH, CHUẨN MỰC bằng định dạng MARKDOWN.
+Nhiệm vụ của bạn là phân tích sâu sắc toàn bộ cấu trúc mã nguồn (bóc tách từ Tree-sitter AST) và viết một bản TÀI LIỆU KỸ THUẬT DÀI, ĐẦY ĐỦ, TOÀN DIỆN VÀ CHUYÊN SÂU bằng định dạng MARKDOWN. Tuyệt đối KHÔNG tóm tắt sơ sài, KHÔNG lược bỏ các hàm hoặc tham số.
 
 ### THÔNG TIN ĐẦU VÀO:
 - Tên lớp / Thành phần chính: {target_name}
@@ -338,7 +339,10 @@ Tài liệu PHẢI tuân thủ chính xác các đề mục sau:
 
         footer_note = """
 ### YÊU CẦU TRÌNH BÀY:
-- Viết bằng TIẾNG VIỆT chuẩn kỹ thuật phần mềm, văn phong chuyên nghiệp, súc tích.
+- Viết bằng TIẾNG VIỆT chuẩn kỹ thuật phần mềm, văn phong chuyên sâu, giải thích cặn kẽ.
+- BẮT BUỘC viết tài liệu DÀI, ĐẦY ĐỦ VÀ CHI TIẾT (Comprehensive Documentation). TUYỆT ĐỐI KHÔNG tóm tắt ngắn gọn hay lược bỏ thông tin.
+- Với từng hàm/phương thức: BẮT BUỘC phân tích chi tiết mục đích, luồng xử lý bên trong (Step-by-Step Flow), ý nghĩa từng tham số, kiểu trả về và các ngoại lệ có thể phát sinh.
+- BẮT BUỘC có các bảng Markdown, tiêu đề phân cấp rõ ràng, code block hoàn chỉnh (không viết code tắt hoặc '...').
 - BẮT BUỘC có các bảng Markdown, tiêu đề rõ ràng, code block chuẩn cú pháp.
 - KHÔNG viết thêm các lời chào hỏi hay giải thích ngoài lề, chỉ trả về nội dung Markdown của tài liệu.
 """
@@ -352,6 +356,13 @@ Tài liệu PHẢI tuân thủ chính xác các đề mục sau:
         Nhúng khối Grounding Evidence Box xác thực nguồn vào cuối tài liệu.
         Nếu API Key chưa hợp lệ hoặc tất cả model tạm thời gián đoạn, tự động fallback sang Smart AST Synthesis.
         """
+        # ponytail: Hỗ trợ chỉ định trực tiếp provider='ollama' để sinh tài liệu offline trên GPU RTX 4060
+        active_provider = (request.provider or get_settings().ai_provider or "auto").lower()
+        if active_provider == "ollama":
+            from app.services.ollama_doc_service import OllamaDocService
+            logger.info("Yêu cầu chỉ định sử dụng AI Local Ollama (GPU RTX 4060)...")
+            return OllamaDocService.generate_documentation(request)
+
         template_type = cls._normalize_template_type(request.template_type)
         commit_hash = request.commit_hash or "verified-ast-grounding"
 
@@ -437,7 +448,7 @@ Tài liệu PHẢI tuân thủ chính xác các đề mục sau:
                         config=genai_types.GenerateContentConfig(
                             temperature=0.2,
                             top_p=0.9,
-                            max_output_tokens=4000,
+                            max_output_tokens=8192,
                         ),
                     )
                     return resp, model_name
@@ -484,7 +495,17 @@ Tài liệu PHẢI tuân thủ chính xác các đề mục sau:
             )
 
         except Exception as ex:
-            logger.warning(f"Chuyển sang chế độ tổng hợp AST dự phòng do sự cố gọi Gemini API: {ex}")
+            logger.warning(f"Sự cố gọi Gemini API: {ex}")
+            # ponytail: Nếu Ollama local trên RTX 4060 đang chạy, ưu tiên sinh tài liệu hoàn chỉnh thay vì rớt xuống AST tĩnh
+            try:
+                from app.services.ollama_doc_service import OllamaDocService
+                if OllamaDocService.is_available():
+                    logger.info("Gemini gián đoạn, tự động failover sang mô hình AI Local Ollama (qwen2.5-coder:7b)...")
+                    return OllamaDocService.generate_documentation(request)
+            except Exception as o_ex:
+                logger.warning(f"Failover sang Ollama cũng gặp sự cố: {o_ex}")
+
+            logger.warning("Chuyển sang chế độ tổng hợp AST dự phòng do không có AI khả dụng.")
             synthesized_md = cls._build_smart_ast_markdown(request, target_name, entities_summary)
             if "Khối Bằng chứng Xác thực Nguồn" not in synthesized_md:
                 synthesized_md = synthesized_md.rstrip() + "\n\n" + grounding_box_md.strip()

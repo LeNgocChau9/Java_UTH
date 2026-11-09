@@ -80,6 +80,8 @@ public class SecurityConfig {
                     "/api/code-diff/**",
                     "/api/webhooks",
                     "/api/webhooks/**",
+                    "/api/v1/settings",
+                    "/api/v1/settings/**",
                     "/api/ci/**"
                 ).permitAll()
                 .requestMatchers("/api/me").authenticated()
