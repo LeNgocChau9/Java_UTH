@@ -70,6 +70,8 @@ interface GeneratedDocResult {
   scope?: string;
   linkedEntitiesCount?: number;
   confidenceScore?: number;
+  mode?: string;
+  provider?: string;
 }
 
 type ScopeType = "FILE" | "PACKAGE" | "REPOSITORY";
@@ -170,6 +172,7 @@ export default function YeuCauSinhPage() {
   const [scopeType, setScopeType] = useState<ScopeType>("FILE");
   const [scope, setScope] = useState("");
   const [note, setNote] = useState("");
+  const [aiProvider, setAiProvider] = useState<"auto" | "ollama" | "gemini">("auto");
   const [step, setStep] = useState<Step>("idle");
   const [repositories, setRepositories] = useState<RepoItem[]>([]);
   const [templates, setTemplates] = useState<DocTemplateOption[]>([]);
@@ -229,6 +232,16 @@ export default function YeuCauSinhPage() {
         setError("Không thể tải thông tin khởi tạo từ cơ sở dữ liệu. Vui lòng thử lại.");
       })
       .finally(() => setLoadingRepositories(false));
+
+    // Nạp cấu hình AI đã lưu từ Settings
+    apiClient
+      .get<{ provider?: string }>("/api/v1/settings/ai")
+      .then((res) => {
+        if (res.data?.provider) {
+          setAiProvider(res.data.provider as any);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   // When repo changes, fetch its scanned code entities (.java files)
@@ -364,6 +377,7 @@ export default function YeuCauSinhPage() {
       let createdSourceCommit = selectedFileEntities[0]?.commitHash || "b39f1c7e9a";
       let linkedCount = selectedFileEntities.length;
       let confidenceScore = 0.95;
+      let generatedMode = aiProvider === "ollama" ? "ollama-local" : "real";
 
       // 1. Gọi API Điều phối Sinh tài liệu AI (/api/documents/generate-ai) theo 3 phạm vi (FILE, PACKAGE, REPOSITORY)
       try {
@@ -391,6 +405,7 @@ export default function YeuCauSinhPage() {
           class_name: className,
           note: note.trim() || undefined,
           save_document: true,
+          provider: aiProvider,
           entities: selectedFileEntities.map((ent) => ({
             entity_type: ent.entityType || "METHOD",
             class_name: ent.className || className,
@@ -416,6 +431,7 @@ export default function YeuCauSinhPage() {
           createdSourceCommit = aiRes.data.sourceCommit || createdSourceCommit;
           linkedCount = aiRes.data.linkedEntitiesCount || linkedCount;
           confidenceScore = aiRes.data.confidence_score || confidenceScore;
+          generatedMode = aiRes.data.mode || generatedMode;
         }
       } catch (backendAiErr) {
         console.warn("Backend /generate-ai fallback:", backendAiErr);
@@ -431,6 +447,7 @@ export default function YeuCauSinhPage() {
             file_path: selectedTarget,
             template_type: selectedTemplate?.type || "API_REFERENCE",
             class_name: className,
+            provider: aiProvider,
             entities: selectedFileEntities.map((ent) => ({
               entity_type: ent.entityType || "METHOD",
               class_name: ent.className || className,
@@ -451,6 +468,7 @@ export default function YeuCauSinhPage() {
           const engineData = await engineRes.json();
           generatedMarkdown = engineData.generated_content;
           confidenceScore = engineData.confidence_score || 0.95;
+          generatedMode = engineData.mode || generatedMode;
         }
       }
 
@@ -535,6 +553,8 @@ service.initialize();
         scope: scopeType,
         linkedEntitiesCount: linkedCount,
         confidenceScore: confidenceScore,
+        mode: generatedMode,
+        provider: aiProvider,
       });
 
       setStep("generated");
@@ -1290,6 +1310,13 @@ service.initialize();
                     </span>
                     <span className="text-xs font-semibold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-300">
                       Độ tin cậy: {((generatedDoc.confidenceScore || 0.95) * 100).toFixed(0)}%
+                    </span>
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded border ${
+                      generatedDoc.mode === "ollama-local"
+                        ? "text-purple-800 bg-purple-100 border-purple-300"
+                        : "text-blue-800 bg-blue-100 border-blue-300"
+                    }`}>
+                      {generatedDoc.mode === "ollama-local" ? "⚡ Ollama Local (RTX 4060)" : "☁️ Google Gemini"}
                     </span>
                   </div>
                   <h3 style={{ fontSize: 16, fontWeight: 700, color: "#0f766e", margin: 0 }}>

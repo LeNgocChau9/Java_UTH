@@ -45,6 +45,9 @@ public record AiDocGenerateRequestDto(
 
         List<CodeEntityItemDto> entities,
 
+        @JsonAlias({"aiProvider", "provider"})
+        String provider,
+
         @JsonAlias({"saveDocument"})
         Boolean save_document
 ) {
