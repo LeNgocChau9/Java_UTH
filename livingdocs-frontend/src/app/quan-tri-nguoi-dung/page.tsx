@@ -516,6 +516,7 @@ export default function AdminUsersPage() {
                     className="mt-1 w-full rounded border border-slate-300 px-3 py-1.5 text-sm outline-none focus:border-emerald-500"
                   />
                 </div>
+                <div>
                   <label className="block text-xs font-semibold text-slate-700">Vai trò ban đầu</label>
                   <select
                     value={createForm.role}
