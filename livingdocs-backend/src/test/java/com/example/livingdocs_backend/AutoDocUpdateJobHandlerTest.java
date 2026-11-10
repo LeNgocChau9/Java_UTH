@@ -47,6 +47,9 @@ class AutoDocUpdateJobHandlerTest {
     private SpringDataDocumentRepository documentRepository;
 
     @Mock
+    private com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocCodeLinkRepository docCodeLinkRepository;
+
+    @Mock
     private SpringDataRepositoryRepository repositoryRepository;
 
     @Mock
@@ -66,6 +69,7 @@ class AutoDocUpdateJobHandlerTest {
                 codeDiffAnalysisService,
                 docDriftDetectionService,
                 documentRepository,
+                docCodeLinkRepository,
                 repositoryRepository,
                 connectionRepository,
                 gitHubClient,
@@ -136,4 +140,53 @@ class AutoDocUpdateJobHandlerTest {
                 isNull()
         );
     }
+
+    @Test
+    @DisplayName("AutoDocUpdateJobHandler hỗ trợ tổng quát mọi ngôn ngữ nguồn (TypeScript .tsx, Python .py, C# .cs,...) và liên kết doc_code_links")
+    void shouldExecuteAutoUpdatePipelineForMultilingualSourceFiles() throws Exception {
+        RepositoryEntity repo = RepositoryEntity.builder()
+                .repositoryId(2L)
+                .repoFullName("LeNgocChau9/Source_JS-TS")
+                .build();
+
+        when(repositoryRepository.findById(2L)).thenReturn(Optional.of(repo));
+
+        com.example.livingdocs_backend.infrastructure.persistence.entity.DocCodeLinkEntity link = 
+                com.example.livingdocs_backend.infrastructure.persistence.entity.DocCodeLinkEntity.builder()
+                        .documentId(63L)
+                        .filePath("src/components/LampLoginClient.tsx")
+                        .build();
+
+        when(docCodeLinkRepository.findByFilePath("src/components/LampLoginClient.tsx"))
+                .thenReturn(List.of(link));
+
+        AutoDocUpdateJobPayload payload = AutoDocUpdateJobPayload.builder()
+                .repositoryId(2L)
+                .repoFullName("LeNgocChau9/Source_JS-TS")
+                .eventType("push")
+                .headCommitSha("head-sha-tsx")
+                .baseCommitSha("base-sha-0")
+                .commitAuthor("Chau Developer")
+                .commitMessage("feat: update LampLoginClient authentication flow")
+                .changedFiles(List.of("src/components/LampLoginClient.tsx"))
+                .diffContent("@@ -10,3 +10,4 @@\n+const useAuth = () => { return true; };")
+                .build();
+
+        Job job = Job.builder()
+                .jobId(77L)
+                .type("AUTO_DOC_UPDATE")
+                .payloadJson(objectMapper.writeValueAsString(payload))
+                .build();
+
+        jobHandler.handle(job);
+
+        verify(autoDraftService, times(1)).generateAutoDraftForDocument(
+                eq(63L),
+                contains("LampLoginClient.tsx"),
+                eq("head-sha-tsx"),
+                anyString(),
+                isNull()
+        );
+    }
 }
+

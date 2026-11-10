@@ -252,17 +252,17 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
         repo.setUpdatedAt(Instant.now());
         repositoryRepository.save(repo);
 
-        // Kích hoạt pipeline tự động cập nhật tài liệu khi mã nguồn có commit mới
+        // Kích hoạt pipeline tự động cập nhật tài liệu khi mã nguồn có commit mới (hỗ trợ tổng quát mọi định dạng code)
         String autoUpdateMsg = "";
         try {
-            List<String> targetJavaFiles = new ArrayList<>();
+            List<String> targetFiles = new ArrayList<>();
             for (String f : changedFiles) {
-                if (f != null && (f.endsWith(".java") || f.endsWith(".py") || f.endsWith(".ts") || f.endsWith(".tsx"))) {
-                    targetJavaFiles.add(f);
+                if (f != null && isTextOrSourceFile(f)) {
+                    targetFiles.add(f);
                 }
             }
-            if (targetJavaFiles.isEmpty() && !changedFiles.isEmpty()) {
-                targetJavaFiles.addAll(changedFiles);
+            if (targetFiles.isEmpty() && !changedFiles.isEmpty()) {
+                targetFiles.addAll(changedFiles);
             }
 
             AutoDocUpdateJobPayload autoDocPayload = AutoDocUpdateJobPayload.builder()
@@ -273,7 +273,7 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
                     .baseCommitSha(baseCommitSha)
                     .commitAuthor(commitAuthor)
                     .commitMessage(latestCommitMessage)
-                    .changedFiles(targetJavaFiles)
+                    .changedFiles(targetFiles)
                     .diffContent(diffContent)
                     .build();
 
@@ -492,6 +492,17 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
                 }
             }
         }
+    }
+
+    private boolean isTextOrSourceFile(String filename) {
+        if (!StringUtils.hasText(filename)) return false;
+        String lower = filename.toLowerCase();
+        return !(lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+                || lower.endsWith(".gif") || lower.endsWith(".ico") || lower.endsWith(".svg")
+                || lower.endsWith(".pdf") || lower.endsWith(".zip") || lower.endsWith(".tar")
+                || lower.endsWith(".gz") || lower.endsWith(".jar") || lower.endsWith(".war")
+                || lower.endsWith(".exe") || lower.endsWith(".bin") || lower.endsWith(".dll")
+                || lower.endsWith(".so") || lower.endsWith(".dylib") || lower.endsWith(".class"));
     }
 
     private Instant parseInstant(String text) {

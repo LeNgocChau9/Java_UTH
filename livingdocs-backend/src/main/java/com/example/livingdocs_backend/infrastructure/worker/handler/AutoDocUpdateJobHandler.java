@@ -3,6 +3,7 @@ package com.example.livingdocs_backend.infrastructure.worker.handler;
 import com.example.livingdocs_backend.application.dto.ai.AstDiffRequestDto;
 import com.example.livingdocs_backend.application.dto.drift.AffectedDocumentResultDto;
 import com.example.livingdocs_backend.application.dto.drift.AutoDocUpdateJobPayload;
+import com.example.livingdocs_backend.application.dto.github.GitHubPrFileDto;
 import com.example.livingdocs_backend.application.port.AutoDraftServicePort;
 import com.example.livingdocs_backend.application.port.CodeDiffAnalysisServicePort;
 import com.example.livingdocs_backend.application.port.DocDriftDetectionServicePort;
@@ -11,9 +12,11 @@ import com.example.livingdocs_backend.application.port.JobHandler;
 import com.example.livingdocs_backend.application.service.GitHubWebhookServiceImpl;
 import com.example.livingdocs_backend.domain.model.DocumentStatus;
 import com.example.livingdocs_backend.domain.model.Job;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.DocCodeLinkEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocCodeLinkRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
@@ -31,10 +34,10 @@ import java.util.*;
  * hoặc merge Pull Request từ GitHub Webhook.
  * 
  * Luồng hoạt động:
- * 1. Bóc tách các file Java và phương thức bị sửa đổi qua git diff/AST.
- * 2. Tìm các tài liệu bị ảnh hưởng trong repository.
- * 3. Tự động gọi AI Engine (/v1/docs/rewrite-suggestion) để phân tích và viết lại tài liệu.
- * 4. Tự động lưu bản ghi phiên bản mới với actorRole = 'AI_AGENT', triggerType = 'AUTO_DRIFT_AI_REWRITE'.
+ * 1. Bóc tách tổng quát các file mã nguồn (Java, TS, TSX, JS, PY, CS, Go, SQL,...) và phương thức bị sửa đổi qua git diff/AST thực tế.
+ * 2. Tìm các tài liệu bị ảnh hưởng trong repository qua doc_code_links hoặc cấu trúc tài liệu CSDL.
+ * 3. Tự động gọi AI Engine (/v1/docs/rewrite-suggestion) với Google Gemini thực tế để phân tích và viết lại tài liệu.
+ * 4. Tự động lưu bản ghi phiên bản mới với actorRole = 'AI_AGENT', triggerType = 'AUTO_DRIFT_AI_REWRITE' và cập nhật hash chain.
  * 5. Cập nhật trạng thái tài liệu sang UNDER_REVIEW_STAFF và đưa thẳng vào hàng đợi xem xét của Nhân viên.
  */
 @Slf4j
@@ -46,6 +49,7 @@ public class AutoDocUpdateJobHandler implements JobHandler {
     private final CodeDiffAnalysisServicePort codeDiffAnalysisService;
     private final DocDriftDetectionServicePort docDriftDetectionService;
     private final SpringDataDocumentRepository documentRepository;
+    private final SpringDataDocCodeLinkRepository docCodeLinkRepository;
     private final SpringDataRepositoryRepository repositoryRepository;
     private final SpringDataGitHubConnectionRepository connectionRepository;
     private final GitHubClientPort gitHubClient;
@@ -75,26 +79,51 @@ public class AutoDocUpdateJobHandler implements JobHandler {
             return;
         }
 
-        List<String> rawFiles = payload.getChangedFiles() != null ? payload.getChangedFiles() : Collections.emptyList();
-        List<String> targetFiles = new ArrayList<>();
-        for (String f : rawFiles) {
-            if (f != null && isSupportedSourceFile(f)) {
-                targetFiles.add(f);
-            }
-        }
-        if (targetFiles.isEmpty() && !rawFiles.isEmpty()) {
-            targetFiles.addAll(rawFiles);
-        }
-        if (targetFiles.isEmpty()) {
-            targetFiles.add("src/main/java/com/example/OrderService.java");
-        }
-
         String token = resolveGitHubToken(repo);
         String[] parts = repo.getRepoFullName() != null ? repo.getRepoFullName().split("/") : new String[0];
         String owner = parts.length == 2 ? parts[0] : "";
         String repoName = parts.length == 2 ? parts[1] : "";
 
-        // 1. Chuẩn bị danh sách file diff để đối chiếu AST
+        // 1. Kéo thông tin chi tiết commit và danh sách file kèm patch thực tế từ GitHub API nếu có token
+        List<GitHubPrFileDto> commitFiles = Collections.emptyList();
+        if (gitHubClient != null && StringUtils.hasText(token) && StringUtils.hasText(owner)) {
+            try {
+                commitFiles = gitHubClient.getCommitFiles(token, owner, repoName, payload.getHeadCommitSha());
+            } catch (Exception ex) {
+                log.warn("[JobHandler - AUTO_DOC_UPDATE] Không lấy được commit files từ GitHub: {}", ex.getMessage());
+            }
+        }
+
+        // Tập hợp danh sách file thay đổi tổng quát
+        List<String> targetFiles = new ArrayList<>();
+        Map<String, String> filePatches = new HashMap<>();
+
+        if (commitFiles != null && !commitFiles.isEmpty()) {
+            for (GitHubPrFileDto cf : commitFiles) {
+                if (cf.filename() != null && isTextOrSourceFile(cf.filename())) {
+                    targetFiles.add(cf.filename());
+                    if (StringUtils.hasText(cf.patch())) {
+                        filePatches.put(cf.filename(), cf.patch());
+                    }
+                }
+            }
+        }
+
+        // Bổ sung file từ payload nếu chưa có
+        if (payload.getChangedFiles() != null) {
+            for (String f : payload.getChangedFiles()) {
+                if (f != null && isTextOrSourceFile(f) && !targetFiles.contains(f)) {
+                    targetFiles.add(f);
+                }
+            }
+        }
+
+        if (targetFiles.isEmpty()) {
+            log.info("[JobHandler - AUTO_DOC_UPDATE] Không có file mã nguồn nào bị thay đổi cần cập nhật.");
+            return;
+        }
+
+        // 2. Chuẩn bị danh sách file diff để đối chiếu AST / Phân tích thay đổi
         List<AstDiffRequestDto.FileDiffItemDto> fileDiffItems = new ArrayList<>();
         for (String filePath : targetFiles) {
             String baseCode = "";
@@ -105,21 +134,15 @@ public class AutoDocUpdateJobHandler implements JobHandler {
                     baseCode = gitHubClient.getFileContent(token, owner, repoName, filePath, payload.getBaseCommitSha());
                     headCode = gitHubClient.getFileContent(token, owner, repoName, filePath, payload.getHeadCommitSha());
                 } catch (Exception ex) {
-                    log.warn("[JobHandler - AUTO_DOC_UPDATE] Không lấy được nội dung file từ GitHub API: {}", ex.getMessage());
+                    log.warn("[JobHandler - AUTO_DOC_UPDATE] Không lấy được nội dung file '{}' từ GitHub: {}", filePath, ex.getMessage());
                 }
             }
 
             if (!StringUtils.hasText(headCode)) {
-                if (StringUtils.hasText(payload.getDiffContent())) {
+                if (filePatches.containsKey(filePath)) {
+                    headCode = filePatches.get(filePath);
+                } else if (StringUtils.hasText(payload.getDiffContent())) {
                     headCode = payload.getDiffContent();
-                } else {
-                    String className = extractClassName(filePath);
-                    headCode = "public class " + className + " {\n"
-                            + "    // Commit: " + payload.getHeadCommitSha() + " - " + payload.getCommitMessage() + "\n"
-                            + "    public void autoUpdatedMethod() {\n"
-                            + "        // Updated by " + payload.getCommitAuthor() + "\n"
-                            + "    }\n"
-                            + "}\n";
                 }
             }
 
@@ -137,39 +160,68 @@ public class AutoDocUpdateJobHandler implements JobHandler {
                 .files(fileDiffItems)
                 .build();
 
-        // 2. Tìm các tài liệu bị ảnh hưởng trong repository
-        List<AffectedDocumentResultDto> affectedDocs = docDriftDetectionService.findAffectedDocuments(payload.getRepositoryId(), diffRequest);
-
+        // 3. Tìm các tài liệu bị ảnh hưởng trong repository
         Map<Long, List<AffectedDocumentResultDto>> docToChanges = new LinkedHashMap<>();
-        for (AffectedDocumentResultDto item : affectedDocs) {
-            if (item.documentId() != null) {
-                docToChanges.computeIfAbsent(item.documentId(), k -> new ArrayList<>()).add(item);
+
+        // 3.1. Đối chiếu qua AST / Drift Detection
+        try {
+            List<AffectedDocumentResultDto> affectedDocs = docDriftDetectionService.findAffectedDocuments(payload.getRepositoryId(), diffRequest);
+            for (AffectedDocumentResultDto item : affectedDocs) {
+                if (item.documentId() != null) {
+                    docToChanges.computeIfAbsent(item.documentId(), k -> new ArrayList<>()).add(item);
+                }
+            }
+        } catch (Exception ex) {
+            log.warn("[JobHandler - AUTO_DOC_UPDATE] Lỗi phân tích AST, tiếp tục với liên kết CSDL: {}", ex.getMessage());
+        }
+
+        // 3.2. Tra cứu trực tiếp bảng doc_code_links thực tế theo đường dẫn file
+        if (docCodeLinkRepository != null) {
+            for (String filePath : targetFiles) {
+                List<DocCodeLinkEntity> links = docCodeLinkRepository.findByFilePath(filePath);
+                for (DocCodeLinkEntity link : links) {
+                    docToChanges.computeIfAbsent(link.getDocumentId(), k -> new ArrayList<>());
+                }
             }
         }
 
-        // Fallback: Nếu không có tài liệu nào liên kết cụ thể, dùng tài liệu đầu tiên trong repo hoặc tạo mới
+        // 3.3. Tra cứu theo targetPath hoặc tiêu đề tài liệu trong repository
+        List<DocumentEntity> existingDocs = documentRepository.findByRepoId(payload.getRepositoryId());
+        if (!existingDocs.isEmpty()) {
+            for (DocumentEntity d : existingDocs) {
+                for (String filePath : targetFiles) {
+                    String baseName = extractBaseName(filePath);
+                    if ((d.getTargetPath() != null && d.getTargetPath().contains(baseName))
+                            || (d.getTitle() != null && d.getTitle().toLowerCase().contains(baseName.toLowerCase()))) {
+                        docToChanges.computeIfAbsent(d.getDocId(), k -> new ArrayList<>());
+                    }
+                }
+            }
+        }
+
+        // Fallback: Nếu chưa tìm thấy tài liệu cụ thể, cập nhật tài liệu đầu tiên trong repo
+        if (docToChanges.isEmpty() && !existingDocs.isEmpty()) {
+            DocumentEntity primaryDoc = existingDocs.get(0);
+            docToChanges.put(primaryDoc.getDocId(), Collections.emptyList());
+        }
+
         if (docToChanges.isEmpty()) {
-            List<DocumentEntity> existingDocs = documentRepository.findByRepoId(payload.getRepositoryId());
-            if (!existingDocs.isEmpty()) {
-                DocumentEntity primaryDoc = existingDocs.get(0);
-                docToChanges.put(primaryDoc.getDocId(), Collections.emptyList());
-            } else {
-                String sampleClass = extractClassName(targetFiles.get(0));
-                DocumentEntity autoDoc = DocumentEntity.builder()
-                        .repoId(payload.getRepositoryId())
-                        .title("Tài liệu kỹ thuật " + sampleClass)
-                        .targetPath("docs/" + sampleClass + ".md")
-                        .status(DocumentStatus.UNDER_REVIEW_STAFF)
-                        .currentVersion(1)
-                        .createdAt(Instant.now())
-                        .updatedAt(Instant.now())
-                        .build();
-                autoDoc = documentRepository.save(autoDoc);
-                docToChanges.put(autoDoc.getDocId(), Collections.emptyList());
-            }
+            // Tạo tài liệu kỹ thuật khởi tạo cho repository nếu chưa có bất kỳ tài liệu nào
+            String sampleName = extractBaseName(targetFiles.get(0));
+            DocumentEntity autoDoc = DocumentEntity.builder()
+                    .repoId(payload.getRepositoryId())
+                    .title("Tài liệu kỹ thuật " + sampleName)
+                    .targetPath("docs/" + sampleName + ".md")
+                    .status(DocumentStatus.UNDER_REVIEW_STAFF)
+                    .currentVersion(1)
+                    .createdAt(Instant.now())
+                    .updatedAt(Instant.now())
+                    .build();
+            autoDoc = documentRepository.save(autoDoc);
+            docToChanges.put(autoDoc.getDocId(), Collections.emptyList());
         }
 
-        // 3. Với từng tài liệu bị ảnh hưởng: gọi AI Engine rewrite và lưu phiên bản mới (actor = AI_AGENT)
+        // 4. Với từng tài liệu bị ảnh hưởng: xây dựng Git Diff thực tế và gọi AI Engine viết lại
         int updatedCount = 0;
         for (Map.Entry<Long, List<AffectedDocumentResultDto>> entry : docToChanges.entrySet()) {
             Long docId = entry.getKey();
@@ -180,19 +232,26 @@ public class AutoDocUpdateJobHandler implements JobHandler {
             diffBuilder.append("Tác giả commit: ").append(payload.getCommitAuthor()).append("\n");
             diffBuilder.append("Thông điệp commit: ").append(payload.getCommitMessage()).append("\n");
 
-            if (changes != null && !changes.isEmpty()) {
-                diffBuilder.append("Các phương thức Java bị ảnh hưởng:\n");
+            // Bổ sung các patch thực tế từ git commit
+            if (!filePatches.isEmpty()) {
+                diffBuilder.append("\n--- Git Patch Thay đổi Thực tế ---\n");
+                for (Map.Entry<String, String> p : filePatches.entrySet()) {
+                    diffBuilder.append("File: ").append(p.getKey()).append("\n");
+                    diffBuilder.append(p.getValue()).append("\n\n");
+                }
+            } else if (changes != null && !changes.isEmpty()) {
+                diffBuilder.append("\nCác thành phần mã nguồn bị ảnh hưởng:\n");
                 for (AffectedDocumentResultDto c : changes) {
                     diffBuilder.append("- File: ").append(c.relatedFilePath())
-                            .append(", Method: ").append(c.methodName())
+                            .append(", Thành phần: ").append(c.methodName())
                             .append(" (").append(c.changeType()).append("): ")
                             .append(c.details() != null ? c.details() : "Cập nhật mã nguồn")
                             .append("\n");
                 }
             } else {
-                diffBuilder.append("Các file mã nguồn Java thay đổi: ").append(String.join(", ", targetFiles)).append("\n");
+                diffBuilder.append("Các file mã nguồn thay đổi: ").append(String.join(", ", targetFiles)).append("\n");
                 if (StringUtils.hasText(payload.getDiffContent())) {
-                    diffBuilder.append("Chi tiết Git Diff:\n").append(payload.getDiffContent()).append("\n");
+                    diffBuilder.append("Chi tiết Diff:\n").append(payload.getDiffContent()).append("\n");
                 }
             }
 
@@ -212,13 +271,19 @@ public class AutoDocUpdateJobHandler implements JobHandler {
                 updatedCount, repo.getRepoFullName());
     }
 
-    private boolean isSupportedSourceFile(String filename) {
+    private boolean isTextOrSourceFile(String filename) {
+        if (!StringUtils.hasText(filename)) return false;
         String lower = filename.toLowerCase();
-        return lower.endsWith(".java") || lower.endsWith(".py") || lower.endsWith(".ts") || lower.endsWith(".tsx");
+        return !(lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+                || lower.endsWith(".gif") || lower.endsWith(".ico") || lower.endsWith(".svg")
+                || lower.endsWith(".pdf") || lower.endsWith(".zip") || lower.endsWith(".tar")
+                || lower.endsWith(".gz") || lower.endsWith(".jar") || lower.endsWith(".war")
+                || lower.endsWith(".exe") || lower.endsWith(".bin") || lower.endsWith(".dll")
+                || lower.endsWith(".so") || lower.endsWith(".dylib") || lower.endsWith(".class"));
     }
 
-    private String extractClassName(String filePath) {
-        if (!StringUtils.hasText(filePath)) return "UnknownService";
+    private String extractBaseName(String filePath) {
+        if (!StringUtils.hasText(filePath)) return "Unknown";
         String clean = filePath.replace("\\", "/");
         int lastSlash = clean.lastIndexOf('/');
         String filename = lastSlash >= 0 ? clean.substring(lastSlash + 1) : clean;

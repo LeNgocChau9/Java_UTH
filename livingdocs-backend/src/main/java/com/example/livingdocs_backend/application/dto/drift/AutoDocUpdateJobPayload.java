@@ -26,3 +26,4 @@ public class AutoDocUpdateJobPayload {
     private List<String> changedFiles;
     private String diffContent;
 }
+
