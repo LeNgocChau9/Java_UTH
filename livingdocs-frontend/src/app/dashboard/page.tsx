@@ -102,10 +102,10 @@ export default function DashboardPage() {
             <div className="my-3">
               <div className="flex items-baseline gap-2">
                 <span className="text-3xl font-extrabold text-slate-900">
-                  {stats ? `${stats.coveragePercent}%` : "84.6%"}
+                  {stats ? `${stats.coveragePercent}%` : "0%"}
                 </span>
                 <span className="text-xs font-medium text-emerald-600 flex items-center">
-                  <TrendingUp className="w-3.5 h-3.5 mr-0.5" /> +8.6%
+                  <TrendingUp className="w-3.5 h-3.5 mr-0.5" /> Thực tế
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-1">Tỷ lệ hàm & class đã có tài liệu</p>
@@ -114,7 +114,7 @@ export default function DashboardPage() {
             <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
               <div
                 className="bg-emerald-500 h-2 rounded-full transition-all duration-500"
-                style={{ width: `${stats?.coveragePercent || 84.6}%` }}
+                style={{ width: `${stats?.coveragePercent || 0}%` }}
               />
             </div>
           </div>
@@ -132,18 +132,18 @@ export default function DashboardPage() {
             <div className="my-3">
               <div className="flex items-baseline gap-2">
                 <span className="text-3xl font-extrabold text-slate-900">
-                  {stats ? `${stats.freshnessPercent}%` : "92.0%"}
+                  {stats ? `${stats.freshnessPercent}%` : "0%"}
                 </span>
                 <span className="text-xs font-medium text-emerald-600 flex items-center">
                   <TrendingUp className="w-3.5 h-3.5 mr-0.5" /> Chuẩn
                 </span>
               </div>
-              <p className="text-xs text-slate-400 mt-1">Cập nhật trong 30 ngày qua</p>
+              <p className="text-xs text-slate-400 mt-1">Cập nhật theo commit mới nhất</p>
             </div>
             <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
               <div
                 className="bg-amber-500 h-2 rounded-full transition-all duration-500"
-                style={{ width: `${stats?.freshnessPercent || 92.0}%` }}
+                style={{ width: `${stats?.freshnessPercent || 0}%` }}
               />
             </div>
           </div>
@@ -161,10 +161,10 @@ export default function DashboardPage() {
             <div className="my-3">
               <div className="flex items-baseline gap-2">
                 <span className="text-3xl font-extrabold text-slate-900">
-                  {stats ? stats.unresolvedDriftCount : 3}
+                  {stats ? stats.unresolvedDriftCount : 0}
                 </span>
                 <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700">
-                  {stats?.criticalDriftCount || 1} nghiêm trọng
+                  {stats?.criticalDriftCount || 0} nghiêm trọng
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-1">Tài liệu cần đồng bộ từ PR</p>
@@ -190,16 +190,16 @@ export default function DashboardPage() {
             <div className="my-3">
               <div className="flex items-baseline gap-2">
                 <span className="text-3xl font-extrabold text-slate-900">
-                  {stats ? stats.totalDocuments : 14}
+                  {stats ? stats.totalDocuments : 0}
                 </span>
                 <span className="text-xs text-slate-500">
-                  tài liệu / {stats?.totalPullRequests || 18} PRs
+                  tài liệu / {stats?.totalPullRequests || 0} PRs
                 </span>
               </div>
               <div className="flex items-center gap-2 mt-1 text-xs">
-                <span className="text-emerald-700 font-medium">✓ {stats?.approvedDocuments || 10} đã duyệt</span>
+                <span className="text-emerald-700 font-medium">✓ {stats?.approvedDocuments || 0} đã duyệt</span>
                 <span className="text-slate-300">·</span>
-                <span className="text-amber-700 font-medium">{stats?.pendingReviewDocuments || 2} chờ duyệt</span>
+                <span className="text-amber-700 font-medium">{stats?.pendingReviewDocuments || 0} chờ duyệt</span>
               </div>
             </div>
             <Link
@@ -241,52 +241,58 @@ export default function DashboardPage() {
           </div>
 
           {/* Trực quan hóa Biểu đồ (Visual Bar Chart) */}
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-4">
-            {(Array.isArray(trends) ? trends : []).map((item, idx) => {
-              const maxDocs = 35;
-              const barHeightPct = Math.min(100, (item.updatedDocs / maxDocs) * 100);
-              const driftHeightPct = Math.min(100, (item.driftAlerts / 10) * 100);
+          {Array.isArray(trends) && trends.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-4">
+              {trends.map((item, idx) => {
+                const maxDocs = 20;
+                const barHeightPct = Math.min(100, Math.max(8, (item.updatedDocs / maxDocs) * 100));
+                const driftHeightPct = Math.min(100, Math.max(6, (item.driftAlerts / 10) * 100));
 
-              return (
-                <div
-                  key={idx}
-                  className="bg-slate-50/70 p-4 rounded-xl border border-slate-200 flex flex-col justify-between hover:bg-slate-50 transition"
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-bold text-slate-800">{item.label}</span>
-                    <span className="text-[11px] font-mono text-slate-400">{item.period}</span>
-                  </div>
-
-                  {/* Thanh đồ họa */}
-                  <div className="h-32 flex items-end justify-center gap-4 py-2 border-b border-slate-200 mb-3">
-                    {/* Cột tài liệu cập nhật */}
-                    <div className="flex flex-col items-center gap-1 h-full justify-end w-8">
-                      <span className="text-[10px] font-bold text-emerald-700">{item.updatedDocs}</span>
-                      <div
-                        className="w-full bg-emerald-500 rounded-t-md transition-all duration-500 shadow-sm"
-                        style={{ height: `${barHeightPct}%`, minHeight: "12px" }}
-                      />
+                return (
+                  <div
+                    key={idx}
+                    className="bg-slate-50/70 p-4 rounded-xl border border-slate-200 flex flex-col justify-between hover:bg-slate-50 transition"
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-xs font-bold text-slate-800">{item.label}</span>
+                      <span className="text-[11px] font-mono text-slate-400">{item.period}</span>
                     </div>
 
-                    {/* Cột cảnh báo drift */}
-                    <div className="flex flex-col items-center gap-1 h-full justify-end w-8">
-                      <span className="text-[10px] font-bold text-amber-700">{item.driftAlerts}</span>
-                      <div
-                        className="w-full bg-amber-400 rounded-t-md transition-all duration-500 shadow-sm"
-                        style={{ height: `${driftHeightPct}%`, minHeight: "8px" }}
-                      />
+                    {/* Thanh đồ họa */}
+                    <div className="h-32 flex items-end justify-center gap-4 py-2 border-b border-slate-200 mb-3">
+                      {/* Cột tài liệu cập nhật */}
+                      <div className="flex flex-col items-center gap-1 h-full justify-end w-8">
+                        <span className="text-[10px] font-bold text-emerald-700">{item.updatedDocs}</span>
+                        <div
+                          className="w-full bg-emerald-500 rounded-t-md transition-all duration-500 shadow-sm"
+                          style={{ height: `${barHeightPct}%`, minHeight: "12px" }}
+                        />
+                      </div>
+
+                      {/* Cột cảnh báo drift */}
+                      <div className="flex flex-col items-center gap-1 h-full justify-end w-8">
+                        <span className="text-[10px] font-bold text-amber-700">{item.driftAlerts}</span>
+                        <div
+                          className="w-full bg-amber-400 rounded-t-md transition-all duration-500 shadow-sm"
+                          style={{ height: `${driftHeightPct}%`, minHeight: "8px" }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Chỉ số dưới chân cột */}
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-500 text-[11px]">Độ phủ:</span>
+                      <span className="font-bold text-emerald-700 text-xs">{stats?.coveragePercent ?? 0}%</span>
                     </div>
                   </div>
-
-                  {/* Chỉ số dưới chân cột */}
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-500 text-[11px]">Độ phủ:</span>
-                    <span className="font-bold text-emerald-700 text-xs">{item.coverageRate}%</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-sm text-slate-400 italic">
+              Chưa có dữ liệu cập nhật tài liệu qua PR trong 4 tuần gần đây.
+            </div>
+          )}
         </div>
 
         {/* Bảng độ phủ từng Kho mã nguồn & Danh sách hoạt động gần đây */}

@@ -47,6 +47,13 @@ public interface GitHubClientPort {
     List<GitHubCommitDto> listCommits(String token, String owner, String repo, String sha, int limit);
 
     /**
+     * Lấy danh sách các file bị thay đổi (kèm patch/diff thực tế) của một Commit từ GitHub API.
+     */
+    default List<GitHubPrFileDto> getCommitFiles(String token, String owner, String repo, String commitSha) {
+        return Collections.emptyList();
+    }
+
+    /**
      * Tạo hoặc cập nhật file trong GitHub repository (Tạo commit lên branch chỉ
      * định).
      */

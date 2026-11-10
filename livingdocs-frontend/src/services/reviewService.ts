@@ -54,6 +54,19 @@ export interface ReviewActionResponse {
   commitSha?: string | null;
 }
 
+export interface ReviewHistoryItem {
+  id: number;
+  docId: number;
+  versionId?: number | null;
+  title: string;
+  repo: string;
+  reviewer: string;
+  action: "approved" | "rejected" | "returned";
+  result: string;
+  note: string;
+  reviewedAt: string;
+}
+
 export const reviewService = {
   /**
    * GET /api/reviews/staff/queue
@@ -108,6 +121,15 @@ export const reviewService = {
     }
   ): Promise<ReviewActionResponse> {
     const res = await apiClient.post<ReviewActionResponse>(`/api/reviews/${id}/manager-action`, payload);
+    return res.data;
+  },
+
+  /**
+   * GET /api/reviews/history
+   * Lấy toàn bộ lịch sử xem xét tài liệu từ Staff và Manager.
+   */
+  async getReviewHistory(): Promise<ReviewHistoryItem[]> {
+    const res = await apiClient.get<ReviewHistoryItem[]>("/api/reviews/history");
     return res.data;
   },
 };

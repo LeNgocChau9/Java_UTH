@@ -62,6 +62,102 @@ public class DashboardStatsQueryAdapter implements DashboardStatsQueryPort {
     }
 
     @Override
+    public long countApprovedDocuments(Long repositoryId) {
+        return count(
+                "SELECT COUNT(*) FROM documents WHERE UPPER(status) = 'PUBLISHED'",
+                "SELECT COUNT(*) FROM documents WHERE repo_id = :repositoryId AND UPPER(status) = 'PUBLISHED'",
+                repositoryId
+        );
+    }
+
+    @Override
+    public long countPendingReviewDocuments(Long repositoryId) {
+        return count(
+                "SELECT COUNT(*) FROM documents WHERE UPPER(status) IN ('UNDER_REVIEW_STAFF', 'UNDER_REVIEW_MANAGER')",
+                "SELECT COUNT(*) FROM documents WHERE repo_id = :repositoryId AND UPPER(status) IN ('UNDER_REVIEW_STAFF', 'UNDER_REVIEW_MANAGER')",
+                repositoryId
+        );
+    }
+
+    @Override
+    public long countDraftDocuments(Long repositoryId) {
+        return count(
+                "SELECT COUNT(*) FROM documents WHERE UPPER(status) = 'DRAFT'",
+                "SELECT COUNT(*) FROM documents WHERE repo_id = :repositoryId AND UPPER(status) = 'DRAFT'",
+                repositoryId
+        );
+    }
+
+    @Override
+    public long countTotalPullRequests(Long repositoryId) {
+        return count(
+                "SELECT COUNT(*) FROM pull_requests",
+                "SELECT COUNT(*) FROM pull_requests WHERE repository_id = :repositoryId",
+                repositoryId
+        );
+    }
+
+    @Override
+    public long countTotalRepositories() {
+        Query query = entityManager.createNativeQuery("SELECT COUNT(*) FROM repositories WHERE is_active = true");
+        Object result = query.getSingleResult();
+        return result instanceof Number number ? number.longValue() : 0L;
+    }
+
+    @Override
+    public List<com.example.livingdocs_backend.application.dto.RepoCoverageDto> findRepoCoverages() {
+        String sql = """
+            SELECT 
+                r.repository_id, 
+                COALESCE(r.repo_full_name, r.repo_name),
+                COALESCE(ce.total_entities, 0),
+                COALESCE(ce.doc_entities, 0),
+                COALESCE(al.open_alerts, 0)
+            FROM repositories r
+            LEFT JOIN (
+                SELECT repository_id, 
+                       COUNT(*) AS total_entities, 
+                       COUNT(*) FILTER (WHERE UPPER(doc_status) IN ('DOCUMENTED', 'DRIFTED')) AS doc_entities
+                FROM code_entities
+                GROUP BY repository_id
+            ) ce ON r.repository_id = ce.repository_id
+            LEFT JOIN (
+                SELECT repository_id, COUNT(*) AS open_alerts
+                FROM document_change_alerts
+                WHERE UPPER(status) = 'OPEN'
+                GROUP BY repository_id
+            ) al ON r.repository_id = al.repository_id
+            WHERE r.is_active = true
+            ORDER BY r.repository_id
+        """;
+
+        Query query = entityManager.createNativeQuery(sql);
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = query.getResultList();
+        List<com.example.livingdocs_backend.application.dto.RepoCoverageDto> list = new ArrayList<>();
+
+        for (Object[] row : rows) {
+            long repoId = row[0] instanceof Number n ? n.longValue() : 0L;
+            String repoName = row[1] != null ? row[1].toString() : "repo-" + repoId;
+            long totalEnt = row[2] instanceof Number n ? n.longValue() : 0L;
+            long docEnt = row[3] instanceof Number n ? n.longValue() : 0L;
+            long openAlerts = row[4] instanceof Number n ? n.longValue() : 0L;
+            double cov = totalEnt > 0 ? Math.round(((double) docEnt / totalEnt) * 1000.0) / 10.0 : 0.0;
+
+            list.add(com.example.livingdocs_backend.application.dto.RepoCoverageDto.builder()
+                    .repoId(repoId)
+                    .repoName(repoName)
+                    .totalEntities(totalEnt)
+                    .documentedEntities(docEnt)
+                    .coveragePercent(cov)
+                    .openDriftCount(openAlerts)
+                    .build());
+        }
+
+        return list;
+    }
+
+    @Override
     public long countFreshDocuments(Long repositoryId) {
         String freshPredicate = """
                 updated_at IS NOT NULL

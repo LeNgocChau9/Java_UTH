@@ -42,6 +42,14 @@ public class ReviewRepositoryAdapter implements ReviewRepositoryPort {
         return springDataReviewRepository.findFirstByDocIdOrderByCreatedAtDesc(docId).map(this::toDomain);
     }
 
+    @Override
+    public List<Review> findAll() {
+        return springDataReviewRepository.findAllByOrderByCreatedAtDesc()
+                .stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
     private ReviewEntity toEntity(Review domain) {
         return ReviewEntity.builder()
                 .reviewId(domain.getReviewId())

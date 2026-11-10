@@ -47,7 +47,10 @@ public class AuthServiceImpl implements AuthServicePort {
         userRepositoryPort.changeRole(savedUser.getUserId(), "ADMIN");
 
         User freshUser = userRepositoryPort.findById(savedUser.getUserId()).orElse(savedUser);
-        String token = jwtTokenProvider.generateToken(freshUser.getUserId(), freshUser.getEmail());
+        java.util.Set<String> roleStrings = freshUser.getRoles() != null && !freshUser.getRoles().isEmpty()
+                ? freshUser.getRoles().stream().map(Enum::name).collect(java.util.stream.Collectors.toSet())
+                : java.util.Collections.singleton("ROLE_ADMIN");
+        String token = jwtTokenProvider.generateToken(freshUser.getUserId(), freshUser.getEmail(), roleStrings);
 
         return AuthResponse.builder()
                 .token(token)

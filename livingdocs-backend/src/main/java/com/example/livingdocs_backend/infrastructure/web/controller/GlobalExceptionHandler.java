@@ -68,6 +68,16 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
     }
 
+    @ExceptionHandler(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<Map<String, Object>> handleMethodArgumentTypeMismatchException(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException ex) {
+        Map<String, Object> error = new HashMap<>();
+        error.put("status", HttpStatus.BAD_REQUEST.value());
+        error.put("error", "Bad Request");
+        error.put("message", "Tham số yêu cầu không đúng định dạng: " + ex.getName());
+        error.put("timestamp", Instant.now().toString());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, Object>> handleIllegalArgumentException(IllegalArgumentException ex) {
         Map<String, Object> error = new HashMap<>();
@@ -180,11 +190,21 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
     public ResponseEntity<Map<String, Object>> handleDataIntegrityViolationException(org.springframework.dao.DataIntegrityViolationException ex) {
         log.error("Data integrity violation: {}", ex.getMessage(), ex);
+        String msg = ex.getMessage() != null ? ex.getMessage().toLowerCase() : "";
+        String userFriendlyMessage;
+        if (msg.contains("value too long") || msg.contains("too long for type") || msg.contains("22001")) {
+            userFriendlyMessage = "Dữ liệu nhập vào quá dài hoặc vượt quá giới hạn ký tự cho phép.";
+        } else if (msg.contains("unique constraint") || msg.contains("duplicate key") || msg.contains("23505")) {
+            userFriendlyMessage = "Dữ liệu (email hoặc tên bản ghi) đã tồn tại trong hệ thống. Vui lòng kiểm tra lại.";
+        } else {
+            userFriendlyMessage = "Dữ liệu bị xung đột hoặc vi phạm ràng buộc toàn vẹn của hệ thống. Vui lòng kiểm tra lại.";
+        }
+
         Map<String, Object> error = new HashMap<>();
         error.put("status", HttpStatus.CONFLICT.value());
         error.put("error", "Conflict");
         error.put("errorCode", "DATA_INTEGRITY_VIOLATION");
-        error.put("message", "Dữ liệu bị trùng lặp hoặc xung đột bản ghi trong hệ thống. Vui lòng làm mới trang và thử lại.");
+        error.put("message", userFriendlyMessage);
         error.put("timestamp", Instant.now().toString());
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
@@ -199,6 +219,30 @@ public class GlobalExceptionHandler {
         error.put("message", "Đã xảy ra sự cố khi truy vấn cơ sở dữ liệu. Vui lòng thử lại sau.");
         error.put("timestamp", Instant.now().toString());
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+    }
+
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public ResponseEntity<Map<String, Object>> handleAccessDeniedException(org.springframework.security.access.AccessDeniedException ex) {
+        log.warn("Access Denied: {}", ex.getMessage());
+        Map<String, Object> error = new HashMap<>();
+        error.put("status", HttpStatus.FORBIDDEN.value());
+        error.put("error", "Forbidden");
+        error.put("errorCode", "ACCESS_DENIED");
+        error.put("message", "Bạn không có quyền thực hiện thao tác này. Chức năng yêu cầu quyền Quản trị viên (Admin).");
+        error.put("timestamp", Instant.now().toString());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error);
+    }
+
+    @ExceptionHandler(org.springframework.security.core.AuthenticationException.class)
+    public ResponseEntity<Map<String, Object>> handleSpringSecurityAuthenticationException(org.springframework.security.core.AuthenticationException ex) {
+        log.warn("Authentication failed: {}", ex.getMessage());
+        Map<String, Object> error = new HashMap<>();
+        error.put("status", HttpStatus.UNAUTHORIZED.value());
+        error.put("error", "Unauthorized");
+        error.put("errorCode", "UNAUTHORIZED");
+        error.put("message", "Yêu cầu xác thực tài khoản hợp lệ.");
+        error.put("timestamp", Instant.now().toString());
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(error);
     }
 
     @ExceptionHandler(Exception.class)

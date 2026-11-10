@@ -22,8 +22,14 @@ public class UserPrincipal implements Principal {
             return java.util.Collections.emptyList();
         }
         return roles.stream()
-                .map(r -> r.startsWith("ROLE_") ? r : "ROLE_" + r)
-                .map(org.springframework.security.core.authority.SimpleGrantedAuthority::new)
+                .flatMap(r -> {
+                    String clean = r.startsWith("ROLE_") ? r.substring(5) : r;
+                    return java.util.stream.Stream.of(
+                            new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_" + clean),
+                            new org.springframework.security.core.authority.SimpleGrantedAuthority(clean)
+                    );
+                })
+                .distinct()
                 .toList();
     }
 }

@@ -172,6 +172,42 @@ public class GitHubClient implements GitHubClientPort {
     }
 
     @Override
+    public List<com.example.livingdocs_backend.application.dto.github.GitHubPrFileDto> getCommitFiles(
+            String token, String owner, String repo, String commitSha) {
+        if (!StringUtils.hasText(commitSha)) {
+            return Collections.emptyList();
+        }
+        String uri = "/repos/{owner}/{repo}/commits/{commit_sha}";
+        try {
+            com.fasterxml.jackson.databind.JsonNode root = executeWithAuth(token, uri, owner, repo, commitSha)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .retrieve()
+                    .body(com.fasterxml.jackson.databind.JsonNode.class);
+
+            if (root == null || !root.hasNonNull("files") || !root.get("files").isArray()) {
+                return Collections.emptyList();
+            }
+
+            List<com.example.livingdocs_backend.application.dto.github.GitHubPrFileDto> files = new ArrayList<>();
+            for (com.fasterxml.jackson.databind.JsonNode f : root.get("files")) {
+                files.add(com.example.livingdocs_backend.application.dto.github.GitHubPrFileDto.builder()
+                        .sha(f.path("sha").asText(null))
+                        .filename(f.path("filename").asText())
+                        .status(f.path("status").asText("modified"))
+                        .previousFilename(f.path("previous_filename").asText(null))
+                        .patch(f.path("patch").asText(null))
+                        .rawUrl(f.path("raw_url").asText(null))
+                        .build());
+            }
+            log.info("[GitHubClient] Lấy thành công {} files từ commit {} ({}/{})", files.size(), commitSha, owner, repo);
+            return files;
+        } catch (Exception ex) {
+            log.warn("[GitHubClient] Lỗi khi lấy files của commit {} ({}/{}): {}", commitSha, owner, repo, ex.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    @Override
     public List<GitHubPullRequestDto> listPullRequests(String token, String owner, String repo, String state) {
         String targetState = StringUtils.hasText(state) ? state : "open";
         try {

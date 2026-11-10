@@ -25,6 +25,7 @@ import {
   Layers,
   X,
   History,
+  Sparkles,
 } from "lucide-react";
 
 const STATUS_CONFIG: Record<
@@ -657,6 +658,30 @@ function DocumentListPageContent() {
                     >
                       v{doc.currentVersion}
                     </span>
+
+                    {/* Huy hiệu AI Agent tự động cập nhật */}
+                    {(doc.latestVersion?.actorRole === "AI_AGENT" ||
+                      doc.latestVersion?.actorRole === "AI" ||
+                      doc.latestVersion?.triggerType === "AUTO_DRIFT_AI_REWRITE") && (
+                      <span
+                        className="ld-badge"
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          background: "#f5f3ff",
+                          color: "#7c3aed",
+                          border: "1px solid #ddd6fe",
+                          padding: "2px 8px",
+                          borderRadius: 4,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <Sparkles size={11} />
+                        ⚡ AI Agent tự động cập nhật
+                      </span>
+                    )}
 
                     {/* Huy hiệu Collection */}
                     {colName && (

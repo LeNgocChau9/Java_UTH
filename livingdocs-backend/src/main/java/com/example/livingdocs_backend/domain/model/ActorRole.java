@@ -10,8 +10,12 @@ public enum ActorRole {
         if (value == null || value.isBlank()) {
             return DEV;
         }
+        String clean = value.trim().toUpperCase();
+        if (clean.contains("AI")) {
+            return AI;
+        }
         for (ActorRole role : values()) {
-            if (role.name().equalsIgnoreCase(value.trim())) {
+            if (role.name().equalsIgnoreCase(clean)) {
                 return role;
             }
         }

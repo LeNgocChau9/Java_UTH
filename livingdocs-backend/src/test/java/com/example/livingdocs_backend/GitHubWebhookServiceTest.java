@@ -149,6 +149,7 @@ class GitHubWebhookServiceTest {
     assertEquals(1, result.affectedCount());
     verify(commitRepository, times(1)).save(any(CommitEntity.class));
     verify(repositoryRepository, times(1)).save(mockRepo);
+    verify(jobQueue, times(1)).enqueue(eq(GitHubWebhookServiceImpl.JOB_TYPE_AUTO_DOC_UPDATE), anyString());
   }
 
   @Test
@@ -295,7 +296,8 @@ class GitHubWebhookServiceTest {
     assertEquals("closed", result.action());
     assertEquals("MERGED", existingPr.getState());
     verify(pullRequestRepository, times(1)).save(existingPr);
-    // Closed PR không kích hoạt drift scan job
-    verify(jobQueue, never()).enqueue(anyString(), anyString());
+    // Closed PR không kích hoạt drift scan job mà kích hoạt auto-update pipeline khi merged
+    verify(jobQueue, never()).enqueue(eq(GitHubWebhookServiceImpl.JOB_TYPE_PR_DRIFT_SCAN), anyString());
+    verify(jobQueue, times(1)).enqueue(eq(GitHubWebhookServiceImpl.JOB_TYPE_AUTO_DOC_UPDATE), anyString());
   }
 }

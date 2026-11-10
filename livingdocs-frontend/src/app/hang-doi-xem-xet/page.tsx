@@ -449,19 +449,27 @@ export default function HangDoiXemXetStaffPage() {
                                 Thiếu đề mục bắt buộc
                               </span>
                             )}
-                            {doc.aiGenerated && (
+                            {(doc.aiGenerated ||
+                              doc.authorRole === "AI_AGENT" ||
+                              doc.authorRole === "AI" ||
+                              doc.latestVersion?.actorRole === "AI_AGENT" ||
+                              doc.latestVersion?.triggerType === "AUTO_DRIFT_AI_REWRITE") && (
                               <span
                                 style={{
                                   fontSize: 11,
                                   fontWeight: 700,
-                                  background: "#ecfdf5",
-                                  color: "#0f766e",
-                                  border: "1px solid #99f6e4",
+                                  background: "#f5f3ff",
+                                  color: "#7c3aed",
+                                  border: "1px solid #ddd6fe",
                                   padding: "2px 8px",
                                   borderRadius: 4,
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 4,
                                 }}
                               >
-                                AI tạo / cập nhật
+                                <Sparkles size={11} />
+                                ⚡ AI Agent tự động cập nhật
                               </span>
                             )}
                             <span style={{ fontSize: 11, color: "#64748b", background: "#f1f5f9", padding: "2px 6px", borderRadius: 4 }}>
