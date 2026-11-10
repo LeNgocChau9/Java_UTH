@@ -1,5 +1,6 @@
 package com.example.livingdocs_backend.application.service;
 
+import com.example.livingdocs_backend.application.dto.drift.AutoDocUpdateJobPayload;
 import com.example.livingdocs_backend.application.dto.drift.PrDriftScanJobPayload;
 import com.example.livingdocs_backend.application.dto.github.WebhookProcessingResult;
 import com.example.livingdocs_backend.application.port.GitHubWebhookServicePort;
@@ -24,6 +25,7 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -48,6 +50,7 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
     private final JobQueue jobQueue;
 
     public static final String JOB_TYPE_PR_DRIFT_SCAN = "PR_DRIFT_SCAN";
+    public static final String JOB_TYPE_AUTO_DOC_UPDATE = "AUTO_DOC_UPDATE";
     private static final Set<String> DRIFT_TRIGGER_ACTIONS = Set.of("opened", "synchronize", "reopened");
 
     @Value("${github.webhook.secret:}")
@@ -180,6 +183,8 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
 
         JsonNode commitsNode = root.get("commits");
         int savedCommits = 0;
+        List<String> changedFiles = new ArrayList<>();
+        String latestCommitMessage = "";
 
         if (commitsNode != null && commitsNode.isArray()) {
             for (JsonNode cNode : commitsNode) {
@@ -188,9 +193,15 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
                     continue;
 
                 String message = cNode.path("message").asText();
+                if (StringUtils.hasText(message)) {
+                    latestCommitMessage = message;
+                }
                 String authorName = cNode.path("author").path("name").asText("Unknown");
                 String authorEmail = cNode.path("author").path("email").asText();
                 String timestampStr = cNode.path("timestamp").asText();
+
+                collectFiles(cNode.get("added"), changedFiles);
+                collectFiles(cNode.get("modified"), changedFiles);
 
                 if ("Unknown".equals(commitAuthor) && !"Unknown".equals(authorName)) {
                     commitAuthor = authorName;
@@ -221,10 +232,59 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
             }
         }
 
+        // Thu thập thêm file thay đổi từ head_commit nếu có
+        if (root.hasNonNull("head_commit")) {
+            JsonNode hc = root.get("head_commit");
+            collectFiles(hc.get("added"), changedFiles);
+            collectFiles(hc.get("modified"), changedFiles);
+            if (StringUtils.hasText(hc.path("message").asText())) {
+                latestCommitMessage = hc.path("message").asText();
+            }
+        }
+
+        String diffContent = root.path("diff_content").asText(null);
+        if (!StringUtils.hasText(diffContent) && root.hasNonNull("diff")) {
+            diffContent = root.path("diff").asText(null);
+        }
+
         // Cập nhật last_synced_at cho repository
         repo.setLastSyncedAt(Instant.now());
         repo.setUpdatedAt(Instant.now());
         repositoryRepository.save(repo);
+
+        // Kích hoạt pipeline tự động cập nhật tài liệu khi mã nguồn có commit mới
+        String autoUpdateMsg = "";
+        try {
+            List<String> targetJavaFiles = new ArrayList<>();
+            for (String f : changedFiles) {
+                if (f != null && (f.endsWith(".java") || f.endsWith(".py") || f.endsWith(".ts") || f.endsWith(".tsx"))) {
+                    targetJavaFiles.add(f);
+                }
+            }
+            if (targetJavaFiles.isEmpty() && !changedFiles.isEmpty()) {
+                targetJavaFiles.addAll(changedFiles);
+            }
+
+            AutoDocUpdateJobPayload autoDocPayload = AutoDocUpdateJobPayload.builder()
+                    .repositoryId(repo.getRepositoryId())
+                    .repoFullName(repo.getRepoFullName())
+                    .eventType("push")
+                    .headCommitSha(headCommitSha)
+                    .baseCommitSha(baseCommitSha)
+                    .commitAuthor(commitAuthor)
+                    .commitMessage(latestCommitMessage)
+                    .changedFiles(targetJavaFiles)
+                    .diffContent(diffContent)
+                    .build();
+
+            String payloadJson = objectMapper.writeValueAsString(autoDocPayload);
+            jobQueue.enqueue(JOB_TYPE_AUTO_DOC_UPDATE, payloadJson);
+            autoUpdateMsg = " | Đã kích hoạt Auto-Update Pipeline cho tài liệu";
+            log.info("[Webhook - Push] Đã kích hoạt Job [{}] cho commit {} (repo: {})",
+                    JOB_TYPE_AUTO_DOC_UPDATE, headCommitSha, repo.getRepoFullName());
+        } catch (Exception e) {
+            log.error("[Webhook - Push] Lỗi khi tạo Job Auto-Update: {}", e.getMessage(), e);
+        }
 
         log.info("[Webhook - Push] Đã lưu {} commits vào repo [{}] (Base: {}, Head: {}, Tác giả: {})",
                 savedCommits, repo.getRepoFullName(), baseCommitSha, headCommitSha, commitAuthor);
@@ -237,7 +297,7 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
                 .headCommitSha(headCommitSha)
                 .commitAuthor(commitAuthor)
                 .affectedCount(savedCommits)
-                .message("Đã lưu thành công " + savedCommits + " commits")
+                .message("Đã lưu thành công " + savedCommits + " commits" + autoUpdateMsg)
                 .build();
     }
 
@@ -342,6 +402,34 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
             }
         }
 
+        // Kích hoạt pipeline tự động cập nhật tài liệu khi PR được Merge vào nhánh chính
+        if (merged) {
+            try {
+                List<String> prFiles = new ArrayList<>();
+                if (prNode.hasNonNull("changed_files_list")) {
+                    collectFiles(prNode.get("changed_files_list"), prFiles);
+                }
+                AutoDocUpdateJobPayload autoDocPayload = AutoDocUpdateJobPayload.builder()
+                        .repositoryId(repo.getRepositoryId())
+                        .repoFullName(repo.getRepoFullName())
+                        .eventType("pull_request_merged")
+                        .headCommitSha(headCommitHash)
+                        .baseCommitSha(baseCommitHash)
+                        .commitAuthor(commitAuthor)
+                        .commitMessage("Merge PR #" + prNumber + ": " + title)
+                        .changedFiles(prFiles)
+                        .build();
+
+                String payloadJson = objectMapper.writeValueAsString(autoDocPayload);
+                jobQueue.enqueue(JOB_TYPE_AUTO_DOC_UPDATE, payloadJson);
+                jobStatusMsg += " | Đã kích hoạt Auto-Update Pipeline cho PR merged";
+                log.info("[Webhook - PR] Đã đẩy Job [{}] khi PR #{} được merge vào repo [{}]",
+                        JOB_TYPE_AUTO_DOC_UPDATE, prNumber, repo.getRepoFullName());
+            } catch (Exception e) {
+                log.error("[Webhook - PR] Lỗi khi tạo Job Auto-Update cho PR #{}: {}", prNumber, e.getMessage(), e);
+            }
+        }
+
         return WebhookProcessingResult.builder()
                 .success(true)
                 .eventType("pull_request")
@@ -393,6 +481,17 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
         }
 
         return null;
+    }
+
+    private void collectFiles(JsonNode node, List<String> list) {
+        if (node != null && node.isArray()) {
+            for (JsonNode f : node) {
+                String path = f.asText();
+                if (StringUtils.hasText(path) && !list.contains(path)) {
+                    list.add(path);
+                }
+            }
+        }
     }
 
     private Instant parseInstant(String text) {

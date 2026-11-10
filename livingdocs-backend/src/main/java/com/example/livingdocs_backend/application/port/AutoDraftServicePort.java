@@ -15,6 +15,20 @@ public interface AutoDraftServicePort {
     AutoDraftOnDriftResponse generateDraftFromAlert(Long alertId, UserPrincipal actor);
 
     /**
+     * Tự động sinh bản nháp mới cho tài liệu khi phát hiện mã nguồn thay đổi qua commit/PR,
+     * gọi AI Engine (/v1/docs/rewrite-suggestion),
+     * lưu phiên bản mới vào document_versions với actorRole là AI_AGENT và triggerType là AUTO_DRIFT_AI_REWRITE,
+     * cập nhật trạng thái tài liệu sang UNDER_REVIEW_STAFF và đưa vào hàng đợi xem xét của Nhân viên.
+     */
+    AutoDraftOnDriftResponse generateAutoDraftForDocument(
+            Long docId,
+            String codeDiff,
+            String commitHash,
+            String summaryReason,
+            UserPrincipal actor
+    );
+
+    /**
      * Chuyển đề xuất/gợi ý AI thành bản nháp chính thức (POST /api/auto-draft/apply-suggestion).
      */
     AutoDraftOnDriftResponse applySuggestion(ApplySuggestionRequestDto request, UserPrincipal actor);

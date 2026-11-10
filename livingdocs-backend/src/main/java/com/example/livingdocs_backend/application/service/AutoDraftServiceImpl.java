@@ -102,6 +102,30 @@ public class AutoDraftServiceImpl implements AutoDraftServicePort {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cảnh báo drift chưa được liên kết với tài liệu nào (document_id is null)");
         }
 
+        String codeDiff = StringUtils.hasText(alert.getDetails()) ? alert.getDetails() : "No diff available";
+        String summaryReason = "dựa trên cảnh báo drift #" + alertId;
+
+        AutoDraftOnDriftResponse response = generateAutoDraftForDocument(
+                docId, codeDiff, alert.getSourceCommit(), summaryReason, actor
+        );
+
+        // Gán liên kết bản nháp này vào cảnh báo drift
+        alert.setDraftVersionId(response.getVersionId());
+        alertRepository.save(alert);
+
+        response.setAlertId(alertId);
+        return response;
+    }
+
+    @Override
+    @Transactional
+    public AutoDraftOnDriftResponse generateAutoDraftForDocument(
+            Long docId,
+            String codeDiff,
+            String commitHash,
+            String summaryReason,
+            UserPrincipal actor
+    ) {
         DocumentEntity document = documentRepository.findById(docId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy tài liệu ID " + docId));
 
@@ -111,10 +135,10 @@ public class AutoDraftServiceImpl implements AutoDraftServicePort {
         String prevHash = latestVerOpt.map(DocumentVersionEntity::getHash).orElse(HashUtils.GENESIS_HASH);
         int nextVersionNum = latestVerOpt.map(v -> v.getVersionNum() + 1).orElse(1);
 
-        String codeDiff = StringUtils.hasText(alert.getDetails()) ? alert.getDetails() : "No diff available";
+        String effectiveDiff = StringUtils.hasText(codeDiff) ? codeDiff : "No diff available";
 
         // 2. Gọi AI Engine (/v1/docs/rewrite-suggestion) để lấy gợi ý viết lại
-        DocRewriteResponseDto aiResponse = callAiEngineRewrite(currentContent, codeDiff, document.getTitle(), alert.getSourceCommit());
+        DocRewriteResponseDto aiResponse = callAiEngineRewrite(currentContent, effectiveDiff, document.getTitle(), commitHash);
 
         String newContent = aiResponse != null && StringUtils.hasText(aiResponse.getUpdated_doc())
                 ? aiResponse.getUpdated_doc()
@@ -122,7 +146,7 @@ public class AutoDraftServiceImpl implements AutoDraftServicePort {
 
         String summary = aiResponse != null && StringUtils.hasText(aiResponse.getSummary_of_changes())
                 ? aiResponse.getSummary_of_changes()
-                : "AI_AGENT tự động cập nhật bản nháp PENDING_REVIEW dựa trên cảnh báo drift #" + alertId;
+                : "AI_AGENT tự động cập nhật bản nháp PENDING_REVIEW " + (summaryReason != null ? summaryReason : "");
 
         // 3. Tính mã băm SHA-256 bảo vệ chuỗi hash chain với actorRole là AI_AGENT
         String hash = HashUtils.calculateVersionHash(prevHash, nextVersionNum, newContent, "AI_AGENT", "AUTO_DRIFT_AI_REWRITE");
@@ -136,7 +160,7 @@ public class AutoDraftServiceImpl implements AutoDraftServicePort {
                 .triggerType("AUTO_DRIFT_AI_REWRITE")
                 .hash(hash)
                 .prevHash(prevHash)
-                .commitHash(alert.getSourceCommit())
+                .commitHash(commitHash)
                 .createdAt(Instant.now())
                 .build();
 
@@ -152,17 +176,13 @@ public class AutoDraftServiceImpl implements AutoDraftServicePort {
                 .docId(docId)
                 .versionId(savedVersion.getVersionId())
                 .reviewer("AI_AGENT")
-                .generalComment("Bản nháp tự động sinh do phát hiện sai lệch (Drift Alert #" + alertId + "): " + summary)
+                .generalComment("Bản nháp tự động sinh do phát hiện thay đổi mã nguồn (Commit " + commitHash + "): " + summary)
                 .result("PENDING")
                 .createdAt(Instant.now())
                 .build();
         ReviewEntity savedReview = reviewRepository.save(reviewItem);
 
-        // 7. Gán liên kết bản nháp này vào cảnh báo drift
-        alert.setDraftVersionId(savedVersion.getVersionId());
-        alertRepository.save(alert);
-
-        // 8. Ghi nhận Changelog và Audit log
+        // 7. Ghi nhận Changelog và Audit log
         Long actorId = actor != null ? actor.getUserId() : null;
         if (changelogServicePort != null) {
             changelogServicePort.logChange(docId, savedVersion.getVersionId(), actorId, "AI_AGENT", summary);
@@ -174,15 +194,14 @@ public class AutoDraftServiceImpl implements AutoDraftServicePort {
                     AuditAction.DOCUMENT_CREATED,
                     "DOCUMENT_VERSION",
                     String.valueOf(savedVersion.getVersionId()),
-                    "AI_AGENT generated auto-draft version " + nextVersionNum + " (PENDING_REVIEW) for alert #" + alertId
+                    "AI_AGENT generated auto-draft version " + nextVersionNum + " (PENDING_REVIEW) for doc #" + docId
             );
         }
 
-        log.info("[AutoDraft] Đã tạo thành công bản nháp v{} (versionId={}) cho cảnh báo drift #{}, đã đẩy vào hàng đợi xem xét của nhân viên (reviewId={})",
-                nextVersionNum, savedVersion.getVersionId(), alertId, savedReview.getReviewId());
+        log.info("[AutoDraft] Đã tạo thành công bản nháp v{} (versionId={}) cho doc #{}, đã đẩy vào hàng đợi xem xét của nhân viên (reviewId={})",
+                nextVersionNum, savedVersion.getVersionId(), docId, savedReview.getReviewId());
 
         return AutoDraftOnDriftResponse.builder()
-                .alertId(alertId)
                 .documentId(docId)
                 .versionId(savedVersion.getVersionId())
                 .versionNum(nextVersionNum)
