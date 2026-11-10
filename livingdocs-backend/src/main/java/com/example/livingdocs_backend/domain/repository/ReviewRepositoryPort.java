@@ -14,4 +14,6 @@ public interface ReviewRepositoryPort {
     List<Review> findByDocId(Long docId);
 
     Optional<Review> findLatestByDocId(Long docId);
+
+    List<Review> findAll();
 }

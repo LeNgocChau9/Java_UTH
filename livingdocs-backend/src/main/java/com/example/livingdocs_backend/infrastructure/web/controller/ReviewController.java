@@ -78,6 +78,13 @@ public class ReviewController {
         return ResponseEntity.ok(reviewServicePort.handleManagerAction(id, request, actorId, actorRole, actorEmail));
     }
 
+    @GetMapping("/history")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
+    @Operation(summary = "Lấy lịch sử xem xét tài liệu", description = "Trả về toàn bộ các bản ghi duyệt/từ chối tài liệu từ trước đến nay.")
+    public ResponseEntity<List<com.example.livingdocs_backend.application.dto.ReviewHistoryItemResponse>> getReviewHistory() {
+        return ResponseEntity.ok(reviewServicePort.getReviewHistory());
+    }
+
     private String principalRole(UserPrincipal userPrincipal) {
         if (userPrincipal == null || userPrincipal.getAuthorities() == null || userPrincipal.getAuthorities().isEmpty()) {
             return null;

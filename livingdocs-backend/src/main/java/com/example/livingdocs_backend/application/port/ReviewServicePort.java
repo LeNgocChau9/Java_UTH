@@ -32,4 +32,9 @@ public interface ReviewServicePort {
      * Xử lý hành động của Manager: Phê duyệt xuất bản hoặc Trả về (POST /api/reviews/{id}/manager-action).
      */
     ReviewActionResponse handleManagerAction(Long id, ManagerActionRequest request, Long actorId, String actorRole, String actorEmail);
+
+    /**
+     * Lấy toàn bộ lịch sử xem xét tài liệu từ trước đến nay (GET /api/reviews/history).
+     */
+    List<com.example.livingdocs_backend.application.dto.ReviewHistoryItemResponse> getReviewHistory();
 }

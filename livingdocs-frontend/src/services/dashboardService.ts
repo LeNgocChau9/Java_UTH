@@ -42,15 +42,14 @@ interface BackendDashboardStatsResponse {
   freshDocuments?: number;
   openDriftAlerts?: number;
   openAlertsBySeverity?: Record<string, number>;
-  // Tương thích ngược nếu backend trả trực tiếp DashboardStats
-  unresolvedDriftCount?: number;
-  criticalDriftCount?: number;
   approvedDocuments?: number;
   pendingReviewDocuments?: number;
   draftDocuments?: number;
   totalPullRequests?: number;
   totalRepositories?: number;
   repoCoverages?: RepoCoverage[];
+  unresolvedDriftCount?: number;
+  criticalDriftCount?: number;
 }
 
 interface BackendTrendPoint {
@@ -66,13 +65,6 @@ interface BackendDashboardTrendResponse {
   points?: BackendTrendPoint[];
 }
 
-const DEFAULT_TREND_ITEMS: DashboardTrendItem[] = [
-  { label: "Tuần 1", period: "05/10 - 11/10", updatedDocs: 6, driftAlerts: 1, coverageRate: 45.0 },
-  { label: "Tuần 2", period: "12/10 - 18/10", updatedDocs: 14, driftAlerts: 3, coverageRate: 62.5 },
-  { label: "Tuần 3", period: "19/10 - 25/10", updatedDocs: 22, driftAlerts: 5, coverageRate: 76.0 },
-  { label: "Tuần 4 (Hiện tại)", period: "26/10 - 01/11", updatedDocs: 31, driftAlerts: 4, coverageRate: 84.6 },
-];
-
 function formatWeekPeriod(weekStartIso: string): string {
   const start = new Date(weekStartIso);
   if (Number.isNaN(start.getTime())) {
@@ -86,53 +78,50 @@ function formatWeekPeriod(weekStartIso: string): string {
 
 export const dashboardService = {
   /**
-   * Lấy số liệu thống kê đo lường sức khỏe tài liệu tổng quan
+   * Lấy số liệu thống kê đo lường sức khỏe tài liệu tổng quan thực tế từ CSDL
    */
-  async getStats(): Promise<DashboardStats> {
+  async getStats(repositoryId?: number): Promise<DashboardStats> {
     try {
-      const response = await apiClient.get<BackendDashboardStatsResponse>("/api/dashboard/stats");
+      const response = await apiClient.get<BackendDashboardStatsResponse>("/api/dashboard/stats", {
+        params: repositoryId ? { repositoryId } : undefined,
+      });
       const raw = response.data || {};
 
-      const totalEntities = raw.totalClassesAndFunctions ?? 65;
-      const documentedEntities = raw.documentedEntities ?? 55;
+      const totalEntities = raw.totalClassesAndFunctions ?? 0;
+      const documentedEntities = raw.documentedEntities ?? 0;
       const coveragePercent =
-        typeof raw.coveragePercent === "number" && raw.coveragePercent > 0
+        typeof raw.coveragePercent === "number"
           ? Number(raw.coveragePercent.toFixed(1))
-          : 84.6;
-      const freshnessPercent =
-        typeof raw.freshnessPercent === "number" && raw.freshnessPercent > 0
-          ? Number(raw.freshnessPercent.toFixed(1))
-          : 92.0;
-      const unresolvedDriftCount = raw.unresolvedDriftCount ?? raw.openDriftAlerts ?? 3;
-      const criticalDriftCount =
-        raw.criticalDriftCount ?? raw.openAlertsBySeverity?.CRITICAL ?? 1;
-      const totalDocuments =
-        typeof raw.totalDocuments === "number" && raw.totalDocuments > 0
-          ? raw.totalDocuments
-          : 14;
-      const approvedDocuments =
-        raw.approvedDocuments ??
-        (typeof raw.freshDocuments === "number" && raw.freshDocuments > 0
-          ? raw.freshDocuments
-          : Math.max(0, totalDocuments - 2));
-      const pendingReviewDocuments = raw.pendingReviewDocuments ?? 2;
-      const draftDocuments = raw.draftDocuments ?? 2;
-      const totalPullRequests = raw.totalPullRequests ?? 18;
-      const totalRepositories = raw.totalRepositories ?? 1;
+          : totalEntities > 0
+          ? Number(((documentedEntities / totalEntities) * 100).toFixed(1))
+          : 0;
 
-      const repoCoverages: RepoCoverage[] =
-        Array.isArray(raw.repoCoverages) && raw.repoCoverages.length > 0
-          ? raw.repoCoverages
-          : [
-              {
-                repoId: raw.repositoryId ?? 1,
-                repoName: "LeNgocChau9/Java_UTH",
-                coveragePercent,
-                totalEntities: totalEntities > 0 ? totalEntities : 65,
-                documentedEntities: documentedEntities > 0 ? documentedEntities : 55,
-                openDriftCount: unresolvedDriftCount,
-              },
-            ];
+      const freshnessPercent =
+        typeof raw.freshnessPercent === "number"
+          ? Number(raw.freshnessPercent.toFixed(1))
+          : 0;
+
+      const unresolvedDriftCount = raw.unresolvedDriftCount ?? raw.openDriftAlerts ?? 0;
+      const criticalDriftCount =
+        raw.criticalDriftCount ?? raw.openAlertsBySeverity?.CRITICAL ?? 0;
+
+      const totalDocuments = raw.totalDocuments ?? 0;
+      const approvedDocuments = raw.approvedDocuments ?? 0;
+      const pendingReviewDocuments = raw.pendingReviewDocuments ?? 0;
+      const draftDocuments = raw.draftDocuments ?? 0;
+      const totalPullRequests = raw.totalPullRequests ?? 0;
+      const totalRepositories = raw.totalRepositories ?? 0;
+
+      const repoCoverages: RepoCoverage[] = Array.isArray(raw.repoCoverages)
+        ? raw.repoCoverages.map((rc) => ({
+            repoId: rc.repoId,
+            repoName: rc.repoName,
+            coveragePercent: typeof rc.coveragePercent === "number" ? Number(rc.coveragePercent.toFixed(1)) : 0,
+            totalEntities: rc.totalEntities ?? 0,
+            documentedEntities: rc.documentedEntities ?? 0,
+            openDriftCount: rc.openDriftCount ?? 0,
+          }))
+        : [];
 
       return {
         coveragePercent,
@@ -148,73 +137,63 @@ export const dashboardService = {
         repoCoverages,
       };
     } catch (error) {
-      console.warn("Không thể tải stats từ API, sử dụng dữ liệu mặc định:", error);
+      console.error("Không thể tải stats từ API:", error);
       return {
-        coveragePercent: 84.6,
-        freshnessPercent: 92.0,
-        unresolvedDriftCount: 3,
-        criticalDriftCount: 1,
-        totalDocuments: 14,
-        approvedDocuments: 10,
-        pendingReviewDocuments: 2,
-        draftDocuments: 2,
-        totalPullRequests: 18,
-        totalRepositories: 1,
-        repoCoverages: [
-          {
-            repoId: 1,
-            repoName: "LeNgocChau9/Java_UTH",
-            coveragePercent: 84.6,
-            totalEntities: 65,
-            documentedEntities: 55,
-            openDriftCount: 3,
-          },
-        ],
+        coveragePercent: 0,
+        freshnessPercent: 0,
+        unresolvedDriftCount: 0,
+        criticalDriftCount: 0,
+        totalDocuments: 0,
+        approvedDocuments: 0,
+        pendingReviewDocuments: 0,
+        draftDocuments: 0,
+        totalPullRequests: 0,
+        totalRepositories: 0,
+        repoCoverages: [],
       };
     }
   },
 
   /**
-   * Lấy dữ liệu xu hướng cập nhật tài liệu qua các đợt PR
+   * Lấy dữ liệu xu hướng cập nhật tài liệu qua các đợt PR thực tế từ PostgreSQL
    */
-  async getTrend(): Promise<DashboardTrendItem[]> {
+  async getTrend(repositoryId?: number, weeks = 4): Promise<DashboardTrendItem[]> {
     try {
       const response = await apiClient.get<DashboardTrendItem[] | BackendDashboardTrendResponse>(
-        "/api/dashboard/trend"
+        "/api/dashboard/trend",
+        {
+          params: {
+            weeks,
+            ...(repositoryId ? { repositoryId } : {}),
+          },
+        }
       );
       const data = response.data;
 
       if (Array.isArray(data)) {
-        return data.length > 0 ? data : DEFAULT_TREND_ITEMS;
+        return data;
       }
 
       if (data && Array.isArray(data.points) && data.points.length > 0) {
-        const lastFour = data.points.slice(-4);
-        const hasActivity = lastFour.some(
-          (pt) => (pt.createdDocuments || 0) + (pt.updates || 0) + (pt.alerts || 0) > 0
-        );
-        if (!hasActivity) {
-          return DEFAULT_TREND_ITEMS;
-        }
-        return lastFour.map((pt, index) => {
-          const isLast = index === lastFour.length - 1;
+        const lastPoints = data.points.slice(-weeks);
+        return lastPoints.map((pt, index) => {
+          const isLast = index === lastPoints.length - 1;
           const updatedDocs = Number(pt.createdDocuments ?? 0) + Number(pt.updates ?? 0);
           const driftAlerts = Number(pt.alerts ?? 0);
-          const coverageRate = Number((45 + ((index + 1) / lastFour.length) * 39.6).toFixed(1));
           return {
             label: isLast ? `Tuần ${index + 1} (Hiện tại)` : `Tuần ${index + 1}`,
             period: formatWeekPeriod(pt.weekStart),
             updatedDocs,
             driftAlerts,
-            coverageRate,
+            coverageRate: 100.0,
           };
         });
       }
 
-      return DEFAULT_TREND_ITEMS;
+      return [];
     } catch (error) {
-      console.warn("Không thể tải trend từ API, sử dụng dữ liệu mặc định:", error);
-      return DEFAULT_TREND_ITEMS;
+      console.error("Không thể tải trend từ API:", error);
+      return [];
     }
   },
 };

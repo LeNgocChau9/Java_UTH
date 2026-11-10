@@ -45,4 +45,22 @@ public class DashboardStatsResponse {
 
     @Schema(description = "Số cảnh báo OPEN theo mức độ. Luôn có LOW, MEDIUM, HIGH, CRITICAL.")
     private Map<String, Long> openAlertsBySeverity;
+
+    @Schema(description = "Số tài liệu đã xuất bản (PUBLISHED)")
+    private long approvedDocuments;
+
+    @Schema(description = "Số tài liệu đang chờ duyệt (UNDER_REVIEW_STAFF hoặc UNDER_REVIEW_MANAGER)")
+    private long pendingReviewDocuments;
+
+    @Schema(description = "Số tài liệu bản nháp (DRAFT)")
+    private long draftDocuments;
+
+    @Schema(description = "Tổng số Pull Request trong hệ thống")
+    private long totalPullRequests;
+
+    @Schema(description = "Tổng số kho mã nguồn (Repository) đang hoạt động")
+    private long totalRepositories;
+
+    @Schema(description = "Độ bao phủ thực tế theo từng repository")
+    private java.util.List<RepoCoverageDto> repoCoverages;
 }

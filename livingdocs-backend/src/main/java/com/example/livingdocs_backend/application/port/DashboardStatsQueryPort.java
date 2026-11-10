@@ -29,4 +29,16 @@ public interface DashboardStatsQueryPort {
      * Chuỗi tuần liên tục, tuần cũ đứng trước. Tuần không có dữ liệu vẫn có mặt với số 0.
      */
     List<WeeklyTrendBucket> findWeeklyTrend(Long repositoryId, int weeks);
+
+    long countApprovedDocuments(Long repositoryId);
+
+    long countPendingReviewDocuments(Long repositoryId);
+
+    long countDraftDocuments(Long repositoryId);
+
+    long countTotalPullRequests(Long repositoryId);
+
+    long countTotalRepositories();
+
+    List<com.example.livingdocs_backend.application.dto.RepoCoverageDto> findRepoCoverages();
 }

@@ -1,41 +1,90 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
-import { CheckCircle, XCircle, Clock, FileText, GitBranch, Eye, Search, ChevronDown } from "lucide-react";
-
-const HISTORY = [
-  { id: 101, title: "AuthService API Reference v3.2", repo: "livingdocs-backend", reviewer: "staff01", reviewedAt: "Hôm nay, 09:12", action: "approved", note: "Nội dung rõ ràng, đầy đủ ví dụ." },
-  { id: 102, title: "Frontend Architecture v0.8", repo: "livingdocs-web", reviewer: "staff01", reviewedAt: "Hôm nay, 08:30", action: "rejected", note: "Thiếu phần mô tả routing. Cần bổ sung." },
-  { id: 103, title: "Payment Gateway Integration v2.0", repo: "payment-service", reviewer: "staff02", reviewedAt: "Hôm qua, 16:45", action: "approved", note: "" },
-  { id: 104, title: "Notification Service Docs v1.1", repo: "notification-svc", reviewer: "staff01", reviewedAt: "Hôm qua, 14:20", action: "approved", note: "Ổn, đã thêm ghi chú về rate limit." },
-  { id: 105, title: "CI/CD Pipeline v1.9", repo: "devops", reviewer: "staff02", reviewedAt: "2 ngày trước", action: "rejected", note: "Cần thêm diagram và bước rollback." },
-  { id: 106, title: "Database Schema v2.5", repo: "livingdocs-backend", reviewer: "staff01", reviewedAt: "3 ngày trước", action: "approved", note: "" },
-];
+import { CheckCircle, XCircle, Clock, GitBranch, Eye, Search, RefreshCw, AlertCircle } from "lucide-react";
+import { reviewService, type ReviewHistoryItem } from "@/services/reviewService";
 
 const ACTION_META: Record<string, { label: string; icon: React.ReactNode; bg: string; color: string }> = {
-  approved: { label: "Đã duyệt",  icon: <CheckCircle size={12} />, bg: "#ecfdf5", color: "#059669" },
-  rejected: { label: "Từ chối",   icon: <XCircle size={12} />,     bg: "#fef2f2", color: "#b91c1c" },
+  approved: { label: "Đã duyệt", icon: <CheckCircle size={12} />, bg: "#ecfdf5", color: "#059669" },
+  rejected: { label: "Từ chối", icon: <XCircle size={12} />, bg: "#fef2f2", color: "#b91c1c" },
+  returned: { label: "Trả về sửa", icon: <Clock size={12} />, bg: "#fffbeb", color: "#b45309" },
 };
 
+function formatReviewedAt(iso: string): string {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString("vi-VN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+  } catch {
+    return iso;
+  }
+}
+
 export default function LichSuXemXetPage() {
-  const [filter, setFilter] = useState<"all" | "approved" | "rejected">("all");
+  const [history, setHistory] = useState<ReviewHistoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<"all" | "approved" | "rejected" | "returned">("all");
   const [search, setSearch] = useState("");
 
-  const shown = HISTORY.filter((h) => {
-    const matchSearch = h.title.toLowerCase().includes(search.toLowerCase());
+  const loadHistory = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await reviewService.getReviewHistory();
+      setHistory(Array.isArray(data) ? data : []);
+    } catch (err: any) {
+      console.error("Lỗi khi tải lịch sử xem xét:", err);
+      setError("Không thể tải lịch sử xem xét từ máy chủ. Vui lòng thử lại.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadHistory();
+  }, []);
+
+  const shown = history.filter((h) => {
+    const matchSearch =
+      (h.title || "").toLowerCase().includes(search.toLowerCase()) ||
+      (h.repo || "").toLowerCase().includes(search.toLowerCase()) ||
+      (h.reviewer || "").toLowerCase().includes(search.toLowerCase());
     const matchFilter = filter === "all" || h.action === filter;
     return matchSearch && matchFilter;
   });
 
   return (
     <AppShell>
-      <div className="ld-page-header">
+      <div className="ld-page-header flex items-center justify-between">
         <div>
           <h1 className="ld-page-title">Lịch sử xem xét</h1>
-          <p className="ld-page-subtitle">Các tài liệu đã được xem xét bởi Staff</p>
+          <p className="ld-page-subtitle">Các tài liệu đã được rà soát và phê duyệt thực tế trong hệ thống</p>
         </div>
+        <button
+          onClick={loadHistory}
+          disabled={loading}
+          className="inline-flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 hover:text-emerald-700 transition shadow-sm disabled:opacity-60"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-emerald-600" : ""}`} />
+          Làm mới
+        </button>
       </div>
+
+      {error && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg bg-rose-50 p-3 text-xs text-rose-700 border border-rose-200">
+          <AlertCircle size={14} />
+          <span>{error}</span>
+        </div>
+      )}
 
       {/* Filter bar */}
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
@@ -44,30 +93,34 @@ export default function LichSuXemXetPage() {
           <input
             className="ld-input"
             style={{ paddingLeft: 32 }}
-            placeholder="Tìm tài liệu…"
+            placeholder="Tìm theo tên tài liệu, repo, người duyệt…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        {(["all", "approved", "rejected"] as const).map((f) => (
-          <button
-            key={f}
-            type="button"
-            className="ld-btn"
-            style={{
-              fontSize: 13,
-              ...(filter === f
-                ? { background: "#ecfdf5", color: "#047857", border: "1px solid #059669" }
-                : { background: "#e2e8f0", color: "#475569", border: "1px solid #cbd5e1" }),
-            }}
-            onClick={() => setFilter(f)}
-          >
-            {f === "all" ? "Tất cả" : ACTION_META[f].label}
-            <span style={{ marginLeft: 6, fontSize: 11, opacity: 0.7 }}>
-              {f === "all" ? HISTORY.length : HISTORY.filter((h) => h.action === f).length}
-            </span>
-          </button>
-        ))}
+        {(["all", "approved", "rejected", "returned"] as const).map((f) => {
+          const meta = f !== "all" ? ACTION_META[f] : null;
+          const count = f === "all" ? history.length : history.filter((h) => h.action === f).length;
+          return (
+            <button
+              key={f}
+              type="button"
+              className="ld-btn"
+              style={{
+                fontSize: 13,
+                ...(filter === f
+                  ? { background: "#ecfdf5", color: "#047857", border: "1px solid #059669" }
+                  : { background: "#e2e8f0", color: "#475569", border: "1px solid #cbd5e1" }),
+              }}
+              onClick={() => setFilter(f)}
+            >
+              {f === "all" ? "Tất cả" : meta?.label}
+              <span style={{ marginLeft: 6, fontSize: 11, opacity: 0.7 }}>
+                {count}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Table */}
@@ -85,15 +138,24 @@ export default function LichSuXemXetPage() {
             </tr>
           </thead>
           <tbody>
-            {shown.length === 0 ? (
+            {loading ? (
+              <tr>
+                <td colSpan={7} style={{ textAlign: "center", color: "#475569", padding: "40px 0" }}>
+                  <div className="inline-flex items-center gap-2 text-sm text-slate-500">
+                    <RefreshCw className="w-4 h-4 animate-spin text-emerald-600" />
+                    Đang tải dữ liệu thực tế từ hệ thống...
+                  </div>
+                </td>
+              </tr>
+            ) : shown.length === 0 ? (
               <tr>
                 <td colSpan={7} style={{ textAlign: "center", color: "#475569", padding: "32px 0" }}>
-                  Không tìm thấy kết quả.
+                  Chưa có bản ghi xem xét nào phù hợp.
                 </td>
               </tr>
             ) : (
               shown.map((h) => {
-                const meta = ACTION_META[h.action];
+                const meta = ACTION_META[h.action] || ACTION_META.approved;
                 return (
                   <tr key={h.id}>
                     <td>
@@ -113,7 +175,7 @@ export default function LichSuXemXetPage() {
                       </span>
                     </td>
                     <td>
-                      <span style={{ fontSize: 12, color: "#64748b" }}>{h.reviewedAt}</span>
+                      <span style={{ fontSize: 12, color: "#64748b" }}>{formatReviewedAt(h.reviewedAt)}</span>
                     </td>
                     <td>
                       <span style={{ fontSize: 12, color: "#475569" }}>
@@ -121,7 +183,7 @@ export default function LichSuXemXetPage() {
                       </span>
                     </td>
                     <td>
-                      <a href={`/kho-luu-tru/${h.id}`} className="ld-btn ld-btn-ghost ld-btn-sm">
+                      <a href={`/kho-luu-tru/${h.docId || h.id}`} className="ld-btn ld-btn-ghost ld-btn-sm" title="Xem tài liệu">
                         <Eye size={13} />
                       </a>
                     </td>

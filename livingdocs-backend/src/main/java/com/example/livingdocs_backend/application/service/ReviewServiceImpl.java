@@ -499,6 +499,59 @@ public class ReviewServiceImpl implements ReviewServicePort {
         return defaultVal;
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<ReviewHistoryItemResponse> getReviewHistory() {
+        List<Review> reviews = reviewRepositoryPort.findAll();
+        List<ReviewHistoryItemResponse> list = new ArrayList<>();
+
+        for (Review r : reviews) {
+            String title = "Tài liệu #" + r.getDocId();
+            String repoName = "—";
+
+            if (r.getDocId() != null) {
+                var docOpt = documentRepositoryPort.findById(r.getDocId());
+                if (docOpt.isPresent()) {
+                    var doc = docOpt.get();
+                    if (doc.getTitle() != null && !doc.getTitle().isBlank()) {
+                        title = doc.getTitle();
+                    }
+                    if (doc.getRepoId() != null) {
+                        var repoOpt = repositoryRepository.findById(doc.getRepoId());
+                        if (repoOpt.isPresent() && repoOpt.get().getRepoFullName() != null) {
+                            repoName = repoOpt.get().getRepoFullName();
+                        } else if (repoOpt.isPresent() && repoOpt.get().getRepoName() != null) {
+                            repoName = repoOpt.get().getRepoName();
+                        }
+                    }
+                }
+            }
+
+            String rawResult = r.getResult() != null ? r.getResult().toUpperCase() : "APPROVED";
+            String action = "approved";
+            if (rawResult.contains("REJECT") || rawResult.contains("DECLINE")) {
+                action = "rejected";
+            } else if (rawResult.contains("RETURN")) {
+                action = "returned";
+            }
+
+            list.add(ReviewHistoryItemResponse.builder()
+                    .id(r.getReviewId())
+                    .docId(r.getDocId())
+                    .versionId(r.getVersionId())
+                    .title(title)
+                    .repo(repoName)
+                    .reviewer(r.getReviewer() != null ? r.getReviewer() : "staff")
+                    .action(action)
+                    .result(rawResult)
+                    .note(r.getGeneralComment() != null ? r.getGeneralComment() : "")
+                    .reviewedAt(r.getCreatedAt())
+                    .build());
+        }
+
+        return list;
+    }
+
     private DocumentVersionResponse toVersionResponse(DocumentVersion v) {
         return DocumentVersionResponse.builder()
                 .versionId(v.getVersionId())

@@ -34,6 +34,13 @@ public class DashboardStatsService {
         long fresh = queryPort.countFreshDocuments(repositoryId);
         Map<String, Long> alerts = groupAlerts(queryPort.countOpenAlertsBySeverity(repositoryId));
 
+        long approved = queryPort.countApprovedDocuments(repositoryId);
+        long pending = queryPort.countPendingReviewDocuments(repositoryId);
+        long draft = queryPort.countDraftDocuments(repositoryId);
+        long prs = queryPort.countTotalPullRequests(repositoryId);
+        long repos = queryPort.countTotalRepositories();
+        var repoCoverages = queryPort.findRepoCoverages();
+
         return DashboardStatsResponse.builder()
                 .repositoryId(repositoryId)
                 .totalClassesAndFunctions(scanned)
@@ -43,6 +50,12 @@ public class DashboardStatsService {
                 .latestCommitAt(queryPort.findLatestCommitAt(repositoryId).orElse(null))
                 .totalDocuments(documents)
                 .freshDocuments(fresh)
+                .approvedDocuments(approved)
+                .pendingReviewDocuments(pending)
+                .draftDocuments(draft)
+                .totalPullRequests(prs)
+                .totalRepositories(repos)
+                .repoCoverages(repoCoverages)
                 .openDriftAlerts(alerts.values().stream().mapToLong(Long::longValue).sum())
                 .openAlertsBySeverity(alerts)
                 .build();
