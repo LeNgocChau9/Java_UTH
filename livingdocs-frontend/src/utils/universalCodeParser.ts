@@ -497,17 +497,18 @@ function parseMarkdownEntities(filePath: string, lines: string[], repositoryId: 
 // 9. GENERIC / FALLBACK
 function parseGenericEntities(filePath: string, lines: string[], repositoryId: number): CodeEntityDto[] {
   const fileName = filePath.split("/").pop() || "File";
+  const baseName = fileName.replace(/\.[^/.]+$/, "");
   return [
     {
       repositoryId,
       filePath,
       entityType: "CLASS",
-      className: fileName,
-      signature: fileName,
+      className: baseName,
+      signature: `class ${baseName}`,
       startLine: 1,
       endLine: lines.length || 1,
-      docStatus: "DOCUMENTED",
-      javadoc: `Tập tin trong kho lưu trữ: ${filePath} (${lines.length} dòng)`,
+      docStatus: "UNDOCUMENTED",
+      javadoc: undefined,
     },
   ];
 }

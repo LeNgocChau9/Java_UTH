@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
@@ -27,6 +28,17 @@ public class DriftAlertService {
 
     private final SpringDataDocumentChangeAlertRepository alertRepository;
     private final AuditServicePort auditServicePort;
+
+    @Transactional(readOnly = true)
+    public List<DocumentChangeAlertEntity> findAll(Long repositoryId, String status) {
+        if (repositoryId != null && status != null && !status.isBlank()) {
+            return alertRepository.findByRepositoryIdAndStatus(repositoryId, status.toUpperCase());
+        }
+        if (repositoryId != null) {
+            return alertRepository.findByRepositoryId(repositoryId);
+        }
+        return alertRepository.findAll();
+    }
 
     @Transactional
     public DriftAlertResponse handle(Long alertId, DriftAlertActionRequest request, UserPrincipal actor) {

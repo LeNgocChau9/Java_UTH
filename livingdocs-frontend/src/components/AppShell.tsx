@@ -537,26 +537,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <Link
         href="/"
         style={{
+          height: 56,
+          boxSizing: "border-box",
           display: "flex",
           alignItems: "center",
           gap: 10,
-          padding: "16px 18px",
+          padding: "0 18px",
           borderBottom: "1px solid #e2e8f0",
+          background: "#f8fafc",
           flexShrink: 0,
         }}
       >
         <Image
           src="/logo.png"
           alt="LivingDoc Logo"
-          width={32}
-          height={32}
+          width={28}
+          height={28}
           className="rounded-lg object-contain shadow-xs"
         />
         <div className="flex flex-col">
-          <span style={{ fontWeight: 800, fontSize: 16, color: "#0f172a", lineHeight: 1.1 }}>
+          <span style={{ fontWeight: 800, fontSize: 15, color: "#0f172a", lineHeight: 1.1 }}>
             Living<span style={{ color: "#087f5b" }}>Docs</span>
           </span>
-          <span style={{ fontSize: 11, color: "#64748b", fontWeight: 500 }}>AI Documentation</span>
+          <span style={{ fontSize: 10.5, color: "#64748b", fontWeight: 500 }}>AI Documentation</span>
         </div>
       </Link>
 
@@ -760,12 +763,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <header
           style={{
             height: 56,
+            boxSizing: "border-box",
             display: "flex",
             alignItems: "center",
             padding: "0 24px",
             gap: 12,
             borderBottom: "1px solid #e2e8f0",
-            background: "#ffffff",
+            background: "#f8fafc",
             flexShrink: 0,
           }}
         >
@@ -893,8 +897,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       gap: 8,
                       padding: "4px 8px 4px 4px",
                       borderRadius: 20,
-                      background: "#f1f5f9",
-                      border: "1px solid #e2e8f0",
+                      background: "#ffffff",
+                      border: "1px solid #cbd5e1",
+                      boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
                       cursor: "pointer",
                     }}
                   >
@@ -1358,8 +1363,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       gap: 4,
                       padding: "3px 8px",
                       borderRadius: 9999,
-                      background: "#f1f5f9",
-                      border: "1px solid #e2e8f0",
+                      background: "#ffffff",
+                      border: "1px solid #cbd5e1",
+                      boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
                       color: "#475569",
                       fontSize: 11,
                       fontWeight: 600,

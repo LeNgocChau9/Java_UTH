@@ -82,7 +82,11 @@ public class SecurityConfig {
                     "/api/webhooks/**",
                     "/api/v1/settings",
                     "/api/v1/settings/**",
-                    "/api/ci/**"
+                    "/api/ci/**",
+                    "/api/drift-alerts",
+                    "/api/drift-alerts/**",
+                    "/api/dashboard",
+                    "/api/dashboard/**"
                 ).permitAll()
                 .requestMatchers("/api/me").authenticated()
                 .anyRequest().authenticated()

@@ -111,4 +111,11 @@ export const repoService = {
     });
     return res.data;
   },
+
+  async getFileContent(id: number, path: string, branch?: string): Promise<{ filePath: string; content: string }> {
+    const res = await apiClient.get<{ filePath: string; content: string }>(`/api/repos/${id}/file-content`, {
+      params: { path, branch },
+    });
+    return res.data;
+  },
 };
