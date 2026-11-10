@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS public.users
     email character varying(255) COLLATE pg_catalog."default" NOT NULL,
     password_hash character varying(255) COLLATE pg_catalog."default" NOT NULL,
     full_name character varying(150) COLLATE pg_catalog."default" NOT NULL,
-    avatar_url character varying(500) COLLATE pg_catalog."default",
+    avatar_url text COLLATE pg_catalog."default",
     status character varying(50) COLLATE pg_catalog."default" NOT NULL DEFAULT 'ACTIVE'::character varying,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,

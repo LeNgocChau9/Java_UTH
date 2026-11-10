@@ -90,4 +90,23 @@ class SecurityAndExceptionHandlerTest {
         SecurityContextHolder.clearContext();
         verify(filterChain).doFilter(request, response);
     }
+
+    @Test
+    @DisplayName("GlobalExceptionHandler phân loại DataIntegrityViolationException chính xác")
+    void globalExceptionHandler_handlesDataIntegrityViolation() {
+        GlobalExceptionHandler handler = new GlobalExceptionHandler();
+
+        // Case 1: Value too long
+        var exTooLong = new org.springframework.dao.DataIntegrityViolationException("ERROR: value too long for type character varying(500)");
+        var res1 = handler.handleDataIntegrityViolationException(exTooLong);
+        assertEquals(HttpStatus.CONFLICT, res1.getStatusCode());
+        assertTrue(res1.getBody().get("message").toString().contains("quá dài"));
+
+        // Case 2: Unique violation
+        var exUnique = new org.springframework.dao.DataIntegrityViolationException("ERROR: duplicate key value violates unique constraint 'users_email_key'");
+        var res2 = handler.handleDataIntegrityViolationException(exUnique);
+        assertEquals(HttpStatus.CONFLICT, res2.getStatusCode());
+        assertTrue(res2.getBody().get("message").toString().contains("đã tồn tại"));
+    }
 }
+
