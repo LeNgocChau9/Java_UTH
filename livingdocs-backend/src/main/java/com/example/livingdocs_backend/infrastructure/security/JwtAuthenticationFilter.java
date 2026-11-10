@@ -22,6 +22,7 @@ import lombok.extern.slf4j.Slf4j;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider tokenProvider;
+    private final com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataUserRepository springDataUserRepository;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -35,7 +36,22 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 try {
                     String email = tokenProvider.getEmailFromToken(token);
                     Long userId = tokenProvider.getUserIdFromToken(token);
-                    java.util.List<String> roles = tokenProvider.getRolesFromToken(token);
+                    java.util.List<String> roles = null;
+
+                    if (userId != null) {
+                        try {
+                            java.util.List<String> dbRoles = springDataUserRepository.findRoleNamesByUserId(userId);
+                            if (dbRoles != null && !dbRoles.isEmpty()) {
+                                roles = dbRoles;
+                            }
+                        } catch (Exception dbEx) {
+                            log.debug("Không thể nạp roles từ DB cho userId {}: {}", userId, dbEx.getMessage());
+                        }
+                    }
+
+                    if (roles == null || roles.isEmpty()) {
+                        roles = tokenProvider.getRolesFromToken(token);
+                    }
 
                     UserPrincipal userPrincipal = new UserPrincipal(userId, email, roles);
 
