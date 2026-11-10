@@ -16,4 +16,6 @@ public interface ChangelogRepositoryPort {
     List<Changelog> findAll(Long documentId, String actorRole);
 
     Page<Changelog> findWithFilters(String actorRole, Long repoId, Instant fromDate, Instant toDate, Pageable pageable);
+
+    long deleteByCreatedAtBefore(Instant cutoff);
 }

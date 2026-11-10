@@ -64,6 +64,12 @@ public class ChangelogRepositoryAdapter implements ChangelogRepositoryPort {
                 .map(this::toDomain);
     }
 
+    @Override
+    @Transactional
+    public long deleteByCreatedAtBefore(java.time.Instant cutoff) {
+        return springDataChangelogRepository.deleteByCreatedAtBefore(cutoff);
+    }
+
     private Changelog toDomain(ChangelogEntity entity) {
         return Changelog.builder()
                 .id(entity.getId())

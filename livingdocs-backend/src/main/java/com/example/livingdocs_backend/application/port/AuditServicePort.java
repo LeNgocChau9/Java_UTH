@@ -23,5 +23,11 @@ public interface AuditServicePort {
     List<AuditLog> getAuditLogsForResource(String resourceType, String resourceId);
 
     List<AuditLog> search(String action, Instant from, Instant to);
+
+    com.example.livingdocs_backend.application.dto.AuditRetentionConfigDto getRetentionConfig();
+
+    com.example.livingdocs_backend.application.dto.AuditRetentionConfigDto updateRetentionConfig(com.example.livingdocs_backend.application.dto.AuditRetentionConfigDto request, Long actorId);
+
+    com.example.livingdocs_backend.application.dto.AuditCleanupResultDto cleanupExpiredLogs(Integer customRetentionDays, Long actorId, String triggerMethod);
 }
 

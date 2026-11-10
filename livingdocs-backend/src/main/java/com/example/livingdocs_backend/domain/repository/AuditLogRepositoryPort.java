@@ -8,4 +8,5 @@ public interface AuditLogRepositoryPort {
     AuditLog save(AuditLog auditLog);
     List<AuditLog> findByResourceTypeAndResourceId(String resourceType, String resourceId);
     List<AuditLog> findRecent();
+    long deleteByCreatedAtBefore(java.time.Instant cutoff);
 }

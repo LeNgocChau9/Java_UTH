@@ -4,6 +4,7 @@ import com.example.livingdocs_backend.infrastructure.persistence.entity.Changelo
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -42,4 +43,8 @@ public interface SpringDataChangelogRepository extends JpaRepository<ChangelogEn
                         @Param("fromDate") Instant fromDate,
                         @Param("toDate") Instant toDate,
                         Pageable pageable);
+
+        @Modifying
+        @Query("DELETE FROM ChangelogEntity c WHERE c.createdAt < :cutoff")
+        long deleteByCreatedAtBefore(@Param("cutoff") Instant cutoff);
 }

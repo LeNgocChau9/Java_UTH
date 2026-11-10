@@ -65,6 +65,12 @@ public class AuditLogRepositoryAdapter implements AuditLogRepositoryPort {
                 .toList();
     }
 
+    @Override
+    @Transactional
+    public long deleteByCreatedAtBefore(java.time.Instant cutoff) {
+        return springDataAuditLogRepository.deleteByCreatedAtBefore(cutoff);
+    }
+
     private AuditLog toDomain(AuditLogEntity saved) {
         return AuditLog.builder()
                 .logId(saved.getLogId())
