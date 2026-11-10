@@ -37,7 +37,7 @@ import lombok.RequiredArgsConstructor;
  * Controller cung cấp REST API quản lý kho lưu trữ GitHub và đồng bộ dữ liệu.
  */
 @RestController
-@RequestMapping("/api/repos")
+@RequestMapping({"/api/repos", "/api/repositories"})
 @RequiredArgsConstructor
 @Tag(name = "Repositories", description = "Quản lý kết nối Repo GitHub và đồng bộ PR, Commit")
 public class RepositoryController {
@@ -114,6 +114,21 @@ public class RepositoryController {
             @AuthenticationPrincipal UserPrincipal userPrincipal) {
         Long userId = userPrincipal != null ? userPrincipal.getUserId() : 1L;
         return ResponseEntity.ok(repositoryService.getRepositoryTree(id, sha, userId));
+    }
+
+    @GetMapping("/{id}/file-content")
+    @Operation(summary = "Lấy nội dung mã nguồn thực tế của file từ GitHub hoặc hệ thống")
+    public ResponseEntity<java.util.Map<String, String>> getFileContent(
+            @PathVariable("id") Long id,
+            @RequestParam("path") String path,
+            @RequestParam(value = "branch", required = false) String branch,
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+        Long userId = userPrincipal != null ? userPrincipal.getUserId() : 1L;
+        String content = repositoryService.getFileContent(id, path, branch, userId);
+        if (content == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(java.util.Map.of("filePath", path, "content", content));
     }
 
     @PostMapping("/connections/{connectionId}/verify")

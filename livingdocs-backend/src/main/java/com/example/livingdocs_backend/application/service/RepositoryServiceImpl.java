@@ -464,6 +464,45 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
                 .build();
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public String getFileContent(Long repositoryId, String filePath, String branch, Long currentUserId) {
+        RepositoryEntity repo = repositoryRepository.findById(repositoryId)
+                .orElseThrow(() -> new GitHubApiException("Không tìm thấy repository với ID: " + repositoryId, 404));
+
+        String[] parts = parseOwnerAndRepo(repo.getRepoFullName());
+        String owner = parts[0];
+        String repoName = parts[1];
+        String token = resolveTokenForSync(repo, null, currentUserId);
+        String ref = StringUtils.hasText(branch) ? branch.trim() : repo.getDefaultBranch();
+
+        // 1. Tải trực tiếp từ GitHub Contents API bằng OAuth token
+        String content = gitHubClient.getFileContent(token, owner, repoName, filePath, ref);
+        if (StringUtils.hasText(content)) {
+            return content;
+        }
+
+        // 2. Fallback đọc file từ thư mục làm việc cục bộ
+        try {
+            java.nio.file.Path directPath = java.nio.file.Paths.get(filePath);
+            if (java.nio.file.Files.exists(directPath) && !java.nio.file.Files.isDirectory(directPath)) {
+                return java.nio.file.Files.readString(directPath, java.nio.charset.StandardCharsets.UTF_8);
+            }
+            java.nio.file.Path candidate = java.nio.file.Paths.get(".").toAbsolutePath().normalize().resolve(filePath);
+            if (java.nio.file.Files.exists(candidate) && !java.nio.file.Files.isDirectory(candidate)) {
+                return java.nio.file.Files.readString(candidate, java.nio.charset.StandardCharsets.UTF_8);
+            }
+            java.nio.file.Path parentCandidate = java.nio.file.Paths.get("..").toAbsolutePath().normalize().resolve(filePath);
+            if (java.nio.file.Files.exists(parentCandidate) && !java.nio.file.Files.isDirectory(parentCandidate)) {
+                return java.nio.file.Files.readString(parentCandidate, java.nio.charset.StandardCharsets.UTF_8);
+            }
+        } catch (Exception ex) {
+            log.debug("Fallback đọc file cục bộ thất bại: {}", ex.getMessage());
+        }
+
+        return null;
+    }
+
     private RepoResponse mapToRepoResponse(RepositoryEntity entity) {
         return RepoResponse.builder()
                 .repositoryId(entity.getRepositoryId())

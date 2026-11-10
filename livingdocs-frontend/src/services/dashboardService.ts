@@ -15,12 +15,17 @@ export interface DashboardStats {
   unresolvedDriftCount: number;
   criticalDriftCount: number;
   totalDocuments: number;
+  freshDocuments: number;
+  totalClassesAndFunctions: number;
+  documentedEntities: number;
+  latestCommitAt: string | null;
   approvedDocuments: number;
   pendingReviewDocuments: number;
   draftDocuments: number;
   totalPullRequests: number;
   totalRepositories: number;
   repoCoverages: RepoCoverage[];
+  openAlertsBySeverity?: Record<string, number>;
 }
 
 export interface DashboardTrendItem {
@@ -106,6 +111,8 @@ export const dashboardService = {
         raw.criticalDriftCount ?? raw.openAlertsBySeverity?.CRITICAL ?? 0;
 
       const totalDocuments = raw.totalDocuments ?? 0;
+      const freshDocuments = raw.freshDocuments ?? 0;
+      const latestCommitAt = raw.latestCommitAt ?? null;
       const approvedDocuments = raw.approvedDocuments ?? 0;
       const pendingReviewDocuments = raw.pendingReviewDocuments ?? 0;
       const draftDocuments = raw.draftDocuments ?? 0;
@@ -129,12 +136,17 @@ export const dashboardService = {
         unresolvedDriftCount,
         criticalDriftCount,
         totalDocuments,
+        freshDocuments,
+        totalClassesAndFunctions: totalEntities,
+        documentedEntities,
+        latestCommitAt,
         approvedDocuments,
         pendingReviewDocuments,
         draftDocuments,
         totalPullRequests,
         totalRepositories,
         repoCoverages,
+        openAlertsBySeverity: raw.openAlertsBySeverity,
       };
     } catch (error) {
       console.error("Không thể tải stats từ API:", error);
@@ -144,6 +156,10 @@ export const dashboardService = {
         unresolvedDriftCount: 0,
         criticalDriftCount: 0,
         totalDocuments: 0,
+        freshDocuments: 0,
+        totalClassesAndFunctions: 0,
+        documentedEntities: 0,
+        latestCommitAt: null,
         approvedDocuments: 0,
         pendingReviewDocuments: 0,
         draftDocuments: 0,

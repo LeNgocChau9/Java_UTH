@@ -1,312 +1,368 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
 import { useSession } from "@/hooks/useSession";
 import { documentService } from "@/services/documentService";
-import { dashboardService, DashboardStats, DashboardTrendItem } from "@/services/dashboardService";
+import { repoService, RepoItem } from "@/services/repoService";
+import { dashboardService, DashboardStats } from "@/services/dashboardService";
+import { apiClient } from "@/services/apiClient";
 import type { DocumentItem } from "@/types/document";
 import {
-  AlertTriangle,
-  CheckCircle,
-  GitPullRequest,
-  Sparkles,
-  TrendingUp,
-  RefreshCw,
   FolderGit2,
+  FileText,
+  AlertTriangle,
+  Sparkles,
+  GitFork,
+  RefreshCw,
+  CheckCircle2,
+  Clock,
   ShieldCheck,
-  Activity,
-  Flame,
+  GitPullRequest,
+  Code,
   ChevronRight,
+  Edit3,
 } from "lucide-react";
+
+interface DriftAlertSummary {
+  id: number;
+  filePath?: string;
+  methodName?: string;
+  severity?: string;
+  status?: string;
+  driftType?: string;
+  repositoryId?: number;
+  reason?: string;
+}
+
+function formatRelativeTime(isoString?: string | null): string {
+  if (!isoString) return "Chưa cập nhật";
+  try {
+    const d = new Date(isoString);
+    if (Number.isNaN(d.getTime())) return isoString;
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    if (diffHours < 1) return "Vừa xong";
+    if (diffHours < 24) return `${diffHours} giờ trước`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays < 30) return `${diffDays} ngày trước`;
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+  } catch {
+    return isoString;
+  }
+}
 
 export default function DashboardPage() {
   const { roles } = useSession();
 
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [trends, setTrends] = useState<DashboardTrendItem[]>([]);
-  const [recentDocs, setRecentDocs] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [repositories, setRepositories] = useState<RepoItem[]>([]);
+  const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [driftAlerts, setDriftAlerts] = useState<DriftAlertSummary[]>([]);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const loadDashboardData = async () => {
+  // Tải toàn bộ dữ liệu thực tế từ cơ sở dữ liệu
+  const loadRealData = useCallback(async () => {
     setLoading(true);
     try {
-      const [statsData, trendData, docList] = await Promise.all([
-        dashboardService.getStats(),
-        dashboardService.getTrend(),
+      const [reposRes, docsRes, driftRes, statsRes] = await Promise.all([
+        repoService.getRepositories().catch(() => [] as RepoItem[]),
         documentService.getDocuments().catch(() => [] as DocumentItem[]),
+        apiClient.get<DriftAlertSummary[]>("/api/drift-alerts").then((r) => (Array.isArray(r.data) ? r.data : [])).catch(() => [] as DriftAlertSummary[]),
+        dashboardService.getStats().catch(() => null),
       ]);
-      setStats(statsData);
-      setTrends(Array.isArray(trendData) ? trendData : []);
-      setRecentDocs(Array.isArray(docList) ? docList : []);
+
+      setRepositories(Array.isArray(reposRes) ? reposRes : []);
+      setDocuments(Array.isArray(docsRes) ? docsRes : []);
+      setDriftAlerts(Array.isArray(driftRes) ? driftRes : []);
+      setStats(statsRes);
+
+      setToastMessage("Đã đồng bộ dữ liệu mới nhất từ CSDL");
+      setTimeout(() => setToastMessage(null), 3000);
     } catch (err) {
-      console.error("Lỗi khi tải dữ liệu dashboard:", err);
+      console.error("Lỗi nạp dữ liệu dashboard:", err);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    loadDashboardData();
-  }, []);
+    loadRealData();
+  }, [loadRealData]);
+
+  // Phân tích trạng thái tài liệu
+  const publishedDocs = documents.filter((d) => d.status === "PUBLISHED" || d.status === "APPROVED");
+  const pendingDocs = documents.filter((d) => d.status === "UNDER_REVIEW_STAFF" || d.status === "UNDER_REVIEW_MANAGER");
+  const draftDocs = documents.filter((d) => d.status === "DRAFT");
+
+  // Phân tích cảnh báo sai lệch
+  const openAlerts = driftAlerts.filter((a) => !a.status || a.status.toUpperCase() === "OPEN");
+  const criticalAlerts = openAlerts.filter((a) => a.severity?.toUpperCase() === "CRITICAL");
+
+  // Tổng số hàm & class (AST)
+  const totalEntities = stats?.totalClassesAndFunctions ?? 0;
+  const documentedEntities = stats?.documentedEntities ?? 0;
 
   return (
     <AppShell>
-      <div className="min-h-screen bg-slate-50/50 p-6 md:p-8 space-y-6">
-        {/* Page Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-5 bg-white -mx-6 -mt-6 p-6 md:p-8 md:-mx-8 md:-mt-8 shadow-sm">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 bg-emerald-100 text-emerald-700 rounded-lg">
-                <Activity className="w-6 h-6" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-                  Dashboard Tech Lead — Sức khỏe Tài liệu
-                </h1>
-                <p className="text-sm text-slate-500 mt-0.5">
-                  Đo lường độ bao phủ, độ tươi mới và kiểm soát sai lệch tài liệu theo thời gian thực
-                </p>
-              </div>
-            </div>
+      <div className="min-h-screen bg-slate-50/60 p-6 md:p-8 space-y-6">
+        {/* Toast thông báo */}
+        {toastMessage && (
+          <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white text-xs px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2 border border-slate-700 animate-in fade-in slide-in-from-bottom-2 duration-150">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            <span>{toastMessage}</span>
           </div>
+        )}
 
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 font-medium">
-              Vai trò: <strong className="text-emerald-700">{Array.isArray(roles) && roles.length ? roles.join(", ") : "TECH_LEAD"}</strong>
-            </span>
-            <button
-              onClick={loadDashboardData}
-              disabled={loading}
-              className="inline-flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 hover:text-emerald-700 transition shadow-sm disabled:opacity-60"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-emerald-600" : ""}`} />
-              Làm mới
-            </button>
-          </div>
+        {/* Header tinh giản: chỉ có tiêu đề và nút Làm mới */}
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+            Tổng quan
+          </h1>
+
+          <button
+            onClick={loadRealData}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 hover:text-emerald-700 transition shadow-xs disabled:opacity-60"
+            title="Tải lại số liệu thực tế từ cơ sở dữ liệu"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-emerald-600" : ""}`} />
+            Làm mới
+          </button>
         </div>
 
-        {/* 4 Thẻ chỉ số đo lường sức khỏe tài liệu cốt lõi */}
+        {/* 2. 4 THẺ CHỈ SỐ CỐT LÕI (DỮ LIỆU THẬT) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Card 1: Độ bao phủ tài liệu */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:shadow-md transition">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                Độ bao phủ tài liệu
-              </span>
-              <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
-                <ShieldCheck className="w-5 h-5" />
-              </div>
-            </div>
-            <div className="my-3">
-              <div className="flex items-baseline gap-2">
-                <span className="text-3xl font-extrabold text-slate-900">
-                  {stats ? `${stats.coveragePercent}%` : "0%"}
-                </span>
-                <span className="text-xs font-medium text-emerald-600 flex items-center">
-                  <TrendingUp className="w-3.5 h-3.5 mr-0.5" /> Thực tế
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 mt-1">Tỷ lệ hàm & class đã có tài liệu</p>
-            </div>
-            {/* Thanh tiến độ */}
-            <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-              <div
-                className="bg-emerald-500 h-2 rounded-full transition-all duration-500"
-                style={{ width: `${stats?.coveragePercent || 0}%` }}
-              />
-            </div>
-          </div>
-
-          {/* Card 2: Độ tươi mới của tài liệu */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:shadow-md transition">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                Độ tươi mới tài liệu
-              </span>
-              <div className="p-2 bg-amber-50 text-amber-600 rounded-xl">
-                <Flame className="w-5 h-5" />
-              </div>
-            </div>
-            <div className="my-3">
-              <div className="flex items-baseline gap-2">
-                <span className="text-3xl font-extrabold text-slate-900">
-                  {stats ? `${stats.freshnessPercent}%` : "0%"}
-                </span>
-                <span className="text-xs font-medium text-emerald-600 flex items-center">
-                  <TrendingUp className="w-3.5 h-3.5 mr-0.5" /> Chuẩn
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 mt-1">Cập nhật theo commit mới nhất</p>
-            </div>
-            <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-              <div
-                className="bg-amber-500 h-2 rounded-full transition-all duration-500"
-                style={{ width: `${stats?.freshnessPercent || 0}%` }}
-              />
-            </div>
-          </div>
-
-          {/* Card 3: Cảnh báo sai lệch (Drift) */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:shadow-md transition">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                Cảnh báo lệch code
-              </span>
-              <div className="p-2 bg-rose-50 text-rose-600 rounded-xl">
-                <AlertTriangle className="w-5 h-5" />
-              </div>
-            </div>
-            <div className="my-3">
-              <div className="flex items-baseline gap-2">
-                <span className="text-3xl font-extrabold text-slate-900">
-                  {stats ? stats.unresolvedDriftCount : 0}
-                </span>
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700">
-                  {stats?.criticalDriftCount || 0} nghiêm trọng
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 mt-1">Tài liệu cần đồng bộ từ PR</p>
-            </div>
-            <Link
-              href="/canh-bao-sai-lech"
-              className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 inline-flex items-center gap-1 mt-1"
-            >
-              Xem danh sách cảnh báo <ChevronRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-
-          {/* Card 4: Tổng tài liệu & Pull Requests */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:shadow-md transition">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                Tài liệu & PRs
-              </span>
-              <div className="p-2 bg-sky-50 text-sky-600 rounded-xl">
-                <GitPullRequest className="w-5 h-5" />
-              </div>
-            </div>
-            <div className="my-3">
-              <div className="flex items-baseline gap-2">
-                <span className="text-3xl font-extrabold text-slate-900">
-                  {stats ? stats.totalDocuments : 0}
-                </span>
-                <span className="text-xs text-slate-500">
-                  tài liệu / {stats?.totalPullRequests || 0} PRs
-                </span>
-              </div>
-              <div className="flex items-center gap-2 mt-1 text-xs">
-                <span className="text-emerald-700 font-medium">✓ {stats?.approvedDocuments || 0} đã duyệt</span>
-                <span className="text-slate-300">·</span>
-                <span className="text-amber-700 font-medium">{stats?.pendingReviewDocuments || 0} chờ duyệt</span>
-              </div>
-            </div>
-            <Link
-              href="/kho-luu-tru"
-              className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 inline-flex items-center gap-1 mt-1"
-            >
-              Vào kho lưu trữ <ChevronRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-        </div>
-
-        {/* Biểu đồ xu hướng cập nhật tài liệu qua các đợt PR theo từng tuần */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-4">
+          {/* Card 1: Kho lưu trữ */}
+          <Link
+            href="/kho-luu-tru"
+            className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:border-emerald-300 hover:shadow-md transition group flex flex-col justify-between"
+          >
             <div>
-              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <TrendingUp className="w-5 h-5 text-emerald-600" />
-                Xu hướng cập nhật tài liệu qua các đợt Pull Request (Tuần 1 – Tuần 4)
-              </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Theo dõi tiến độ bổ sung tài liệu và số cảnh báo trôi dạt (Drift) được giải quyết qua từng giai đoạn
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                Kho lưu trữ
+              </span>
+            </div>
+            <div className="my-3">
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-extrabold text-slate-900">
+                  {repositories.length}
+                </span>
+                <span className="text-xs font-medium text-slate-500">kho kết nối</span>
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                {repositories.filter((r) => r.isActive).length} kho đang kích hoạt đồng bộ Git
               </p>
             </div>
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-emerald-700 font-semibold">
+              <span>Xem danh sách kho</span>
+              <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
+            </div>
+          </Link>
 
-            <div className="flex items-center gap-4 text-xs font-medium">
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded bg-emerald-500" />
-                <span className="text-slate-600">Tài liệu cập nhật</span>
+          {/* Card 2: Tài liệu kỹ thuật */}
+          <Link
+            href="/tai-lieu-cua-toi"
+            className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:border-emerald-300 hover:shadow-md transition group flex flex-col justify-between"
+          >
+            <div>
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                Tài liệu kỹ thuật
+              </span>
+            </div>
+            <div className="my-3">
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-extrabold text-slate-900">
+                  {documents.length}
+                </span>
+                <span className="text-xs font-medium text-slate-500">tài liệu</span>
               </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded bg-amber-400" />
-                <span className="text-slate-600">Cảnh báo Drift</span>
+              <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
+                <span className="text-emerald-700 font-medium">{publishedDocs.length} đã xuất bản</span>
+                <span>•</span>
+                <span>{pendingDocs.length} chờ duyệt</span>
+                <span>•</span>
+                <span>{draftDocs.length} nháp</span>
               </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-1.5 rounded bg-emerald-700" />
-                <span className="text-slate-600">Độ phủ (%)</span>
+            </div>
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-emerald-700 font-semibold">
+              <span>Mở kho tài liệu</span>
+              <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
+            </div>
+          </Link>
+
+          {/* Card 3: Class */}
+          <Link
+            href="/cay-ma-nguon"
+            className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:border-emerald-300 hover:shadow-md transition group flex flex-col justify-between"
+          >
+            <div>
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                Class
+              </span>
+            </div>
+            <div className="my-3">
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-extrabold text-slate-900">
+                  {totalEntities > 0 ? totalEntities : "—"}
+                </span>
+                <span className="text-xs font-medium text-slate-500">thực thể code</span>
               </div>
+              <p className="text-xs text-slate-500 mt-1">
+                {documentedEntities > 0
+                  ? `Đã liên kết tài liệu: ${documentedEntities} hàm/class`
+                  : "Bóc tách cú pháp tự động từ mã nguồn"}
+              </p>
+            </div>
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-emerald-700 font-semibold">
+              <span>Khám phá cây mã nguồn</span>
+              <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
+            </div>
+          </Link>
+
+          {/* Card 4: Cảnh báo */}
+          <Link
+            href="/canh-bao-sai-lech"
+            className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:border-rose-300 hover:shadow-md transition group flex flex-col justify-between"
+          >
+            <div>
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                Cảnh báo
+              </span>
+            </div>
+            <div className="my-3">
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-extrabold text-slate-900">
+                  {openAlerts.length}
+                </span>
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                  openAlerts.length > 0 ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"
+                }`}>
+                  {openAlerts.length > 0 ? `${criticalAlerts.length} nghiêm trọng` : "Đồng bộ 100%"}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                {openAlerts.length > 0
+                  ? "Có thay đổi mã nguồn Git cần cập nhật tài liệu"
+                  : "Mọi tài liệu đều khớp với commit mới nhất"}
+              </p>
+            </div>
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-emerald-700 font-semibold">
+              <span>{openAlerts.length > 0 ? "Xử lý cảnh báo ngay" : "Xem trung tâm cảnh báo"}</span>
+              <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
+            </div>
+          </Link>
+        </div>
+
+        {/* 3. KHU VỰC DỮ LIỆU CHÍNH: TÀI LIỆU KỸ THUẬT & KHO LƯU TRỮ */}
+        <div className="space-y-6">
+          {/* Khối 1: Danh sách tài liệu kỹ thuật gần đây */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-emerald-600" />
+                  Tài liệu kỹ thuật gần đây
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Các tài liệu đang hoạt động hoặc vừa được cập nhật trong cơ sở dữ liệu
+                </p>
+              </div>
+
+              <Link
+                href="/tai-lieu-cua-toi"
+                className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-1"
+              >
+                Xem tất cả ({documents.length}) <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+
+            <div className="divide-y divide-slate-100">
+              {documents.length > 0 ? (
+                documents.slice(0, 8).map((doc) => (
+                  <div
+                    key={doc.docId}
+                    className="p-4 flex items-center justify-between gap-4 hover:bg-slate-50/70 transition"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Link
+                          href={`/tai-lieu-cua-toi/editor?id=${doc.docId}`}
+                          className="font-bold text-sm text-slate-900 hover:text-emerald-700 transition truncate"
+                        >
+                          {doc.title}
+                        </Link>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                          v{doc.currentVersion}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1 flex items-center gap-2 flex-wrap">
+                        {doc.targetPath && (
+                          <span className="font-mono text-slate-500">{doc.targetPath}</span>
+                        )}
+                        <span>•</span>
+                        <span className="flex items-center gap-1 text-slate-400">
+                          <Clock className="w-3 h-3" /> {formatRelativeTime(doc.updatedAt || doc.createdAt)}
+                        </span>
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${
+                          doc.status === "PUBLISHED" || doc.status === "APPROVED"
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                            : doc.status === "DRAFT"
+                            ? "bg-slate-100 text-slate-600 border-slate-200"
+                            : "bg-amber-50 text-amber-700 border-amber-200"
+                        }`}
+                      >
+                        {doc.status}
+                      </span>
+
+                      <Link
+                        href={`/tai-lieu-cua-toi/editor?id=${doc.docId}`}
+                        className="p-1.5 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition"
+                        title="Mở trình soạn thảo Markdown"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </Link>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-12 px-4">
+                  <FileText className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                  <p className="text-sm font-semibold text-slate-700">Chưa có tài liệu nào trong CSDL</p>
+                  <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                    Hãy dùng tính năng AI để bóc tách mã nguồn và tự động tạo tài liệu kỹ thuật đầu tiên.
+                  </p>
+                  <Link
+                    href="/yeu-cau-sinh-tai-lieu"
+                    className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold px-4 py-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition shadow-sm"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Tạo tài liệu mới bằng AI
+                  </Link>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Trực quan hóa Biểu đồ (Visual Bar Chart) */}
-          {Array.isArray(trends) && trends.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-4">
-              {trends.map((item, idx) => {
-                const maxDocs = 20;
-                const barHeightPct = Math.min(100, Math.max(8, (item.updatedDocs / maxDocs) * 100));
-                const driftHeightPct = Math.min(100, Math.max(6, (item.driftAlerts / 10) * 100));
-
-                return (
-                  <div
-                    key={idx}
-                    className="bg-slate-50/70 p-4 rounded-xl border border-slate-200 flex flex-col justify-between hover:bg-slate-50 transition"
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-xs font-bold text-slate-800">{item.label}</span>
-                      <span className="text-[11px] font-mono text-slate-400">{item.period}</span>
-                    </div>
-
-                    {/* Thanh đồ họa */}
-                    <div className="h-32 flex items-end justify-center gap-4 py-2 border-b border-slate-200 mb-3">
-                      {/* Cột tài liệu cập nhật */}
-                      <div className="flex flex-col items-center gap-1 h-full justify-end w-8">
-                        <span className="text-[10px] font-bold text-emerald-700">{item.updatedDocs}</span>
-                        <div
-                          className="w-full bg-emerald-500 rounded-t-md transition-all duration-500 shadow-sm"
-                          style={{ height: `${barHeightPct}%`, minHeight: "12px" }}
-                        />
-                      </div>
-
-                      {/* Cột cảnh báo drift */}
-                      <div className="flex flex-col items-center gap-1 h-full justify-end w-8">
-                        <span className="text-[10px] font-bold text-amber-700">{item.driftAlerts}</span>
-                        <div
-                          className="w-full bg-amber-400 rounded-t-md transition-all duration-500 shadow-sm"
-                          style={{ height: `${driftHeightPct}%`, minHeight: "8px" }}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Chỉ số dưới chân cột */}
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-slate-500 text-[11px]">Độ phủ:</span>
-                      <span className="font-bold text-emerald-700 text-xs">{stats?.coveragePercent ?? 0}%</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="text-center py-8 text-sm text-slate-400 italic">
-              Chưa có dữ liệu cập nhật tài liệu qua PR trong 4 tuần gần đây.
-            </div>
-          )}
-        </div>
-
-        {/* Bảng độ phủ từng Kho mã nguồn & Danh sách hoạt động gần đây */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Cột trái: Độ phủ theo Repository (Chiếm 2 cột) */}
-          <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          {/* Khối 2: Kho lưu trữ GitHub đang kết nối */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="p-5 border-b border-slate-100 flex items-center justify-between">
               <div>
-                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                  <FolderGit2 className="w-5 h-5 text-emerald-600" />
-                  Sức khỏe tài liệu theo Repository
-                </h3>
+                <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <FolderGit2 className="w-5 h-5 text-blue-600" />
+                  Kho lưu trữ GitHub đã kết nối
+                </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Tỷ lệ tài liệu hóa các hàm/class Java và số cảnh báo còn tồn đọng
+                  Mã nguồn Git được đồng bộ để phục vụ trích xuất AST và giám sát thay đổi
                 </p>
               </div>
 
@@ -318,145 +374,69 @@ export default function DashboardPage() {
               </Link>
             </div>
 
-            <div className="p-5 space-y-4">
-              {stats?.repoCoverages && stats.repoCoverages.length > 0 ? (
-                stats.repoCoverages.map((repo) => (
+            <div className="divide-y divide-slate-100">
+              {repositories.length > 0 ? (
+                repositories.map((repo) => (
                   <div
-                    key={repo.repoId}
-                    className="p-4 rounded-xl border border-slate-200 hover:border-emerald-300 transition bg-slate-50/50"
+                    key={repo.repositoryId}
+                    className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/70 transition"
                   >
-                    <div className="flex items-center justify-between mb-2">
+                    <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-sm text-slate-900">{repo.repoName}</span>
-                        {repo.openDriftCount > 0 ? (
-                          <span className="text-[11px] font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
-                            {repo.openDriftCount} cảnh báo lệch
+                        <span className="font-bold text-sm text-slate-900">
+                          {repo.repoFullName || repo.repoName}
+                        </span>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                          {repo.defaultBranch || "main"}
+                        </span>
+                        {repo.isActive ? (
+                          <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                            Đang hoạt động
                           </span>
                         ) : (
-                          <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                            ✓ Đồng bộ hoàn hảo
+                          <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                            Tạm dừng
                           </span>
                         )}
                       </div>
-                      <span className="text-sm font-extrabold text-emerald-700">{repo.coveragePercent}%</span>
+                      <p className="text-xs text-slate-500 mt-1 flex items-center gap-2">
+                        <span>Đồng bộ gần nhất: <strong>{formatRelativeTime(repo.lastSyncedAt || repo.updatedAt)}</strong></span>
+                      </p>
                     </div>
 
-                    {/* Progress bar */}
-                    <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden mb-2">
-                      <div
-                        className="bg-emerald-600 h-2 rounded-full transition-all duration-500"
-                        style={{ width: `${repo.coveragePercent}%` }}
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between text-xs text-slate-500">
-                      <span>
-                        Đã viết tài liệu: <strong className="text-slate-800">{repo.documentedEntities}</strong> / {repo.totalEntities} entities
-                      </span>
+                    <div className="flex items-center gap-2">
                       <Link
-                        href={`/cay-ma-nguon?repoId=${repo.repoId}`}
-                        className="text-emerald-600 hover:underline font-medium"
+                        href={`/cay-ma-nguon?repoId=${repo.repositoryId}`}
+                        className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 transition"
                       >
-                        Khám phá AST & Cây code →
+                        <GitFork className="w-3.5 h-3.5 text-slate-500" />
+                        Cây mã nguồn
+                      </Link>
+                      <Link
+                        href="/kho-luu-tru"
+                        className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 transition"
+                      >
+                        <GitPullRequest className="w-3.5 h-3.5 text-slate-500" />
+                        PR & Commits
                       </Link>
                     </div>
                   </div>
                 ))
               ) : (
-                <p className="text-sm text-slate-400 italic text-center py-6">Đang cập nhật dữ liệu repository...</p>
+                <div className="text-center py-10 px-4">
+                  <FolderGit2 className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                  <p className="text-sm font-semibold text-slate-700">Chưa có repository nào được kết nối</p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Kết nối repository GitHub để bắt đầu đồng bộ mã nguồn và theo dõi tài liệu.
+                  </p>
+                  <Link
+                    href="/kho-luu-tru"
+                    className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold px-4 py-2 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition"
+                  >
+                    Kết nối GitHub Repository
+                  </Link>
+                </div>
               )}
-            </div>
-          </div>
-
-          {/* Cột phải: Hoạt động tài liệu gần đây & Phím tắt (Chiếm 1 cột) */}
-          <div className="space-y-6">
-            {/* Thao tác nhanh */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
-              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
-                Thao tác nhanh Tech Lead
-              </h3>
-              <div className="space-y-2">
-                <Link
-                  href="/canh-bao-sai-lech"
-                  className="flex items-center justify-between p-3 rounded-xl border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/40 transition group"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-rose-50 text-rose-600 rounded-lg group-hover:bg-rose-100 transition">
-                      <AlertTriangle className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-bold text-slate-800">Xử lý cảnh báo Drift</p>
-                      <p className="text-[11px] text-slate-500">Đối chiếu diff & chấp nhận sửa</p>
-                    </div>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 transition" />
-                </Link>
-
-                <Link
-                  href="/yeu-cau-sinh-tai-lieu"
-                  className="flex items-center justify-between p-3 rounded-xl border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/40 transition group"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg group-hover:bg-emerald-100 transition">
-                      <Sparkles className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-bold text-slate-800">Yêu cầu sinh tài liệu AI</p>
-                      <p className="text-[11px] text-slate-500">Bóc tách AST & gọi Gemini API</p>
-                    </div>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 transition" />
-                </Link>
-
-                <Link
-                  href="/trung-tam-phe-duyet"
-                  className="flex items-center justify-between p-3 rounded-xl border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/40 transition group"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-sky-50 text-sky-600 rounded-lg group-hover:bg-sky-100 transition">
-                      <CheckCircle className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-bold text-slate-800">Trung tâm phê duyệt 2 cấp</p>
-                      <p className="text-[11px] text-slate-500">Staff duyệt ➔ Manager duyệt</p>
-                    </div>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 transition" />
-                </Link>
-              </div>
-            </div>
-
-            {/* Hoạt động tài liệu gần đây */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
-                  Tài liệu gần đây
-                </h3>
-                <Link href="/kho-luu-tru" className="text-xs font-medium text-emerald-600 hover:underline">
-                  Xem tất cả
-                </Link>
-              </div>
-
-              <div className="space-y-3">
-                {recentDocs.length > 0 ? (
-                  recentDocs.slice(0, 4).map((doc) => (
-                    <div
-                      key={doc.docId}
-                      className="flex items-center justify-between p-2.5 rounded-lg border border-slate-100 hover:bg-slate-50 transition"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-bold text-slate-800 truncate">{doc.title}</p>
-                        <p className="text-[11px] text-slate-400">Phiên bản v{doc.currentVersion}</p>
-                      </div>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        {doc.status}
-                      </span>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-xs text-slate-400 text-center py-4">Chưa có hoạt động nào.</p>
-                )}
-              </div>
             </div>
           </div>
         </div>

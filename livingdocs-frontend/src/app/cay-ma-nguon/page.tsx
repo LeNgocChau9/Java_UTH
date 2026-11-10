@@ -50,6 +50,8 @@ export default function SourceTreePage() {
   const [selectedRepo, setSelectedRepo] = useState<RepoItem | null>(null);
   const [selectedFile, setSelectedFile] = useState<string>("");
   const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({});
+  const [treeSearch, setTreeSearch] = useState<string>("");
+  const [wideTree, setWideTree] = useState(false);
 
   const [gitTreeFiles, setGitTreeFiles] = useState<string[]>([]);
   const [repoEntities, setRepoEntities] = useState<CodeEntityDto[]>([]);
@@ -277,13 +279,29 @@ export default function SourceTreePage() {
 
   // 2. Tải danh sách Code Entities cho file được chọn
   useEffect(() => {
-    if (!selectedRepo || !selectedFile) return;
+    if (!selectedRepo || !selectedFile) {
+      setEntities([]);
+      return;
+    }
 
     async function loadEntities() {
       setLoading(true);
       try {
-        // 1. Kiểm tra cache local entities từ repository
-        const localMatched = repoEntities.filter((e) => e.filePath === selectedFile);
+        const repoName = selectedRepo!.repoName;
+        const isDummy = (e: CodeEntityDto) => {
+          if (!e) return true;
+          const cName = e.className || "";
+          const sig = e.signature || "";
+          return (
+            cName === "Java_UTH" ||
+            cName === repoName ||
+            sig === "Java_UTH" ||
+            sig === repoName
+          );
+        };
+
+        // 1. Kiểm tra cache local entities từ repository (chỉ lấy nếu là entity thực sự, không phải dummy)
+        const localMatched = repoEntities.filter((e) => e.filePath === selectedFile && !isDummy(e));
         if (localMatched.length > 0) {
           setEntities(localMatched);
           setLoading(false);
@@ -292,12 +310,13 @@ export default function SourceTreePage() {
 
         // 2. Thử truy vấn API backend
         try {
-          const data = await codeEntityService.getByFile(
+          const dbData = await codeEntityService.getByFile(
             selectedRepo!.repositoryId,
             selectedFile
           );
-          if (data && data.length > 0) {
-            setEntities(data);
+          const validDb = (dbData || []).filter((e) => !isDummy(e));
+          if (validDb.length > 0) {
+            setEntities(validDb);
             setLoading(false);
             return;
           }
@@ -305,43 +324,88 @@ export default function SourceTreePage() {
           // ignore
         }
 
-        // 3. Trích xuất phần tử cho MỌI LOẠI FILE (Java, Python, JS/TS, SQL, YAML, JSON, ENV...)
-        // Bằng cách tải mã nguồn từ GitHub Raw và phân tích qua Universal AST Parser
-        const repoFullName = selectedRepo?.repoFullName;
-        if (!repoFullName) {
-          setEntities([]);
-          setLoading(false);
-          return;
-        }
-        const branch = selectedRepo?.defaultBranch || "main";
-        const rawUrl = `https://raw.githubusercontent.com/${repoFullName}/${branch}/${selectedFile}`;
-
+        // 3. Tải nội dung mã nguồn thực tế của file từ backend API (GitHub Contents API hoặc Workspace file)
+        let sourceContent: string | null = null;
         try {
-          const resp = await fetch(rawUrl);
-          if (resp.ok) {
-            const rawContent = await resp.text();
-            const parsedEntities = parseUniversalCodeEntities(
-              selectedFile,
-              rawContent,
-              selectedRepo?.repositoryId || 1
-            );
-            if (parsedEntities && parsedEntities.length > 0) {
-              setEntities(parsedEntities);
-              setLoading(false);
-              return;
-            }
+          const fileRes = await repoService.getFileContent(
+            selectedRepo!.repositoryId,
+            selectedFile,
+            selectedRepo?.defaultBranch
+          );
+          if (fileRes && typeof fileRes.content === "string" && fileRes.content.trim()) {
+            sourceContent = fileRes.content;
           }
-        } catch (fetchErr) {
-          console.warn("Không thể tải raw file từ GitHub:", fetchErr);
+        } catch (fileErr) {
+          console.warn("Không thể tải file-content từ backend API:", fileErr);
         }
 
-        // Fallback tự sinh thực thể cơ bản cho file
-        const parsedBasic = parseUniversalCodeEntities(
-          selectedFile,
-          selectedFile,
-          selectedRepo?.repositoryId || 1
-        );
-        setEntities(parsedBasic);
+        // 4. Nếu backend chưa có, thử tải raw từ GitHub
+        if (!sourceContent && selectedRepo?.repoFullName) {
+          try {
+            const repoFullName = selectedRepo.repoFullName;
+            const branch = selectedRepo.defaultBranch || "main";
+            const rawUrl = `https://raw.githubusercontent.com/${repoFullName}/${branch}/${selectedFile}`;
+            const resp = await fetch(rawUrl);
+            if (resp.ok) {
+              const text = await resp.text();
+              if (text && text.trim()) {
+                sourceContent = text;
+              }
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        // 5. Nếu có mã nguồn thực tế: Bóc tách AST chi tiết và tự động lập chỉ mục CSDL
+        if (sourceContent) {
+          const parsedEntities = parseUniversalCodeEntities(
+            selectedFile,
+            sourceContent,
+            selectedRepo!.repositoryId
+          );
+
+          if (parsedEntities && parsedEntities.length > 0) {
+            setEntities(parsedEntities);
+            setRepoEntities((prev) => [
+              ...prev.filter((e) => e.filePath !== selectedFile),
+              ...parsedEntities,
+            ]);
+
+            // Gọi FastAPI /v1/code-entities/index ngầm để lưu entities thật vào CSDL
+            try {
+              codeEntityService
+                .indexFile({
+                  repositoryId: selectedRepo!.repositoryId,
+                  filePath: selectedFile,
+                  sourceCode: sourceContent,
+                  commitHash: selectedRepo!.defaultBranch || "main",
+                })
+                .catch(() => {});
+            } catch {
+              // ignore
+            }
+
+            setLoading(false);
+            return;
+          }
+        }
+
+        // 6. Fallback nếu hoàn toàn không lấy được nội dung: Suy đoán class từ tên file
+        const fileName = selectedFile.split("/").pop() || "Unknown";
+        const baseName = fileName.replace(/\.[^/.]+$/, "");
+        setEntities([
+          {
+            repositoryId: selectedRepo!.repositoryId,
+            filePath: selectedFile,
+            entityType: "CLASS",
+            className: baseName,
+            signature: `class ${baseName}`,
+            startLine: 1,
+            endLine: 1,
+            docStatus: "UNDOCUMENTED",
+          },
+        ]);
       } catch {
         setEntities([]);
       } finally {
@@ -350,58 +414,33 @@ export default function SourceTreePage() {
     }
 
     loadEntities();
-  }, [selectedRepo, selectedFile, repoEntities]);
+  }, [selectedRepo, selectedFile]);
 
-  // 3. Xây dựng cây thư mục từ các đường dẫn file
+  // 3. Xây dựng danh sách toàn bộ các file khả dụng từ Git tree, database và selectedFile
+  const allFilePaths = useMemo<string[]>(() => {
+    const pathsSet = new Set<string>();
+    gitTreeFiles.forEach((f) => f && pathsSet.add(f));
+    repoEntities.forEach((ent) => ent.filePath && pathsSet.add(ent.filePath));
+    if (selectedFile) pathsSet.add(selectedFile);
+    return Array.from(pathsSet);
+  }, [gitTreeFiles, repoEntities, selectedFile]);
+
+  // Lọc đường dẫn file theo ô tìm kiếm trong cây
+  const filteredTreePaths = useMemo(() => {
+    if (!treeSearch.trim()) return allFilePaths;
+    const q = treeSearch.toLowerCase();
+    return allFilePaths.filter((p) => p.toLowerCase().includes(q));
+  }, [allFilePaths, treeSearch]);
+
+  // Xây dựng cấu trúc cây thư mục phân cấp
   const treeData = useMemo<FileTreeNode[]>(() => {
-    let filePaths: string[] = [];
     const entityCounts: Record<string, number> = {};
-
     repoEntities.forEach((ent) => {
       if (ent.filePath) {
         entityCounts[ent.filePath] = (entityCounts[ent.filePath] || 0) + 1;
       }
     });
 
-    if (gitTreeFiles.length > 0) {
-      filePaths = gitTreeFiles;
-    } else if (repoEntities.length > 0) {
-      filePaths = Object.keys(entityCounts);
-    } else {
-      // Chỉ hiển thị các file/thư mục thực tế được lấy về từ GitHub Git tree
-      filePaths = [];
-    }
-    const rootNodes: Record<string, FileTreeNode> = {};
-
-    filePaths.forEach((path) => {
-      const parts = path.split("/");
-      let currentPath = "";
-      const currentLevel: Record<string, FileTreeNode> = rootNodes;
-
-      parts.forEach((part, index) => {
-        currentPath = currentPath ? `${currentPath}/${part}` : part;
-        const isFile = index === parts.length - 1;
-
-        if (!currentLevel[part]) {
-          currentLevel[part] = {
-            id: currentPath,
-            name: part,
-            fullPath: currentPath,
-            isFolder: !isFile,
-            children: isFile ? undefined : [],
-            entityCount: isFile ? (entityCounts[currentPath] || 0) : 0,
-          };
-        }
-        if (!isFile) {
-          if (!currentLevel[part].children) {
-            currentLevel[part].children = [];
-          }
-          // Chuyển level sang children dạng record tạm
-        }
-      });
-    });
-
-    // Xây dựng tree đệ quy chuẩn
     function buildNodeTree(paths: string[]): FileTreeNode[] {
       const root: FileTreeNode[] = [];
 
@@ -432,20 +471,116 @@ export default function SourceTreePage() {
         });
       });
 
+      // Sắp xếp: Thư mục trước (A-Z), rồi đến File (A-Z)
+      function sortNodes(nodes: FileTreeNode[]) {
+        nodes.sort((a, b) => {
+          if (a.isFolder && !b.isFolder) return -1;
+          if (!a.isFolder && b.isFolder) return 1;
+          return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+        });
+        nodes.forEach((n) => {
+          if (n.children && n.children.length > 0) {
+            sortNodes(n.children);
+          }
+        });
+      }
+
+      sortNodes(root);
       return root;
     }
 
-    return buildNodeTree(filePaths);
-  }, [gitTreeFiles, repoEntities, selectedRepo]);
+    return buildNodeTree(filteredTreePaths);
+  }, [filteredTreePaths, repoEntities]);
+
+  // Tự động mở toàn bộ thư mục cha của file đang được chọn để file luôn hiển thị
+  useEffect(() => {
+    if (!selectedFile) return;
+    const parts = selectedFile.split("/");
+    if (parts.length <= 1) return;
+    const toOpen: Record<string, boolean> = {};
+    let current = "";
+    for (let i = 0; i < parts.length - 1; i++) {
+      current = current ? `${current}/${parts[i]}` : parts[i];
+      toOpen[current] = true;
+    }
+    setOpenFolders((prev) => ({ ...prev, ...toOpen }));
+  }, [selectedFile]);
+
+  // Tự động mở 2-3 cấp đầu khi tải cây thư mục
+  useEffect(() => {
+    if (treeData.length === 0) return;
+    setOpenFolders((prev) => {
+      const next: Record<string, boolean> = { ...prev };
+      const expandLevel = (nodes: FileTreeNode[], depth: number) => {
+        if (depth > 2) return;
+        nodes.forEach((n) => {
+          if (n.isFolder) {
+            next[n.fullPath] = true;
+            if (n.children) expandLevel(n.children, depth + 1);
+          }
+        });
+      };
+      expandLevel(treeData, 0);
+      return next;
+    });
+  }, [treeData]);
+
+  // Tự động mở tất cả thư mục khi người dùng gõ tìm kiếm trong cây
+  useEffect(() => {
+    if (!treeSearch.trim()) return;
+    const allFolders: Record<string, boolean> = {};
+    const expandAll = (nodes: FileTreeNode[]) => {
+      nodes.forEach((n) => {
+        if (n.isFolder) {
+          allFolders[n.fullPath] = true;
+          if (n.children) expandAll(n.children);
+        }
+      });
+    };
+    expandAll(treeData);
+    setOpenFolders((prev) => ({ ...prev, ...allFolders }));
+  }, [treeSearch, treeData]);
 
   const toggleFolder = (path: string) => {
     setOpenFolders((prev) => ({ ...prev, [path]: !prev[path] }));
+  };
+
+  const expandAllFolders = () => {
+    const all: Record<string, boolean> = {};
+    const recurse = (nodes: FileTreeNode[]) => {
+      nodes.forEach((n) => {
+        if (n.isFolder) {
+          all[n.fullPath] = true;
+          if (n.children) recurse(n.children);
+        }
+      });
+    };
+    recurse(treeData);
+    setOpenFolders(all);
+  };
+
+  const collapseAllFolders = () => {
+    setOpenFolders({});
   };
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     setCopiedSig(text);
     setTimeout(() => setCopiedSig(null), 2000);
+  };
+
+  const getFileIcon = (fileName: string) => {
+    const lower = fileName.toLowerCase();
+    if (lower.endsWith(".java")) return <FileCode size={14} className="text-emerald-600 shrink-0" />;
+    if (lower.endsWith(".py")) return <FileCode size={14} className="text-blue-500 shrink-0" />;
+    if (lower.endsWith(".ts") || lower.endsWith(".tsx") || lower.endsWith(".js") || lower.endsWith(".jsx"))
+      return <FileCode size={14} className="text-amber-500 shrink-0" />;
+    if (lower.endsWith(".json")) return <FileJson size={14} className="text-amber-600 shrink-0" />;
+    if (lower.endsWith(".sql")) return <Database size={14} className="text-indigo-500 shrink-0" />;
+    if (lower.endsWith(".md") || lower.endsWith(".txt")) return <FileText size={14} className="text-slate-500 shrink-0" />;
+    if (lower.endsWith(".yml") || lower.endsWith(".yaml") || lower.endsWith(".xml") || lower.endsWith(".properties"))
+      return <Settings size={14} className="text-purple-500 shrink-0" />;
+    return <FileText size={14} className="text-slate-400 shrink-0" />;
   };
 
   // 4. Lọc danh sách entities theo bộ lọc & tìm kiếm
@@ -488,7 +623,7 @@ export default function SourceTreePage() {
   // Render đệ quy cây thư mục
   const renderTree = (nodes: FileTreeNode[], depth = 0) => {
     return (
-      <div className="space-y-0.5">
+      <div className="space-y-0.5 min-w-max">
         {nodes.map((node) => {
           if (node.isFolder) {
             const isOpen = !!openFolders[node.fullPath];
@@ -497,18 +632,19 @@ export default function SourceTreePage() {
                 <button
                   type="button"
                   onClick={() => toggleFolder(node.fullPath)}
-                  style={{ paddingLeft: `${depth * 14 + 8}px` }}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs font-medium text-slate-700 transition hover:bg-slate-100  :bg-slate-800"
+                  style={{ paddingLeft: `${depth * 8 + 4}px` }}
+                  title={node.name}
+                  className="flex w-full items-center gap-1 rounded px-1.5 py-1 text-left text-xs font-medium text-slate-700 transition hover:bg-slate-100 cursor-pointer"
                 >
-                  <span className="text-slate-400">
-                    {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  <span className="text-slate-400 shrink-0">
+                    {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                   </span>
                   {isOpen ? (
-                    <FolderOpen size={15} className="text-amber-500 shrink-0" />
+                    <FolderOpen size={14} className="text-amber-500 shrink-0" />
                   ) : (
-                    <Folder size={15} className="text-amber-500 shrink-0" />
+                    <Folder size={14} className="text-amber-500 shrink-0" />
                   )}
-                  <span className="truncate">{node.name}</span>
+                  <span className="truncate" title={node.name}>{node.name}</span>
                 </button>
                 {isOpen && node.children && (
                   <div>{renderTree(node.children, depth + 1)}</div>
@@ -517,29 +653,25 @@ export default function SourceTreePage() {
             );
           }
 
-          // File Java
+          // File
           const isSelected = selectedFile === node.fullPath;
           return (
             <button
               key={node.id}
               type="button"
               onClick={() => setSelectedFile(node.fullPath)}
-              style={{ paddingLeft: `${depth * 14 + 24}px` }}
-              className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-xs transition ${
+              style={{ paddingLeft: `${depth * 8 + 16}px` }}
+              title={node.name}
+              className={`flex w-full items-center rounded px-1.5 py-1 text-left text-xs transition cursor-pointer ${
                 isSelected
-                  ? "bg-emerald-50 font-semibold text-emerald-800 border-l-2 border-emerald-600  "
-                  : "text-slate-600 hover:bg-slate-100  :bg-slate-800"
+                  ? "bg-emerald-50 font-semibold text-emerald-800 border-l-2 border-emerald-600 shadow-xs"
+                  : "text-slate-600 hover:bg-slate-100"
               }`}
             >
-              <div className="flex items-center gap-2 truncate">
-                <FileCode size={15} className="text-emerald-600 shrink-0" />
-                <span className="truncate">{node.name}</span>
+              <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                {getFileIcon(node.name)}
+                <span className="truncate text-xs" title={node.name}>{node.name}</span>
               </div>
-              {node.entityCount !== undefined && node.entityCount > 0 && (
-                <span className="rounded-full bg-slate-200 px-1.5 py-0.2 text-[10px] text-slate-600  ">
-                  {node.entityCount}
-                </span>
-              )}
             </button>
           );
         })}
@@ -628,22 +760,82 @@ export default function SourceTreePage() {
             <button type="button" onClick={() => setRenewNotice(null)} className="text-emerald-600 hover:text-emerald-900 font-bold ml-2">✕</button>
           </div>
         )}
-        <div className="h-[calc(100vh-210px)] max-h-[calc(100vh-210px)] grid grid-cols-1 lg:grid-cols-12 gap-5 min-h-0 overflow-hidden">
-          {/* CỘT TRÁI: Cây thư mục mã nguồn (4 cols) */}
-          <div className="lg:col-span-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col h-full min-h-0 overflow-hidden">
-            <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-2.5 shrink-0">
-              <div className="flex items-center gap-2">
-                <FolderOpen size={16} className="text-slate-500" />
-                <h2 className="text-sm font-semibold text-slate-800">
+        <div className="flex flex-col md:flex-row gap-4 h-[calc(100vh-175px)] min-h-0 overflow-hidden">
+          {/* CỘT TRÁI: Cây thư mục mã nguồn (Rộng rãi 380px-420px, có nút mở rộng và cuộn ngang) */}
+          <div
+            className={`w-full ${
+              wideTree
+                ? "md:w-[480px] lg:w-[540px]"
+                : "md:w-[350px] lg:w-[390px] xl:w-[430px]"
+            } min-w-[300px] shrink-0 rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm flex flex-col h-full min-h-0 overflow-hidden transition-all duration-200`}
+          >
+            <div className="mb-2.5 flex items-center justify-between border-b border-slate-100 pb-2.5 shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <FolderOpen size={16} className="text-amber-500 shrink-0" />
+                <h2 className="text-sm font-semibold text-slate-800 truncate">
                   Cây thư mục mã nguồn
                 </h2>
               </div>
-              <span className="rounded bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                File mã nguồn
-              </span>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setWideTree(!wideTree)}
+                  title={wideTree ? "Thu hẹp cột cây" : "Mở rộng cột cây để xem tên file dài"}
+                  className="rounded px-1.5 py-0.5 text-[11px] font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition cursor-pointer"
+                >
+                  {wideTree ? "Thu gọn ⇥" : "Mở rộng ⇤"}
+                </button>
+                <span className="rounded bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                  {allFilePaths.length} file
+                </span>
+              </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto pr-1 select-none">
+            {/* Công cụ tìm kiếm file & Mở/Thu gọn */}
+            <div className="mb-2.5 flex flex-col gap-2 shrink-0">
+              <div className="relative">
+                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Tìm file trong cây..."
+                  value={treeSearch}
+                  onChange={(e) => setTreeSearch(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50/70 pl-8 pr-7 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:border-emerald-500 focus:bg-white focus:outline-none transition"
+                />
+                {treeSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setTreeSearch("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-slate-500 px-0.5">
+                <span className="truncate">{treeSearch ? `Tìm: "${treeSearch}"` : "Cấu trúc thư mục"}</span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={expandAllFolders}
+                    className="hover:text-emerald-700 font-medium transition cursor-pointer"
+                  >
+                    Mở hết
+                  </button>
+                  <span>•</span>
+                  <button
+                    type="button"
+                    onClick={collapseAllFolders}
+                    className="hover:text-emerald-700 font-medium transition cursor-pointer"
+                  >
+                    Thu gọn
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Danh sách các thư mục & files (Cuộn dọc & ngang) */}
+            <div className="flex-1 overflow-y-auto overflow-x-auto pr-1 select-none min-h-0">
               {treeData.length > 0 ? (
                 renderTree(treeData)
               ) : loading ? (
@@ -652,27 +844,34 @@ export default function SourceTreePage() {
                   <span>Đang tải cây thư mục từ GitHub...</span>
                 </div>
               ) : (
-                <div className="flex h-56 flex-col items-center justify-center p-6 text-center">
+                <div className="flex h-56 flex-col items-center justify-center p-4 text-center">
                   <FolderOpen size={32} className="text-slate-300 mb-2" />
                   <p className="text-xs font-semibold text-slate-700">Chưa có cây mã nguồn</p>
-                  <p className="text-[11px] text-slate-400 mt-1 max-w-[220px] leading-relaxed">
-                    Kho lưu trữ này chưa có dữ liệu cây thư mục. Nhấn nút <b>&quot;Đồng bộ cây&quot;</b> ở trên để tải cấu trúc file thực tế từ GitHub.
+                  <p className="text-[11px] text-slate-400 mt-1 max-w-[200px] leading-relaxed">
+                    Nhấn nút &quot;Đồng bộ cây&quot; để tải cấu trúc file thực tế từ GitHub.
                   </p>
+                  <button
+                    type="button"
+                    onClick={handleSyncRepo}
+                    className="mt-3 inline-flex items-center gap-1 rounded bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700 shadow-sm transition cursor-pointer"
+                  >
+                    <RefreshCw size={11} /> Đồng bộ ngay
+                  </button>
                 </div>
               )}
             </div>
           </div>
 
-          {/* CỘT PHẢI: Chi tiết AST của file được chọn (8 cols) */}
-          <div className="lg:col-span-8 flex flex-col h-full min-h-0 rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          {/* CỘT PHẢI: Chi tiết AST của file được chọn */}
+          <div className="flex-1 min-w-0 flex flex-col h-full min-h-0 rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
             {/* Thanh thông tin file + Bộ lọc (Cố định ở trên) */}
             <div className="border-b border-slate-200 bg-slate-50/60 p-4 shrink-0">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="flex items-center gap-2">
                     <FileCode size={18} className="text-emerald-600" />
-                    <span className="text-sm font-bold text-slate-900  break-all">
-                      {selectedFile}
+                    <span className="text-sm font-bold text-slate-900 break-all">
+                      {selectedFile || "Chưa chọn file mã nguồn"}
                     </span>
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-500 ">
@@ -727,7 +926,17 @@ export default function SourceTreePage() {
 
             {/* Danh sách các Entities bóc tách (Cuộn độc lập trong khung) */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {loading ? (
+            {!selectedFile ? (
+              <div className="flex h-64 flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white p-6 text-center">
+                <FileCode size={36} className="text-slate-300 mb-2" />
+                <p className="text-sm font-semibold text-slate-700">
+                  Chưa chọn file mã nguồn
+                </p>
+                <p className="text-xs text-slate-400 mt-1 max-w-sm">
+                  Vui lòng bấm chọn một file từ cây thư mục bên trái để khám phá cấu trúc mã nguồn, danh sách Class, Method và Javadoc.
+                </p>
+              </div>
+            ) : loading ? (
               <div className="flex h-64 items-center justify-center rounded-xl border border-slate-200 bg-white">
                 <div className="flex items-center gap-2 text-sm text-slate-500">
                   <RefreshCw size={16} className="animate-spin text-emerald-600" />

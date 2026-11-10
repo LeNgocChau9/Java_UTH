@@ -67,6 +67,11 @@ public interface RepositoryServicePort {
      * Tự động phát hiện và cảnh báo các token bị thu hồi hoặc hết hạn.
      */
     List<com.example.livingdocs_backend.application.dto.github.GitHubConnectionStatusResponse> verifyWorkspaceConnections(Long workspaceId, Long currentUserId);
+
+    /**
+     * Lấy nội dung mã nguồn thực tế của một file trong kho lưu trữ.
+     */
+    String getFileContent(Long repositoryId, String filePath, String branch, Long currentUserId);
 }
 
 

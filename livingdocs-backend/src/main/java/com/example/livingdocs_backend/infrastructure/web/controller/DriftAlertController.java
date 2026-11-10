@@ -11,11 +11,15 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentChangeAlertEntity;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/drift-alerts")
@@ -25,6 +29,15 @@ import org.springframework.web.bind.annotation.RestController;
 public class DriftAlertController {
 
     private final DriftAlertService driftAlertService;
+
+    @GetMapping
+    @Operation(summary = "Lấy danh sách tất cả cảnh báo sai lệch tài liệu từ CSDL")
+    public ResponseEntity<List<DocumentChangeAlertEntity>> listAll(
+            @RequestParam(required = false) Long repositoryId,
+            @RequestParam(required = false) String status
+    ) {
+        return ResponseEntity.ok(driftAlertService.findAll(repositoryId, status));
+    }
 
     @PatchMapping("/{id}")
     @Operation(
