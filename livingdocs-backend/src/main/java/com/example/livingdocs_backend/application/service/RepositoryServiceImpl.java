@@ -504,6 +504,24 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
     }
 
     private RepoResponse mapToRepoResponse(RepositoryEntity entity) {
+        String tokenStatus = "DISCONNECTED";
+        boolean tokenValid = false;
+        String warningMsg = null;
+
+        if (entity.getConnectionId() != null) {
+            Optional<GitHubConnectionEntity> connOpt = gitHubConnectionRepository.findById(entity.getConnectionId());
+            if (connOpt.isPresent()) {
+                GitHubConnectionEntity conn = connOpt.get();
+                tokenStatus = conn.getStatus();
+                tokenValid = "CONNECTED".equalsIgnoreCase(conn.getStatus());
+                if ("EXPIRED".equalsIgnoreCase(conn.getStatus())) {
+                    warningMsg = "Mã khóa truy cập (Token) của tài khoản @" + conn.getGithubUsername() + " đã hết hạn.";
+                } else if ("REVOKED".equalsIgnoreCase(conn.getStatus())) {
+                    warningMsg = "Mã khóa truy cập (Token) của tài khoản @" + conn.getGithubUsername() + " đã bị thu hồi hoặc không hợp lệ.";
+                }
+            }
+        }
+
         return RepoResponse.builder()
                 .repositoryId(entity.getRepositoryId())
                 .workspaceId(entity.getWorkspaceId())
@@ -518,6 +536,9 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
                 .lastSyncedAt(entity.getLastSyncedAt())
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
+                .tokenStatus(tokenStatus)
+                .tokenValid(tokenValid)
+                .tokenWarningMessage(warningMsg)
                 .build();
     }
 }
