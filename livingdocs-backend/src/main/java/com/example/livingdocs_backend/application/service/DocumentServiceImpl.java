@@ -3,7 +3,9 @@ package com.example.livingdocs_backend.application.service;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.springframework.http.MediaType;
@@ -11,6 +13,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.multipart.MultipartFile;
+
+import com.example.livingdocs_backend.application.dto.ImportExternalDocRequest;
+import com.example.livingdocs_backend.infrastructure.parser.DocxToMarkdownParser;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.DocCodeLinkEntity;
 
 import com.example.livingdocs_backend.application.dto.ChangelogResponse;
 import com.example.livingdocs_backend.application.dto.CreateDocumentRequest;
@@ -284,6 +291,8 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 .createdAt(document.getCreatedAt())
                 .updatedAt(document.getUpdatedAt())
                 .templateId(document.getTemplateId())
+                .sourceType(document.getSourceType() != null ? document.getSourceType() : "MANUAL")
+                .sourceUrl(document.getSourceUrl())
                 .structureWarning(structureWarning(document, latestVersion))
                 .missingHeadings(missingHeadings(document, latestVersion))
                 .build();
@@ -866,6 +875,8 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 .createdAt(doc.getCreatedAt())
                 .updatedAt(doc.getUpdatedAt())
                 .templateId(doc.getTemplateId())
+                .sourceType(doc.getSourceType() != null ? doc.getSourceType() : "MANUAL")
+                .sourceUrl(doc.getSourceUrl())
                 .structureWarning(structureWarning(doc, version))
                 .missingHeadings(missingHeadings(doc, version))
                 .build();
@@ -1232,5 +1243,217 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 .summary_of_changes("Tự động cập nhật mô tả hàm/lớp " + entityName)
                 .model_used("fallback-local")
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public DocumentResponse importDocxDocument(MultipartFile file, Long repoId, String title, String targetPath, Long actorId, String actorRole) {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Vui lòng tải lên tệp tin Word (.docx) hợp lệ");
+        }
+        if (repoId == null) {
+            throw new IllegalArgumentException("repoId không được để trống");
+        }
+
+        String fileName = file.getOriginalFilename();
+        String docTitle = (title != null && !title.isBlank())
+                ? title.trim()
+                : (fileName != null ? fileName.replaceFirst("\\.[^.]+$", "") : "Tài liệu Word Import");
+
+        String docPath = (targetPath != null && !targetPath.isBlank())
+                ? targetPath.trim()
+                : "docs/" + (fileName != null ? fileName.replaceFirst("\\.[^.]+$", ".md") : "imported-doc.md");
+
+        String markdownContent;
+        try {
+            markdownContent = DocxToMarkdownParser.parseDocxToMarkdown(file.getInputStream());
+        } catch (Exception e) {
+            log.error("Lỗi parse file .docx: {}", e.getMessage(), e);
+            throw new IllegalArgumentException("Lỗi phân giải tệp tin Word: " + e.getMessage(), e);
+        }
+
+        ActorRole role = resolveActorRole(null, actorRole);
+        String triggerType = "IMPORT_DOCX";
+
+        Document newDoc = Document.builder()
+                .repoId(repoId)
+                .title(docTitle)
+                .targetPath(docPath)
+                .sourceType("DOCX")
+                .sourceUrl(fileName)
+                .status(DocumentStatus.DRAFT)
+                .currentVersion(1)
+                .createdAt(Instant.now())
+                .updatedAt(Instant.now())
+                .build();
+        Document savedDoc = documentRepositoryPort.save(newDoc);
+
+        String prevHash = HashUtils.GENESIS_HASH;
+        String hash = HashUtils.calculateVersionHash(prevHash, 1, markdownContent, role.name(), triggerType);
+
+        DocumentVersion version1 = DocumentVersion.builder()
+                .docId(savedDoc.getDocId())
+                .versionNum(1)
+                .content(markdownContent)
+                .actorRole(role)
+                .triggerType(triggerType)
+                .prevHash(prevHash)
+                .hash(hash)
+                .createdAt(Instant.now())
+                .build();
+        DocumentVersion savedVersion1 = documentVersionRepositoryPort.save(version1);
+
+        autoLinkDocumentWithCode(savedDoc.getDocId(), repoId, markdownContent);
+
+        if (auditServicePort != null) {
+            auditServicePort.recordDocumentAction(
+                    actorId,
+                    savedDoc.getDocId(),
+                    AuditAction.DOCUMENT_CREATED,
+                    "Nạp tài liệu từ file Word (.docx): \"" + savedDoc.getTitle() + "\"");
+        }
+
+        if (changelogServicePort != null) {
+            changelogServicePort.logChange(
+                    savedDoc.getDocId(),
+                    savedVersion1.getVersionId(),
+                    actorId,
+                    role.name(),
+                    "Khởi tạo từ tệp Word (.docx): \"" + savedDoc.getTitle() + "\"");
+        }
+
+        return toDocumentResponse(savedDoc, savedVersion1);
+    }
+
+    @Override
+    @Transactional
+    public DocumentResponse importExternalDocument(ImportExternalDocRequest request, Long actorId, String actorRole) {
+        if (request == null) {
+            throw new IllegalArgumentException("Thông tin nạp tài liệu không được để trống");
+        }
+        if (request.getRepoId() == null) {
+            throw new IllegalArgumentException("repoId không được để trống");
+        }
+        if (request.getTitle() == null || request.getTitle().isBlank()) {
+            throw new IllegalArgumentException("Tiêu đề tài liệu không được để trống");
+        }
+
+        String sourceType = (request.getSourceType() != null && !request.getSourceType().isBlank())
+                ? request.getSourceType().toUpperCase().trim()
+                : "MANUAL";
+
+        String targetPath = (request.getTargetPath() != null && !request.getTargetPath().isBlank())
+                ? request.getTargetPath().trim()
+                : "docs/" + sourceType.toLowerCase() + "-doc-" + System.currentTimeMillis() + ".md";
+
+        String content = request.getContent() != null ? request.getContent() : "";
+        if (content.isBlank() && request.getSourceUrlOrId() != null) {
+            content = "# " + request.getTitle() + "\n\n*Nguồn từ (" + sourceType + "): " + request.getSourceUrlOrId() + "*\n\nNội dung tài liệu đang được đồng bộ.";
+        }
+
+        ActorRole role = resolveActorRole(null, actorRole);
+        String triggerType = "IMPORT_" + sourceType;
+
+        Document newDoc = Document.builder()
+                .repoId(request.getRepoId())
+                .title(request.getTitle().trim())
+                .targetPath(targetPath)
+                .templateId(request.getTemplateId())
+                .sourceType(sourceType)
+                .sourceUrl(request.getSourceUrlOrId())
+                .status(DocumentStatus.DRAFT)
+                .currentVersion(1)
+                .createdAt(Instant.now())
+                .updatedAt(Instant.now())
+                .build();
+        Document savedDoc = documentRepositoryPort.save(newDoc);
+
+        String prevHash = HashUtils.GENESIS_HASH;
+        String hash = HashUtils.calculateVersionHash(prevHash, 1, content, role.name(), triggerType);
+
+        DocumentVersion version1 = DocumentVersion.builder()
+                .docId(savedDoc.getDocId())
+                .versionNum(1)
+                .content(content)
+                .actorRole(role)
+                .triggerType(triggerType)
+                .prevHash(prevHash)
+                .hash(hash)
+                .createdAt(Instant.now())
+                .build();
+        DocumentVersion savedVersion1 = documentVersionRepositoryPort.save(version1);
+
+        autoLinkDocumentWithCode(savedDoc.getDocId(), request.getRepoId(), content);
+
+        if (auditServicePort != null) {
+            auditServicePort.recordDocumentAction(
+                    actorId,
+                    savedDoc.getDocId(),
+                    AuditAction.DOCUMENT_CREATED,
+                    "Nạp tài liệu từ nguồn ngoài (" + sourceType + "): \"" + savedDoc.getTitle() + "\"");
+        }
+
+        if (changelogServicePort != null) {
+            changelogServicePort.logChange(
+                    savedDoc.getDocId(),
+                    savedVersion1.getVersionId(),
+                    actorId,
+                    role.name(),
+                    "Khởi tạo từ " + sourceType + ": \"" + savedDoc.getTitle() + "\"");
+        }
+
+        return toDocumentResponse(savedDoc, savedVersion1);
+    }
+
+    private void autoLinkDocumentWithCode(Long docId, Long repoId, String content) {
+        if (docId == null || repoId == null || content == null || content.isBlank() || codeEntityRepository == null || docCodeLinkRepository == null) {
+            return;
+        }
+
+        try {
+            List<CodeEntityJpaEntity> entities = codeEntityRepository.findByRepositoryId(repoId);
+            if (entities == null || entities.isEmpty()) {
+                return;
+            }
+
+            List<DocCodeLinkEntity> linksToSave = new ArrayList<>();
+            Set<String> seenKeys = new HashSet<>();
+
+            for (CodeEntityJpaEntity entity : entities) {
+                String className = entity.getClassName();
+                String methodName = entity.getMethodName();
+                String filePath = entity.getFilePath();
+
+                boolean matched = false;
+
+                if (methodName != null && !methodName.isBlank() && content.contains(methodName)) {
+                    matched = true;
+                } else if (className != null && !className.isBlank() && content.contains(className)) {
+                    matched = true;
+                }
+
+                if (matched) {
+                    String key = docId + ":" + (filePath != null ? filePath : "") + ":" + (className != null ? className : "") + ":" + (methodName != null ? methodName : "");
+                    if (seenKeys.add(key)) {
+                        DocCodeLinkEntity link = DocCodeLinkEntity.builder()
+                                .documentId(docId)
+                                .entityId(entity.getEntityId())
+                                .filePath(filePath != null ? filePath : "")
+                                .className(className)
+                                .methodName(methodName)
+                                .createdAt(Instant.now())
+                                .build();
+                        linksToSave.add(link);
+                    }
+                }
+            }
+
+            if (!linksToSave.isEmpty()) {
+                docCodeLinkRepository.saveAll(linksToSave);
+                log.info("Tự động liên kết Grounding thành công {} thực thể code cho tài liệu ID: {}", linksToSave.size(), docId);
+            }
+        } catch (Exception e) {
+            log.warn("Lỗi khi tự động liên kết tài liệu với code entities: {}", e.getMessage());
+        }
     }
 }

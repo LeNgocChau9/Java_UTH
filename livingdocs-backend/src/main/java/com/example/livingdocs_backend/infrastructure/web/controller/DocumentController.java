@@ -20,10 +20,12 @@ import com.example.livingdocs_backend.infrastructure.persistence.entity.DocCodeL
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataCodeEntityRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocCodeLinkRepository;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Map;
@@ -51,6 +53,37 @@ public class DocumentController {
         String actorRole = extractRole(userPrincipal);
 
         DocumentResponse response = documentServicePort.createDocument(request, actorId, actorRole);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PostMapping(value = "/import/docx", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
+    @Operation(summary = "Nạp tài liệu từ file Word (.docx)", description = "Tải lên file Word, chuẩn hóa sang Markdown, tự động tạo phiên bản v1 kèm Genesis Hash và lập chỉ mục doc_code_links.")
+    public ResponseEntity<DocumentResponse> importDocx(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam("repoId") Long repoId,
+            @RequestParam(value = "title", required = false) String title,
+            @RequestParam(value = "targetPath", required = false) String targetPath,
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+
+        Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
+        String actorRole = extractRole(userPrincipal);
+
+        DocumentResponse response = documentServicePort.importDocxDocument(file, repoId, title, targetPath, actorId, actorRole);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PostMapping("/import/external")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
+    @Operation(summary = "Nạp tài liệu từ nền tảng ngoài (Google Docs, Confluence, Jira, Markdown)", description = "Nạp tài liệu thông qua MCP / URL từ Google Docs, Confluence hoặc Jira, tự động chuẩn hóa sang Markdown và liên kết mã nguồn.")
+    public ResponseEntity<DocumentResponse> importExternal(
+            @Valid @RequestBody ImportExternalDocRequest request,
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+
+        Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
+        String actorRole = extractRole(userPrincipal);
+
+        DocumentResponse response = documentServicePort.importExternalDocument(request, actorId, actorRole);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 

@@ -43,6 +43,7 @@ import {
   Layers,
   ChevronUp,
   ExternalLink,
+  Upload,
 } from "lucide-react";
 
 const SAMPLE_MARKDOWN = `# Tài liệu Kiến trúc Hệ thống LivingDocs
@@ -124,6 +125,34 @@ function EditorContent() {
   const [groundingExpanded, setGroundingExpanded] = useState(true);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const docxFileInputRef = useRef<HTMLInputElement>(null);
+  const [importingDocx, setImportingDocx] = useState(false);
+
+  // Xử lý nạp file Word trực tiếp trong Workspace Editor
+  const handleDirectDocxImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setImportingDocx(true);
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("repoId", String(repoId || 1));
+      formData.append("title", title && title !== "Tài liệu mới không tiêu đề" ? title : file.name.replace(/\.[^.]+$/, ""));
+      if (targetPath) {
+        formData.append("targetPath", targetPath);
+      }
+      const created = await documentService.importDocx(formData);
+      notify("success", `Nạp tệp "${file.name}" vào Workspace thành công!`);
+      router.push(`/tai-lieu-cua-toi/editor?docId=${created.docId}`);
+    } catch (err: any) {
+      notify("error", "Lỗi nạp file Word: " + (err.response?.data?.message || err.message));
+    } finally {
+      setImportingDocx(false);
+      if (docxFileInputRef.current) {
+        docxFileInputRef.current.value = "";
+      }
+    }
+  };
 
   // Hiển thị thông báo Toast
   const notify = (type: "success" | "error" | "info", message: string) => {
@@ -553,6 +582,26 @@ function EditorContent() {
                 <span>Lịch sử & Diff</span>
               </Link>
             )}
+
+            {/* NÚT NẠP TỪ FILE WORD (.DOCX) VÀO WORKSPACE */}
+            <input
+              type="file"
+              accept=".docx"
+              ref={docxFileInputRef}
+              style={{ display: "none" }}
+              onChange={handleDirectDocxImport}
+            />
+            <button
+              type="button"
+              onClick={() => docxFileInputRef.current?.click()}
+              disabled={importingDocx || saving}
+              className="ld-btn ld-btn-ghost"
+              style={{ color: "#2563eb", fontWeight: 500 }}
+              title="Tải file Word (.docx) từ máy tính để chuyển đổi sang Markdown và nạp vào Workspace"
+            >
+              <Upload size={14} />
+              <span>{importingDocx ? "Đang nạp file..." : "Nạp Word (.docx)"}</span>
+            </button>
 
             {/* NÚT LƯU NHÁP */}
             <button

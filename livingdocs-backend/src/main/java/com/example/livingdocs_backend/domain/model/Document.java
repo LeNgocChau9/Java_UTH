@@ -19,6 +19,9 @@ public class Document {
     private String targetPath;
     private Long templateId;
     @Builder.Default
+    private String sourceType = "MANUAL";
+    private String sourceUrl;
+    @Builder.Default
     private DocumentStatus status = DocumentStatus.DRAFT;
     @Builder.Default
     private Integer currentVersion = 1;

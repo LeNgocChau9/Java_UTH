@@ -465,11 +465,9 @@ export default function HangDoiXemXetStaffPage() {
                                   borderRadius: 4,
                                   display: "inline-flex",
                                   alignItems: "center",
-                                  gap: 4,
                                 }}
                               >
-                                <Sparkles size={11} />
-                                ⚡ AI Agent tự động cập nhật
+                                Agent tự cập nhật
                               </span>
                             )}
                             <span style={{ fontSize: 11, color: "#64748b", background: "#f1f5f9", padding: "2px 6px", borderRadius: 4 }}>

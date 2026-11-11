@@ -12,6 +12,7 @@ import type {
   IntegrityCheckResult,
   RollbackResponse,
   UpdateDocumentPayload,
+  ImportExternalDocPayload,
 } from "@/types/document";
 
 export const documentService = {
@@ -49,6 +50,22 @@ export const documentService = {
    */
   async createDocument(payload: CreateDocumentPayload): Promise<DocumentItem> {
     const res = await apiClient.post<DocumentItem>("/api/documents", payload);
+    return res.data;
+  },
+
+  /**
+   * Nạp tài liệu từ file Word (.docx)
+   */
+  async importDocx(formData: FormData): Promise<DocumentItem> {
+    const res = await apiClient.post<DocumentItem>("/api/documents/import/docx", formData);
+    return res.data;
+  },
+
+  /**
+   * Nạp tài liệu từ nền tảng ngoài (Google Docs, Confluence, Jira, Markdown)
+   */
+  async importExternalDoc(payload: ImportExternalDocPayload): Promise<DocumentItem> {
+    const res = await apiClient.post<DocumentItem>("/api/documents/import/external", payload);
     return res.data;
   },
 
