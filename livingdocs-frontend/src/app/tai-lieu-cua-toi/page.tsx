@@ -516,24 +516,6 @@ function DocumentListPageContent() {
           <span>Kết nối MCP</span>
         </button>
 
-        <Link
-          href="/yeu-cau-sinh-tai-lieu"
-          className="ld-btn"
-          style={{
-            background: "linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)",
-            color: "#ffffff",
-            borderColor: "transparent",
-            fontWeight: 600,
-            boxShadow: "0 2px 8px rgba(139, 92, 246, 0.3)",
-            display: "inline-flex",
-            alignItems: "center",
-            padding: "8px 16px",
-          }}
-          title="Yêu cầu AI phân tích mã nguồn và sinh tài liệu mới"
-        >
-          <span>AI</span>
-        </Link>
-
         <Link href="/tai-lieu-cua-toi/editor" className="ld-btn ld-btn-primary">
           <Plus size={15} />
           <span>Soạn thủ công</span>
