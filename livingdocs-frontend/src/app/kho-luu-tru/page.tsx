@@ -75,44 +75,101 @@ export default function RepoManagementPage() {
       }
     } catch (err) {
       console.error("Lỗi khi tải danh sách repositories:", err);
-      // Fallback demo sample if backend is empty
-      const fallback: RepoItem[] = [
-        {
-          repositoryId: 1,
-          workspaceId: 1,
-          connectionId: 1,
-          githubRepoId: 987654,
-          repoName: "Java_UTH",
-          repoFullName: "LeNgocChau9/Java_UTH",
-          defaultBranch: "main",
-          cloneUrl: "https://github.com/LeNgocChau9/Java_UTH.git",
-          isActive: true,
-          autoDocEnabled: true,
-          lastSyncedAt: new Date(Date.now() - 3600000).toISOString(),
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ];
-      setRepos(fallback);
-      if (!selectedRepo) setSelectedRepo(fallback[0]);
+      setRepos([]);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    loadRepositories();
-    if (typeof window !== "undefined") {
-      const renewed = sessionStorage.getItem("livingdocs:github_renew_success");
-      if (renewed) {
-        sessionStorage.removeItem("livingdocs:github_renew_success");
-        loadRepositories().then(() => { if (selectedRepo) { handleSync(selectedRepo); } });
+  // Kiểm tra tính toàn vẹn của Token GitHub
+  const [verifyingTokens, setVerifyingTokens] = useState<boolean>(false);
+  const [tokenAlert, setTokenAlert] = useState<{
+    revokedOrExpired: boolean;
+    status: string;
+    message: string;
+    renewUrl: string;
+  } | null>(null);
+
+  // Hàm quét kiểm tra tính toàn vẹn của Token
+  const checkTokenIntegrity = async () => {
+    try {
+      setVerifyingTokens(true);
+      const connections = await repoService.getConnections();
+      const problematicConn = connections.find(
+        (c) => c.status?.toUpperCase() === "REVOKED" || c.status?.toUpperCase() === "EXPIRED" || !c.valid
+      );
+
+      if (problematicConn) {
+        const isExpired = problematicConn.status?.toUpperCase() === "EXPIRED";
+        setTokenAlert({
+          revokedOrExpired: true,
+          status: problematicConn.status,
+          message: isExpired
+            ? `CẢNH BÁO: Mã khóa truy cập GitHub (Token) của tài khoản @${problematicConn.githubUsername} đã hết hạn. Các tiến trình đồng bộ và phát hiện sai lệch tài liệu có thể bị gián đoạn!`
+            : `CẢNH BÁO BẢO MẬT: Mã khóa truy cập GitHub (Token) của tài khoản @${problematicConn.githubUsername} đã bị thu hồi (Revoked) trên GitHub hoặc không còn quyền hợp lệ!`,
+          renewUrl: problematicConn.renewUrl || "/api/auth/github?mode=link",
+        });
+      } else {
+        setTokenAlert(null);
+      }
+    } catch (err) {
+      console.warn("Không thể kiểm tra trạng thái token GitHub:", err);
+    } finally {
+      setVerifyingTokens(false);
+    }
+  };
+
+  const handleManualVerifyTokens = async () => {
+    try {
+      setVerifyingTokens(true);
+      const results = await repoService.verifyAllConnections();
+      await loadRepositories();
+      const problematic = results.find((c) => !c.valid);
+      if (problematic) {
+        setTokenAlert({
+          revokedOrExpired: true,
+          status: problematic.status,
+          message: problematic.warningMessage || `Cảnh báo: Token GitHub đã bị ${problematic.status.toLowerCase()}!`,
+          renewUrl: problematic.renewUrl || "/api/auth/github?mode=link",
+        });
         setGlobalNotice({
-          text: "Gia hạn phiên GitHub thành công! Kết nối tài khoản đã được đồng bộ tươi mới.",
+          text: `Đã phát hiện token GitHub của @${problematic.githubUsername} bị ${problematic.status}. Vui lòng cấp lại quyền!`,
+          type: "error",
+        });
+      } else {
+        setTokenAlert(null);
+        setGlobalNotice({
+          text: "Toàn bộ Token GitHub kết nối đều hợp lệ và bảo mật tuyệt đối!",
           type: "success",
         });
       }
+    } catch (err: any) {
+      console.error("Lỗi khi quét kiểm tra token:", err);
+      setGlobalNotice({
+        text: "Kiểm tra token thất bại: " + (err.response?.data?.message || err.message),
+        type: "error",
+      });
+    } finally {
+      setVerifyingTokens(false);
     }
+  };
+
+  const handleRenewToken = () => {
+    const currentToken = typeof window !== "undefined" ? localStorage.getItem("livingdocs_access_token") || "" : "";
+    const redirectUrl = typeof window !== "undefined" ? window.location.pathname : "/kho-luu-tru";
+    if (currentToken) {
+      window.location.assign(`/api/auth/github?mode=link&redirect=${encodeURIComponent(redirectUrl)}&token=${encodeURIComponent(currentToken)}`);
+    } else {
+      window.location.assign(`/api/auth/github?mode=link&redirect=${encodeURIComponent(redirectUrl)}`);
+    }
+  };
+
+  useEffect(() => {
+    loadRepositories();
+    checkTokenIntegrity();
+    // Tự động kiểm tra định kỳ mỗi 60 giây trên giao diện
+    const interval = setInterval(checkTokenIntegrity, 60000);
+    return () => clearInterval(interval);
   }, []);
 
   // Khi chọn repo thì tải PRs & Commits
@@ -273,15 +330,125 @@ export default function RepoManagementPage() {
             Quản lý các kho mã nguồn đã kết nối, theo dõi Pull Requests, lịch sử Commits và đồng bộ tự động
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setIsModalOpen(true)}
-          className="ld-btn ld-btn-primary"
-          style={{ display: "flex", alignItems: "center", gap: 6 }}
-        >
-          <Plus size={16} /> Thêm Repository
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button
+            type="button"
+            onClick={handleManualVerifyTokens}
+            disabled={verifyingTokens}
+            className="ld-btn ld-btn-secondary"
+            style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}
+            title="Quét kiểm tra tính hợp lệ của toàn bộ token GitHub đã kết nối"
+          >
+            <ShieldCheck size={16} className={verifyingTokens ? "animate-spin text-amber-500" : "text-[#047857]"} />
+            {verifyingTokens ? "Đang quét Token..." : "Quét toàn vẹn Token"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsModalOpen(true)}
+            className="ld-btn ld-btn-primary"
+            style={{ display: "flex", alignItems: "center", gap: 6 }}
+          >
+            <Plus size={16} /> Thêm Repository
+          </button>
+        </div>
       </div>
+
+      {/* THANH CẢNH BÁO MÀU ĐỎ: PHÁT HIỆN TOKEN GITHUB BỊ THU HỒI HOẶC HẾT HẠN */}
+      {tokenAlert && (
+        <div
+          style={{
+            marginBottom: 20,
+            padding: "16px 20px",
+            borderRadius: 12,
+            background: "#450a0a",
+            border: "1.5px solid #ef4444",
+            color: "#fecaca",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 16,
+            boxShadow: "0 4px 14px rgba(239, 68, 68, 0.25)",
+            animation: "pulse 2s infinite ease-in-out",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <div
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: "50%",
+                background: "rgba(239, 68, 68, 0.2)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              <AlertCircle size={24} style={{ color: "#f87171" }} />
+            </div>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: "#ffffff", display: "flex", alignItems: "center", gap: 8 }}>
+                <span>CẢNH BÁO TOÀN VẸN TOKEN GITHUB</span>
+                <span
+                  style={{
+                    fontSize: 10,
+                    textTransform: "uppercase",
+                    padding: "2px 8px",
+                    borderRadius: 4,
+                    background: "#7f1d1d",
+                    color: "#fca5a5",
+                    fontWeight: 700,
+                    letterSpacing: 0.5,
+                  }}
+                >
+                  {tokenAlert.status}
+                </span>
+              </div>
+              <p style={{ margin: "4px 0 0", fontSize: 13, color: "#fca5a5", lineHeight: 1.5 }}>
+                {tokenAlert.message}
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+            <button
+              type="button"
+              onClick={handleRenewToken}
+              className="ld-btn"
+              style={{
+                background: "#dc2626",
+                color: "#ffffff",
+                fontWeight: 600,
+                fontSize: 13,
+                padding: "8px 16px",
+                borderRadius: 8,
+                border: "1px solid #ef4444",
+                boxShadow: "0 2px 8px rgba(220, 38, 38, 0.4)",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                cursor: "pointer",
+              }}
+            >
+              <RefreshCw size={14} /> Cấp lại quyền & Kết nối lại
+            </button>
+            <button
+              type="button"
+              onClick={() => setTokenAlert(null)}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "#fca5a5",
+                cursor: "pointer",
+                padding: 4,
+              }}
+              title="Đóng cảnh báo"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Banner thông báo trạng thái toàn trang (khi gia hạn thành công hoặc gặp sự cố) */}
       {globalNotice && (
@@ -453,6 +620,25 @@ export default function RepoManagementPage() {
                           >
                             <GitBranch size={11} /> {repo.defaultBranch || "main"}
                           </span>
+
+                          {/* Huy hiệu cảnh báo Token của Repo */}
+                          {repo.tokenStatus && repo.tokenStatus !== "CONNECTED" && (
+                            <span
+                              className="ld-badge"
+                              style={{
+                                background: "#fef2f2",
+                                color: "#b91c1c",
+                                border: "1px solid #fecaca",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 4,
+                                fontWeight: 700,
+                              }}
+                              title={repo.tokenWarningMessage || `Token ${repo.tokenStatus}`}
+                            >
+                              <AlertCircle size={11} /> Token {repo.tokenStatus}
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -521,16 +707,35 @@ export default function RepoManagementPage() {
                       {selectedRepo.repoFullName}
                     </h2>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleSync(selectedRepo)}
-                    disabled={syncingId === selectedRepo.repositoryId}
-                    className="ld-btn ld-btn-primary ld-btn-sm"
-                    style={{ gap: 5, fontSize: 12 }}
-                  >
-                    <RefreshCw size={12} className={syncingId === selectedRepo.repositoryId ? "animate-spin" : ""} />
-                    {syncingId === selectedRepo.repositoryId ? "Đang đồng bộ..." : "Đồng bộ ngay"}
-                  </button>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {selectedRepo.tokenStatus && selectedRepo.tokenStatus !== "CONNECTED" && (
+                      <button
+                        type="button"
+                        onClick={handleRenewToken}
+                        className="ld-btn ld-btn-sm"
+                        style={{
+                          background: "#dc2626",
+                          color: "#ffffff",
+                          fontSize: 12,
+                          gap: 5,
+                          border: "1px solid #ef4444",
+                        }}
+                      >
+                        <AlertCircle size={12} /> Cấp lại quyền Token
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleSync(selectedRepo)}
+                      disabled={syncingId === selectedRepo.repositoryId}
+                      className="ld-btn ld-btn-primary ld-btn-sm"
+                      style={{ gap: 5, fontSize: 12 }}
+                    >
+                      <RefreshCw size={12} className={syncingId === selectedRepo.repositoryId ? "animate-spin" : ""} />
+                      {syncingId === selectedRepo.repositoryId ? "Đang đồng bộ..." : "Đồng bộ ngay"}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Tabs chuyển đổi PRs và Commits */}

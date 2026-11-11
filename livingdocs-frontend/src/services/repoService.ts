@@ -14,6 +14,23 @@ export interface RepoItem {
   lastSyncedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
+  tokenStatus?: "CONNECTED" | "EXPIRED" | "REVOKED" | "DISCONNECTED" | string;
+  tokenValid?: boolean;
+  tokenWarningMessage?: string | null;
+}
+
+export interface GitHubConnectionStatusItem {
+  connectionId: number;
+  workspaceId: number;
+  userId: number;
+  githubUsername: string;
+  status: "CONNECTED" | "EXPIRED" | "REVOKED" | string;
+  valid: boolean;
+  tokenScope?: string;
+  tokenExpiresAt?: string;
+  lastCheckedAt?: string;
+  warningMessage?: string;
+  renewUrl?: string;
 }
 
 export interface PullRequestItem {
@@ -115,6 +132,25 @@ export const repoService = {
   async getFileContent(id: number, path: string, branch?: string): Promise<{ filePath: string; content: string }> {
     const res = await apiClient.get<{ filePath: string; content: string }>(`/api/repos/${id}/file-content`, {
       params: { path, branch },
+    });
+    return res.data;
+  },
+
+  async getConnections(workspaceId?: number): Promise<GitHubConnectionStatusItem[]> {
+    const res = await apiClient.get<GitHubConnectionStatusItem[]>("/api/repos/connections", {
+      params: workspaceId ? { workspaceId } : undefined,
+    });
+    return res.data;
+  },
+
+  async verifyConnection(connectionId: number): Promise<GitHubConnectionStatusItem> {
+    const res = await apiClient.post<GitHubConnectionStatusItem>(`/api/repos/connections/${connectionId}/verify`);
+    return res.data;
+  },
+
+  async verifyAllConnections(workspaceId?: number): Promise<GitHubConnectionStatusItem[]> {
+    const res = await apiClient.post<GitHubConnectionStatusItem[]>("/api/repos/connections/verify-all", null, {
+      params: workspaceId ? { workspaceId } : undefined,
     });
     return res.data;
   },

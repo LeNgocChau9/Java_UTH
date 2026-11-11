@@ -21,5 +21,8 @@ public record RepoResponse(
         Boolean autoDocEnabled,
         Instant lastSyncedAt,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        String tokenStatus, // CONNECTED, EXPIRED, REVOKED, DISCONNECTED
+        Boolean tokenValid,
+        String tokenWarningMessage
 ) {}
