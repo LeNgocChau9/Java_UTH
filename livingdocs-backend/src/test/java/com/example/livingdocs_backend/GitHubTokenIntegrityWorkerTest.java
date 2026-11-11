@@ -76,3 +76,4 @@ class GitHubTokenIntegrityWorkerTest {
         verify(repositoryServicePort, times(1)).verifyWorkspaceConnections(isNull(), isNull());
     }
 }
+
