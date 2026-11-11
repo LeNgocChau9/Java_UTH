@@ -212,6 +212,59 @@ public class DashboardStatsQueryAdapter implements DashboardStatsQueryPort {
     }
 
     @Override
+    public com.example.livingdocs_backend.application.dto.health.MissingDocEntityStatsDto countMissingEntitiesByType(Long repositoryId) {
+        String sql = repositoryId == null
+                ? """
+                SELECT UPPER(entity_type), COUNT(*)
+                FROM code_entities
+                WHERE UPPER(entity_type) IN ('CLASS', 'METHOD', 'FUNCTION')
+                  AND (doc_status IS NULL OR UPPER(doc_status) NOT IN ('DOCUMENTED', 'DRIFTED'))
+                GROUP BY UPPER(entity_type)
+                """
+                : """
+                SELECT UPPER(entity_type), COUNT(*)
+                FROM code_entities
+                WHERE UPPER(entity_type) IN ('CLASS', 'METHOD', 'FUNCTION')
+                  AND (doc_status IS NULL OR UPPER(doc_status) NOT IN ('DOCUMENTED', 'DRIFTED'))
+                  AND repository_id = :repositoryId
+                GROUP BY UPPER(entity_type)
+                """;
+
+        Query query = entityManager.createNativeQuery(sql);
+        bindRepository(query, repositoryId);
+
+        Map<String, Long> byType = new LinkedHashMap<>();
+        byType.put("CLASS", 0L);
+        byType.put("METHOD", 0L);
+        byType.put("FUNCTION", 0L);
+
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = query.getResultList();
+        long totalMissing = 0L;
+        long missingClasses = 0L;
+        long missingMethodsAndFunctions = 0L;
+
+        for (Object[] row : rows) {
+            String type = row[0] != null ? row[0].toString().toUpperCase() : "UNKNOWN";
+            long count = row[1] instanceof Number n ? n.longValue() : 0L;
+            totalMissing += count;
+            byType.put(type, count);
+            if ("CLASS".equals(type)) {
+                missingClasses += count;
+            } else if ("METHOD".equals(type) || "FUNCTION".equals(type)) {
+                missingMethodsAndFunctions += count;
+            }
+        }
+
+        return com.example.livingdocs_backend.application.dto.health.MissingDocEntityStatsDto.builder()
+                .totalMissing(totalMissing)
+                .missingClasses(missingClasses)
+                .missingMethodsAndFunctions(missingMethodsAndFunctions)
+                .missingByType(byType)
+                .build();
+    }
+
+    @Override
     public List<WeeklyTrendBucket> findWeeklyTrend(Long repositoryId, int weeks) {
         Query query = entityManager.createNativeQuery(trendSql(repositoryId != null));
         query.setParameter("weekSpan", Math.max(weeks, 1) - 1);

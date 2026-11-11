@@ -41,4 +41,6 @@ public interface DashboardStatsQueryPort {
     long countTotalRepositories();
 
     List<com.example.livingdocs_backend.application.dto.RepoCoverageDto> findRepoCoverages();
+
+    com.example.livingdocs_backend.application.dto.health.MissingDocEntityStatsDto countMissingEntitiesByType(Long repositoryId);
 }
