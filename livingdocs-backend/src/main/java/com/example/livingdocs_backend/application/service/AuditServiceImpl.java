@@ -123,7 +123,6 @@ public class AuditServiceImpl implements AuditServicePort {
             adminSettingRepository.save(AdminSettingEntity.builder()
                     .settingKey(AUDIT_RETENTION_SETTING_KEY)
                     .settingValue(json)
-                    .description("Cấu hình chính sách thời hạn lưu trữ và tự động dọn dẹp nhật ký kiểm toán")
                     .build());
         } catch (Exception e) {
             log.error("Lỗi lưu cấu hình retention policy vào admin_settings: {}", e.getMessage(), e);
@@ -177,7 +176,7 @@ public class AuditServiceImpl implements AuditServicePort {
                         .retentionDays(latestConfig.getRetentionDays())
                         .autoCleanupEnabled(latestConfig.getAutoCleanupEnabled())
                         .cleanupCron(latestConfig.getCleanupCron())
-                        .lastCleanupAt(Instant.now().toString())
+                        .lastCleanupAt(Instant.now())
                         .lastCleanupStatus(success ? "SUCCESS" : "FAILED: " + errorMessage)
                         .lastAuditLogsDeleted(auditLogsDeleted)
                         .lastChangelogsDeleted(changelogsDeleted)
@@ -185,7 +184,6 @@ public class AuditServiceImpl implements AuditServicePort {
                 adminSettingRepository.save(AdminSettingEntity.builder()
                         .settingKey(AUDIT_RETENTION_SETTING_KEY)
                         .settingValue(objectMapper.writeValueAsString(updatedConfig))
-                        .description("Cấu hình chính sách thời hạn lưu trữ và tự động dọn dẹp nhật ký kiểm toán")
                         .build());
             } catch (Exception ex) {
                 log.warn("Không thể cập nhật kết quả dọn dẹp vào admin_settings: {}", ex.getMessage());

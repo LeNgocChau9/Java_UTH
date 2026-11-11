@@ -114,4 +114,34 @@ public interface GitHubClientPort {
      * Kiểm tra tính hợp lệ của access token kết nối GitHub.
      */
     GitHubTokenValidationResult validateToken(String token);
+
+    /**
+     * Gửi hoặc cập nhật trạng thái kiểm tra (GitHub Checks API / Commit Statuses)
+     * phục vụ cơ chế chặn hợp nhất Pull Request khi tài liệu bị sai lệch nghiêm trọng.
+     *
+     * @param token GitHub Personal Access Token hoặc App Token
+     * @param owner Chủ sở hữu repository
+     * @param repo Tên repository
+     * @param headSha Commit SHA ở đỉnh của PR cần kiểm tra
+     * @param checkName Tên của bước kiểm tra (ví dụ: "LivingDocs / Doc Drift Guard")
+     * @param status "queued", "in_progress", hoặc "completed"
+     * @param conclusion "success", "failure", "neutral", "action_required"
+     * @param title Tiêu đề ngắn của Check
+     * @param summary Nội dung tóm tắt giải thích lý do chặn hoặc thông báo hợp lệ
+     * @param detailsUrl Đường dẫn xem chi tiết trên hệ thống LivingDocs
+     */
+    default com.example.livingdocs_backend.application.dto.github.GitHubCheckRunResultDto postCheckRun(
+            String token,
+            String owner,
+            String repo,
+            String headSha,
+            String checkName,
+            String status,
+            String conclusion,
+            String title,
+            String summary,
+            String detailsUrl
+    ) {
+        return null;
+    }
 }

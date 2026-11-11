@@ -4,6 +4,7 @@ import com.example.livingdocs_backend.application.dto.drift.PrDriftAnalysisResul
 import com.example.livingdocs_backend.application.dto.drift.PrDriftScanJobPayload;
 import com.example.livingdocs_backend.application.port.DocDriftDetectionServicePort;
 import com.example.livingdocs_backend.application.port.JobHandler;
+import com.example.livingdocs_backend.application.port.PrMergeBlockingServicePort;
 import com.example.livingdocs_backend.application.service.GitHubWebhookServiceImpl;
 import com.example.livingdocs_backend.domain.model.Job;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -21,6 +22,7 @@ import org.springframework.stereotype.Component;
 public class PullRequestDriftScanJobHandler implements JobHandler {
 
     private final DocDriftDetectionServicePort docDriftDetectionService;
+    private final PrMergeBlockingServicePort prMergeBlockingService;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -55,6 +57,20 @@ public class PullRequestDriftScanJobHandler implements JobHandler {
                     result != null ? result.totalAffectedDocs() : 0,
                     result != null ? result.totalChangesDetected() : 0,
                     result != null && result.commentId() != null ? result.commentId() : "Không");
+
+            // Kích hoạt cơ chế kiểm tra và gửi trạng thái Chặn Hợp nhất PR (GitHub Checks / Statuses API)
+            try {
+                if (prMergeBlockingService != null) {
+                    prMergeBlockingService.evaluateAndSendPrCheck(
+                            payload.getRepositoryId(),
+                            payload.getPrNumber(),
+                            payload.getHeadCommitHash()
+                    );
+                }
+            } catch (Exception checkEx) {
+                log.warn("[JobHandler - PR_DRIFT_SCAN] Không thể gửi GitHub Check Run cho PR #{}: {}",
+                        payload.getPrNumber(), checkEx.getMessage());
+            }
         } catch (Exception ex) {
             log.error("[JobHandler - PR_DRIFT_SCAN] Lỗi khi thực thi phát hiện sai lệch cho PR #{}: {}",
                     payload.getPrNumber(), ex.getMessage(), ex);

@@ -38,6 +38,9 @@ public class AuditRetentionConfigDto {
     @Schema(description = "Thời điểm dọn dẹp gần nhất")
     private Instant lastCleanupAt;
 
+    @Schema(description = "Trạng thái lần dọn dẹp gần nhất", example = "SUCCESS")
+    private String lastCleanupStatus;
+
     @Schema(description = "Số bản ghi nhật ký kiểm toán đã xóa trong lần dọn dẹp gần nhất")
     private Long lastAuditLogsDeleted;
 

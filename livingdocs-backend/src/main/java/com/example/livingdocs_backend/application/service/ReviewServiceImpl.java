@@ -3,6 +3,7 @@ package com.example.livingdocs_backend.application.service;
 import com.example.livingdocs_backend.application.dto.*;
 import com.example.livingdocs_backend.application.port.AuditServicePort;
 import com.example.livingdocs_backend.application.port.DocumentServicePort;
+import com.example.livingdocs_backend.application.port.PrMergeBlockingServicePort;
 import com.example.livingdocs_backend.application.port.ReviewServicePort;
 import com.example.livingdocs_backend.domain.exception.DocumentNotFoundException;
 import com.example.livingdocs_backend.domain.model.ActorRole;
@@ -42,6 +43,7 @@ public class ReviewServiceImpl implements ReviewServicePort {
     private final TemplateStructureCheck templateStructureCheck;
     private final DocumentServicePort documentServicePort;
     private final SpringDataReviewCommentRepository reviewCommentRepository;
+    private final PrMergeBlockingServicePort prMergeBlockingService;
 
     @Override
     @Transactional(readOnly = true)
@@ -215,6 +217,18 @@ public class ReviewServiceImpl implements ReviewServicePort {
             } else {
                 auditServicePort.recordDocumentAction(actorId, savedDoc.getDocId(), AuditAction.DOCUMENT_REJECTED,
                         "Manager đã từ chối tài liệu.");
+            }
+        }
+
+        // Tự động mở khóa PR Checks trên GitHub (chuyển sang màu xanh hợp lệ) khi tài liệu được phê duyệt
+        if (nextStatus == DocumentStatus.PUBLISHED || nextStatus == DocumentStatus.APPROVED) {
+            try {
+                if (prMergeBlockingService != null) {
+                    prMergeBlockingService.notifyDocumentApproved(savedDoc.getDocId());
+                }
+            } catch (Exception ex) {
+                log.warn("[ReviewServiceImpl] Lỗi mở khóa Checks API cho PR sau khi phê duyệt tài liệu #{}: {}",
+                        savedDoc.getDocId(), ex.getMessage());
             }
         }
 

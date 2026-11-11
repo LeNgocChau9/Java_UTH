@@ -28,6 +28,7 @@ import com.example.livingdocs_backend.domain.exception.GitHubApiException;
 import com.example.livingdocs_backend.domain.exception.GitHubRateLimitException;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -1080,5 +1081,138 @@ public class GitHubClient implements GitHubClientPort {
             Long id,
             @JsonProperty("html_url") String htmlUrl,
             String body) {
+    }
+
+    @Override
+    public com.example.livingdocs_backend.application.dto.github.GitHubCheckRunResultDto postCheckRun(
+            String token,
+            String owner,
+            String repo,
+            String headSha,
+            String checkName,
+            String status,
+            String conclusion,
+            String title,
+            String summary,
+            String detailsUrl
+    ) {
+        if (!StringUtils.hasText(token) || !StringUtils.hasText(owner) || !StringUtils.hasText(repo) || !StringUtils.hasText(headSha)) {
+            log.warn("[GitHubClient] Không thể tạo Check Run: thiếu thông tin bắt buộc (token, repo, headSha).");
+            return null;
+        }
+
+        String finalCheckName = StringUtils.hasText(checkName) ? checkName : "LivingDocs / Drift Guard";
+        String finalStatus = StringUtils.hasText(status) ? status : "completed";
+
+        // Thử gửi qua GitHub Checks API trước (yêu cầu quyền checks:write của GitHub App hoặc Fine-grained PAT)
+        try {
+            Map<String, Object> body = new HashMap<>();
+            body.put("name", finalCheckName);
+            body.put("head_sha", headSha);
+            body.put("status", finalStatus);
+            if ("completed".equalsIgnoreCase(finalStatus) && StringUtils.hasText(conclusion)) {
+                body.put("conclusion", conclusion);
+                body.put("completed_at", Instant.now().toString());
+            }
+            if (StringUtils.hasText(detailsUrl)) {
+                body.put("details_url", detailsUrl);
+            }
+
+            Map<String, Object> output = new HashMap<>();
+            output.put("title", StringUtils.hasText(title) ? title : "Kiểm tra tính toàn vẹn tài liệu");
+            output.put("summary", StringUtils.hasText(summary) ? summary : "LivingDocs đã phân tích sai lệch cho PR.");
+            body.put("output", output);
+
+            JsonNode resp = restClient.post()
+                    .uri("/repos/{owner}/{repo}/check-runs", owner, repo)
+                    .header(HttpHeaders.USER_AGENT, "LivingDocs-GitHubClient/1.0")
+                    .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                    .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token.trim())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .body(JsonNode.class);
+
+            if (resp != null) {
+                Long checkId = resp.path("id").isNumber() ? resp.path("id").asLong() : null;
+                String htmlUrl = resp.path("html_url").asText("");
+                log.info("[GitHubClient] Tạo Check Run thành công qua Checks API: checkId={}, conclusion={}", checkId, conclusion);
+                return com.example.livingdocs_backend.application.dto.github.GitHubCheckRunResultDto.builder()
+                        .checkRunId(checkId)
+                        .name(finalCheckName)
+                        .headSha(headSha)
+                        .status(finalStatus)
+                        .conclusion(conclusion)
+                        .title(title)
+                        .summary(summary)
+                        .detailsUrl(detailsUrl)
+                        .htmlUrl(htmlUrl)
+                        .completedAt(Instant.now())
+                        .build();
+            }
+        } catch (Exception ex) {
+            log.warn("[GitHubClient] Checks API chưa khả dụng hoặc thiếu quyền checks:write ({}). Tự động fallback sang Commit Status API...", ex.getMessage());
+        }
+
+        // Fallback sang GitHub Commit Statuses API (POST /repos/{owner}/{repo}/statuses/{sha})
+        // Commit Statuses API hoạt động trên mọi loại Personal Access Token (repo:status) và trực tiếp điều khiển thanh trạng thái PR
+        try {
+            String state = "pending";
+            if ("completed".equalsIgnoreCase(finalStatus)) {
+                if ("success".equalsIgnoreCase(conclusion)) {
+                    state = "success";
+                } else if ("failure".equalsIgnoreCase(conclusion) || "action_required".equalsIgnoreCase(conclusion)) {
+                    state = "failure";
+                } else {
+                    state = "error";
+                }
+            }
+
+            String desc = title != null && !title.isBlank() ? title : summary;
+            if (desc != null && desc.length() > 140) {
+                desc = desc.substring(0, 137) + "...";
+            }
+
+            Map<String, Object> statusBody = new HashMap<>();
+            statusBody.put("state", state);
+            statusBody.put("context", finalCheckName);
+            statusBody.put("description", desc != null ? desc : "LivingDocs Status");
+            if (StringUtils.hasText(detailsUrl)) {
+                statusBody.put("target_url", detailsUrl);
+            }
+
+            JsonNode statusResp = restClient.post()
+                    .uri("/repos/{owner}/{repo}/statuses/{sha}", owner, repo, headSha)
+                    .header(HttpHeaders.USER_AGENT, "LivingDocs-GitHubClient/1.0")
+                    .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                    .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token.trim())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(statusBody)
+                    .retrieve()
+                    .body(JsonNode.class);
+
+            if (statusResp != null) {
+                Long statusId = statusResp.path("id").isNumber() ? statusResp.path("id").asLong() : null;
+                log.info("[GitHubClient] Gửi trạng thái Commit Status thành công: statusId={}, state={}", statusId, state);
+                return com.example.livingdocs_backend.application.dto.github.GitHubCheckRunResultDto.builder()
+                        .checkRunId(statusId)
+                        .name(finalCheckName)
+                        .headSha(headSha)
+                        .status(finalStatus)
+                        .conclusion(conclusion)
+                        .title(title)
+                        .summary(summary)
+                        .detailsUrl(detailsUrl)
+                        .htmlUrl(statusResp.path("target_url").asText(""))
+                        .completedAt(Instant.now())
+                        .build();
+            }
+        } catch (Exception ex2) {
+            log.error("[GitHubClient] Lỗi gửi Commit Status lên GitHub cho SHA {}: {}", headSha, ex2.getMessage(), ex2);
+        }
+
+        return null;
     }
 }
