@@ -31,7 +31,7 @@ public class DocumentRepositoryAdapter implements DocumentRepositoryPort {
 
     @Override
     public List<Document> findAll() {
-        return springDataDocumentRepository.findAll()
+        return springDataDocumentRepository.findAllByOrderByUpdatedAtDesc()
                 .stream()
                 .map(this::toDomain)
                 .collect(Collectors.toList());
@@ -39,7 +39,7 @@ public class DocumentRepositoryAdapter implements DocumentRepositoryPort {
 
     @Override
     public List<Document> findByRepoId(Long repoId) {
-        return springDataDocumentRepository.findByRepoId(repoId)
+        return springDataDocumentRepository.findByRepoIdOrderByUpdatedAtDesc(repoId)
                 .stream()
                 .map(this::toDomain)
                 .collect(Collectors.toList());
@@ -47,7 +47,7 @@ public class DocumentRepositoryAdapter implements DocumentRepositoryPort {
 
     @Override
     public List<Document> findByCollectionId(Long collectionId) {
-        return springDataDocumentRepository.findByCollectionId(collectionId)
+        return springDataDocumentRepository.findByCollectionIdOrderByUpdatedAtDesc(collectionId)
                 .stream()
                 .map(this::toDomain)
                 .collect(Collectors.toList());
@@ -55,7 +55,7 @@ public class DocumentRepositoryAdapter implements DocumentRepositoryPort {
 
     @Override
     public List<Document> findByRepoIdAndCollectionId(Long repoId, Long collectionId) {
-        return springDataDocumentRepository.findByRepoIdAndCollectionId(repoId, collectionId)
+        return springDataDocumentRepository.findByRepoIdAndCollectionIdOrderByUpdatedAtDesc(repoId, collectionId)
                 .stream()
                 .map(this::toDomain)
                 .collect(Collectors.toList());
@@ -87,6 +87,8 @@ public class DocumentRepositoryAdapter implements DocumentRepositoryPort {
                 .title(domain.getTitle())
                 .targetPath(domain.getTargetPath())
                 .templateId(domain.getTemplateId())
+                .sourceType(domain.getSourceType() != null ? domain.getSourceType() : "MANUAL")
+                .sourceUrl(domain.getSourceUrl())
                 .status(domain.getStatus())
                 .currentVersion(domain.getCurrentVersion() != null ? domain.getCurrentVersion() : 1)
                 .createdAt(domain.getCreatedAt())
@@ -102,6 +104,8 @@ public class DocumentRepositoryAdapter implements DocumentRepositoryPort {
                 .title(entity.getTitle())
                 .targetPath(entity.getTargetPath())
                 .templateId(entity.getTemplateId())
+                .sourceType(entity.getSourceType() != null ? entity.getSourceType() : "MANUAL")
+                .sourceUrl(entity.getSourceUrl())
                 .status(entity.getStatus())
                 .currentVersion(entity.getCurrentVersion())
                 .createdAt(entity.getCreatedAt())

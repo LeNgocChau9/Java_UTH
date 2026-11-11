@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, Suspense } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { documentService } from "@/services/documentService";
 import { repoService, type RepoItem } from "@/services/repoService";
@@ -26,6 +26,11 @@ import {
   X,
   History,
   Sparkles,
+  Upload,
+  Globe,
+  FileUp,
+  FileCode,
+  ExternalLink,
 } from "lucide-react";
 
 const STATUS_CONFIG: Record<
@@ -86,6 +91,7 @@ const STATUS_FILTERS = [
 
 function DocumentListPageContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const initialCollectionId = searchParams.get("collectionId");
 
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
@@ -109,9 +115,13 @@ function DocumentListPageContent() {
   const [newColDesc, setNewColDesc] = useState("");
   const [creatingCol, setCreatingCol] = useState(false);
 
-  // Modal xác nhận xóa
+  // Modal xác nhận xóa tài liệu
   const [docToDelete, setDocToDelete] = useState<DocumentItem | null>(null);
   const [deletingDoc, setDeletingDoc] = useState(false);
+
+  // Modal xác nhận xóa Bộ sưu tập
+  const [collectionToDelete, setCollectionToDelete] = useState<DocCollection | null>(null);
+  const [deletingCol, setDeletingCol] = useState(false);
 
   // Modal kiểm tra tính toàn vẹn Hash Chain
   const [integrityDoc, setIntegrityDoc] = useState<{
@@ -119,6 +129,23 @@ function DocumentListPageContent() {
     result: IntegrityCheckResult;
   } | null>(null);
   const [verifyingDocId, setVerifyingDocId] = useState<number | null>(null);
+
+  // Modal 1: Upload tài liệu từ máy tính (Word .docx, Markdown .md)
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadRepoId, setUploadRepoId] = useState<string>("");
+  const [uploadTitle, setUploadTitle] = useState("");
+  const [uploadTargetPath, setUploadTargetPath] = useState("");
+  const [uploading, setUploading] = useState(false);
+
+  // Modal 2: Kết nối MCP riêng (Google Docs, Confluence, Jira)
+  const [showMcpModal, setShowMcpModal] = useState(false);
+  const [mcpPlatform, setMcpPlatform] = useState<"GOOGLE_DOCS" | "CONFLUENCE" | "JIRA">("GOOGLE_DOCS");
+  const [mcpRepoId, setMcpRepoId] = useState<string>("");
+  const [mcpTitle, setMcpTitle] = useState("");
+  const [mcpTargetPath, setMcpTargetPath] = useState("");
+  const [mcpUrlOrId, setMcpUrlOrId] = useState("");
+  const [mcpConnecting, setMcpConnecting] = useState(false);
 
   // Hiển thị thông báo
   const notify = useCallback((type: "success" | "error" | "info", message: string) => {
@@ -135,7 +162,12 @@ function DocumentListPageContent() {
         documentService.getCollections(),
         repoService.getRepositories().catch(() => []),
       ]);
-      setDocuments(docs);
+      const sortedDocs = [...docs].sort((a, b) => {
+        const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+        const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+        return timeB - timeA;
+      });
+      setDocuments(sortedDocs);
       setCollections(cols);
       setRepos(rps);
     } catch (err: any) {
@@ -199,6 +231,10 @@ function DocumentListPageContent() {
       }
 
       return true;
+    }).sort((a, b) => {
+      const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+      const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+      return timeB - timeA;
     });
   }, [documents, selectedCollectionId, selectedStatus, selectedRepoId, searchQuery]);
 
@@ -229,6 +265,106 @@ function DocumentListPageContent() {
     }
   };
 
+  // Xử lý Upload tài liệu từ máy tính (.docx, .md)
+  const handleUploadDocument = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!uploadRepoId) {
+      notify("error", "Vui lòng chọn Repository liên kết");
+      return;
+    }
+    if (!uploadFile) {
+      notify("error", "Vui lòng chọn tệp tin từ máy tính");
+      return;
+    }
+    if (!uploadTitle.trim()) {
+      notify("error", "Vui lòng nhập tiêu đề tài liệu");
+      return;
+    }
+
+    try {
+      setUploading(true);
+      const isDocx = uploadFile.name.toLowerCase().endsWith(".docx");
+      if (isDocx) {
+        const formData = new FormData();
+        formData.append("file", uploadFile);
+        formData.append("repoId", uploadRepoId);
+        formData.append("title", uploadTitle.trim());
+        if (uploadTargetPath.trim()) {
+          formData.append("targetPath", uploadTargetPath.trim());
+        }
+        const created = await documentService.importDocx(formData);
+        notify("success", `Nạp thành công file Word: "${created.title}"! Đang mở không gian làm việc...`);
+        setShowUploadModal(false);
+        setUploadFile(null);
+        setUploadTitle("");
+        setUploadTargetPath("");
+        router.push(`/tai-lieu-cua-toi/editor?docId=${created.docId}`);
+        return;
+      } else {
+        const textContent = await uploadFile.text();
+        const created = await documentService.importExternalDoc({
+          repoId: Number(uploadRepoId),
+          title: uploadTitle.trim(),
+          targetPath: uploadTargetPath.trim() || `docs/${uploadFile.name}`,
+          sourceType: "MARKDOWN",
+          sourceUrlOrId: uploadFile.name,
+          content: textContent,
+        });
+        notify("success", `Nạp thành công file Markdown: "${created.title}"! Đang mở không gian làm việc...`);
+        setShowUploadModal(false);
+        setUploadFile(null);
+        setUploadTitle("");
+        setUploadTargetPath("");
+        router.push(`/tai-lieu-cua-toi/editor?docId=${created.docId}`);
+        return;
+      }
+    } catch (err: any) {
+      notify("error", "Upload thất bại: " + (err.response?.data?.message || err.message));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Xử lý nạp tài liệu từ MCP (Google Docs, Confluence, Jira)
+  const handleMcpDocument = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mcpRepoId) {
+      notify("error", "Vui lòng chọn Repository liên kết");
+      return;
+    }
+    if (!mcpTitle.trim()) {
+      notify("error", "Vui lòng nhập tiêu đề tài liệu");
+      return;
+    }
+    if (!mcpUrlOrId.trim()) {
+      notify("error", "Vui lòng nhập URL hoặc ID của nền tảng MCP");
+      return;
+    }
+
+    try {
+      setMcpConnecting(true);
+      const created = await documentService.importExternalDoc({
+        repoId: Number(mcpRepoId),
+        title: mcpTitle.trim(),
+        targetPath: mcpTargetPath.trim() || undefined,
+        sourceType: mcpPlatform,
+        sourceUrlOrId: mcpUrlOrId.trim(),
+      });
+      notify("success", `Kết nối MCP thành công: "${created.title}"! Đang mở không gian làm việc...`);
+
+      setShowMcpModal(false);
+      setMcpTitle("");
+      setMcpTargetPath("");
+      setMcpUrlOrId("");
+      router.push(`/tai-lieu-cua-toi/editor?docId=${created.docId}`);
+      return;
+    } catch (err: any) {
+      notify("error", "Kết nối MCP thất bại: " + (err.response?.data?.message || err.message));
+    } finally {
+      setMcpConnecting(false);
+    }
+  };
+
   // Xử lý Gửi review nhanh từ danh sách
   const handleQuickSubmitReview = async (doc: DocumentItem) => {
     try {
@@ -253,6 +389,28 @@ function DocumentListPageContent() {
       notify("error", "Xóa tài liệu thất bại: " + (err.response?.data?.message || err.message));
     } finally {
       setDeletingDoc(false);
+    }
+  };
+
+  // Xử lý Xóa bộ sưu tập
+  const handleDeleteCollection = async () => {
+    if (!collectionToDelete) return;
+    setDeletingCol(true);
+    try {
+      await documentService.deleteCollection(collectionToDelete.id);
+      setCollections((prev) => prev.filter((c) => c.id !== collectionToDelete.id));
+      if (selectedCollectionId === collectionToDelete.id) {
+        setSelectedCollectionId(null);
+      }
+      setDocuments((prev) =>
+        prev.map((d) => (d.collectionId === collectionToDelete.id ? { ...d, collectionId: null } : d))
+      );
+      notify("success", `Đã xóa bộ sưu tập: ${collectionToDelete.name}`);
+      setCollectionToDelete(null);
+    } catch (err: any) {
+      notify("error", "Xóa bộ sưu tập thất bại: " + (err.response?.data?.message || err.message));
+    } finally {
+      setDeletingCol(false);
     }
   };
 
@@ -299,15 +457,12 @@ function DocumentListPageContent() {
         </div>
       )}
 
-      {/* Tiêu đề Trang & Nút CTA Soạn tài liệu mới */}
-      <div className="ld-page-header">
+      {/* Tiêu đề Trang & Nút Làm mới duy nhất ở trên */}
+      <div className="ld-page-header" style={{ marginBottom: 16 }}>
         <div>
-          <h1 className="ld-page-title">Danh sách tài liệu & Bộ sưu tập</h1>
-          <p className="ld-page-subtitle">
-            Quản lý tài liệu theo từng Collection, hỗ trợ soạn thảo Markdown Split-View và chuỗi băm phiên bản
-          </p>
+          <h1 className="ld-page-title">Document Workspace</h1>
         </div>
-        <div style={{ display: "flex", gap: 10 }}>
+        <div>
           <button
             type="button"
             onClick={loadData}
@@ -318,11 +473,71 @@ function DocumentListPageContent() {
             <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
             <span>Làm mới</span>
           </button>
-          <Link href="/tai-lieu-cua-toi/editor" className="ld-btn ld-btn-primary">
-            <Plus size={15} />
-            <span>Soạn tài liệu mới</span>
-          </Link>
         </div>
+      </div>
+
+      {/* Thanh công cụ hành động phía dưới Document Workspace */}
+      <div
+        style={{
+          display: "flex",
+          gap: 10,
+          flexWrap: "wrap",
+          alignItems: "center",
+          marginBottom: 20,
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setShowUploadModal(true)}
+          className="ld-btn ld-btn-primary"
+          style={{ background: "#0284c7", borderColor: "#0284c7" }}
+          title="Upload tài liệu (.docx, .md) từ máy tính"
+        >
+          <Upload size={15} />
+          <span>Upload tài liệu</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setShowMcpModal(true)}
+          className="ld-btn"
+          style={{
+            borderColor: "#6366f1",
+            color: "#4338ca",
+            background: "#eef2ff",
+            fontWeight: 500,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+          title="Kết nối đọc tài liệu từ Google Docs, Confluence hoặc Jira qua MCP"
+        >
+          <Globe size={15} style={{ color: "#6366f1" }} />
+          <span>Kết nối MCP</span>
+        </button>
+
+        <Link
+          href="/yeu-cau-sinh-tai-lieu"
+          className="ld-btn"
+          style={{
+            background: "linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)",
+            color: "#ffffff",
+            borderColor: "transparent",
+            fontWeight: 600,
+            boxShadow: "0 2px 8px rgba(139, 92, 246, 0.3)",
+            display: "inline-flex",
+            alignItems: "center",
+            padding: "8px 16px",
+          }}
+          title="Yêu cầu AI phân tích mã nguồn và sinh tài liệu mới"
+        >
+          <span>AI</span>
+        </Link>
+
+        <Link href="/tai-lieu-cua-toi/editor" className="ld-btn ld-btn-primary">
+          <Plus size={15} />
+          <span>Soạn thủ công</span>
+        </Link>
       </div>
 
       {/* DANH SÁCH BỘ SƯU TẬP (COLLECTIONS BAR) */}
@@ -430,24 +645,66 @@ function DocumentListPageContent() {
                   flexShrink: 0,
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                  <Folder
-                    size={14}
-                    style={{ color: isSelected ? "var(--color-accent)" : "#0284c7" }}
-                  />
-                  <span
-                    style={{
-                      fontSize: 13,
-                      fontWeight: isSelected ? 600 : 500,
-                      color: isSelected ? "var(--color-accent-dark)" : "#0f172a",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 8,
+                    marginBottom: 4,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1 }}>
+                    <Folder
+                      size={14}
+                      style={{ color: isSelected ? "var(--color-accent)" : "#0284c7", flexShrink: 0 }}
+                    />
+                    <span
+                      style={{
+                        fontSize: 13,
+                        fontWeight: isSelected ? 600 : 500,
+                        color: isSelected ? "var(--color-accent-dark)" : "#0f172a",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                      title={col.name}
+                    >
+                      {col.name}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCollectionToDelete(col);
                     }}
-                    title={col.name}
+                    title="Xóa bộ sưu tập"
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      color: "#94a3b8",
+                      cursor: "pointer",
+                      padding: "2px 4px",
+                      borderRadius: 4,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      lineHeight: 1,
+                      flexShrink: 0,
+                      transition: "all 120ms ease",
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLElement).style.color = "#ef4444";
+                      (e.currentTarget as HTMLElement).style.background = "#fee2e2";
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLElement).style.color = "#94a3b8";
+                      (e.currentTarget as HTMLElement).style.background = "transparent";
+                    }}
                   >
-                    {col.name}
-                  </span>
+                    <Trash2 size={13} />
+                  </button>
                 </div>
                 <p
                   style={{
@@ -538,7 +795,7 @@ function DocumentListPageContent() {
             <option value="ALL">Tất cả Repository</option>
             {repos.map((r) => (
               <option key={r.repositoryId} value={r.repositoryId}>
-                📦 {r.repoFullName || r.repoName}
+                {r.repoFullName || r.repoName}
               </option>
             ))}
           </select>
@@ -675,11 +932,46 @@ function DocumentListPageContent() {
                           borderRadius: 4,
                           display: "inline-flex",
                           alignItems: "center",
+                        }}
+                      >
+                        Agent tự cập nhật
+                      </span>
+                    )}
+
+                    {/* Huy hiệu Nguồn tài liệu (Word, GDocs, Confluence, Jira) */}
+                    {doc.sourceType && doc.sourceType !== "MANUAL" && (
+                      <span
+                        className="ld-badge"
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 500,
+                          background:
+                            doc.sourceType === "DOCX" ? "#eff6ff" :
+                            doc.sourceType === "GOOGLE_DOCS" ? "#ecfdf5" :
+                            doc.sourceType === "CONFLUENCE" ? "#f0f9ff" :
+                            doc.sourceType === "JIRA" ? "#fff7ed" : "#f8fafc",
+                          color:
+                            doc.sourceType === "DOCX" ? "#1e40af" :
+                            doc.sourceType === "GOOGLE_DOCS" ? "#047857" :
+                            doc.sourceType === "CONFLUENCE" ? "#0369a1" :
+                            doc.sourceType === "JIRA" ? "#c2410c" : "#475569",
+                          border:
+                            doc.sourceType === "DOCX" ? "1px solid #bfdbfe" :
+                            doc.sourceType === "GOOGLE_DOCS" ? "1px solid #a7f3d0" :
+                            doc.sourceType === "CONFLUENCE" ? "1px solid #bae6fd" :
+                            doc.sourceType === "JIRA" ? "1px solid #fed7aa" : "1px solid #e2e8f0",
+                          padding: "2px 8px",
+                          borderRadius: 4,
+                          display: "inline-flex",
+                          alignItems: "center",
                           gap: 4,
                         }}
                       >
-                        <Sparkles size={11} />
-                        ⚡ AI Agent tự động cập nhật
+                        {doc.sourceType === "DOCX" && "Word (.docx)"}
+                        {doc.sourceType === "GOOGLE_DOCS" && "Google Docs"}
+                        {doc.sourceType === "CONFLUENCE" && "Confluence"}
+                        {doc.sourceType === "JIRA" && "Jira"}
+                        {doc.sourceType === "MARKDOWN" && "Markdown"}
                       </span>
                     )}
 
@@ -822,6 +1114,510 @@ function DocumentListPageContent() {
           })
         )}
       </div>
+
+      {/* MODAL 1: UPLOAD TÀI LIỆU (WORD .DOCX, MARKDOWN .MD) */}
+      {showUploadModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15, 23, 42, 0.6)",
+            backdropFilter: "blur(3px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: 16,
+          }}
+        >
+          <div
+            className="ld-card"
+            style={{
+              maxWidth: 580,
+              width: "100%",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              padding: 24,
+              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 16,
+                borderBottom: "1px solid var(--color-border)",
+                paddingBottom: 12,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: 8,
+                    background: "#e0f2fe",
+                    color: "#0284c7",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Upload size={20} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: 16, fontWeight: 700, color: "var(--color-text-primary)", margin: 0 }}>
+                    Upload tài liệu
+                  </h3>
+                  <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: 0 }}>
+                    Hỗ trợ file Microsoft Word (.docx) và Markdown (.md)
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowUploadModal(false)}
+                className="ld-btn ld-btn-ghost ld-btn-sm"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleUploadDocument}>
+              {/* Chọn Repository */}
+              <div style={{ marginBottom: 16 }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    marginBottom: 6,
+                    color: "var(--color-text-primary)",
+                  }}
+                >
+                  Repository liên kết <span style={{ color: "#ef4444" }}>*</span>
+                </label>
+                <select
+                  required
+                  value={uploadRepoId}
+                  onChange={(e) => setUploadRepoId(e.target.value)}
+                  className="ld-select"
+                  style={{ width: "100%", padding: "8px 12px", fontSize: 13 }}
+                >
+                  <option value="">-- Chọn repository liên kết --</option>
+                  {repos.map((r) => (
+                    <option key={r.repositoryId} value={r.repositoryId}>
+                      {r.repoFullName || r.repoName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Khu vực chọn file */}
+              <div style={{ marginBottom: 16 }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    marginBottom: 6,
+                    color: "var(--color-text-primary)",
+                  }}
+                >
+                  Chọn tệp tin (.docx, .md) <span style={{ color: "#ef4444" }}>*</span>
+                </label>
+                <div
+                  style={{
+                    border: "2px dashed #93c5fd",
+                    background: "#f0f9ff",
+                    borderRadius: 8,
+                    padding: "24px 16px",
+                    textAlign: "center",
+                    cursor: "pointer",
+                  }}
+                  onClick={() => document.getElementById("file-upload-input")?.click()}
+                >
+                  <input
+                    id="file-upload-input"
+                    type="file"
+                    accept=".docx,.md"
+                    style={{ display: "none" }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        if (file.size > 100 * 1024 * 1024) {
+                          notify("error", "Dung lượng tệp tin vượt quá giới hạn 100 MB!");
+                          return;
+                        }
+                        setUploadFile(file);
+                        const baseName = file.name.replace(/\.[^/.]+$/, "");
+                        if (!uploadTitle) {
+                          setUploadTitle(baseName);
+                        }
+                        if (!uploadTargetPath) {
+                          setUploadTargetPath(`docs/${baseName}.md`);
+                        }
+                      }
+                    }}
+                  />
+                  <FileUp size={32} style={{ color: "#0284c7", margin: "0 auto 8px" }} />
+                  <p style={{ fontSize: 13, fontWeight: 600, color: "#0369a1", margin: 0 }}>
+                    {uploadFile ? uploadFile.name : "Nhấn để chọn tệp .docx hoặc .md từ máy tính"}
+                  </p>
+                  <p style={{ fontSize: 11, color: "#64748b", marginTop: 4 }}>
+                    {uploadFile
+                      ? `Dung lượng: ${(uploadFile.size / (1024 * 1024)).toFixed(2)} MB (Dung lượng tối đa: 100 MB)`
+                      : "Hỗ trợ định dạng Microsoft Word (.docx) và Markdown (.md). Dung lượng tối đa: 100 MB."}
+                  </p>
+                </div>
+              </div>
+
+              {/* Tiêu đề */}
+              <div style={{ marginBottom: 16 }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    marginBottom: 6,
+                    color: "var(--color-text-primary)",
+                  }}
+                >
+                  Tiêu đề tài liệu <span style={{ color: "#ef4444" }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={uploadTitle}
+                  onChange={(e) => setUploadTitle(e.target.value)}
+                  placeholder="Ví dụ: Tài liệu Kiến trúc Hệ thống"
+                  className="ld-input"
+                  style={{ width: "100%", padding: "8px 12px", fontSize: 13 }}
+                />
+              </div>
+
+              {/* Đường dẫn đích */}
+              <div style={{ marginBottom: 20 }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    marginBottom: 6,
+                    color: "var(--color-text-primary)",
+                  }}
+                >
+                  Đường dẫn lưu file trong Repo (targetPath)
+                </label>
+                <input
+                  type="text"
+                  value={uploadTargetPath}
+                  onChange={(e) => setUploadTargetPath(e.target.value)}
+                  placeholder="Ví dụ: docs/architecture.md"
+                  className="ld-input"
+                  style={{ width: "100%", padding: "8px 12px", fontSize: 13, fontFamily: "var(--font-mono)" }}
+                />
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowUploadModal(false)}
+                  className="ld-btn ld-btn-secondary"
+                  disabled={uploading}
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="submit"
+                  disabled={uploading}
+                  className="ld-btn ld-btn-primary"
+                  style={{ background: "#0284c7", borderColor: "#0284c7" }}
+                >
+                  {uploading ? (
+                    <>
+                      <RefreshCw size={14} className="animate-spin" />
+                      <span>Đang tải lên...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload size={14} />
+                      <span>Upload tài liệu</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: KẾT NỐI MCP (GOOGLE DOCS, CONFLUENCE, JIRA) */}
+      {showMcpModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15, 23, 42, 0.6)",
+            backdropFilter: "blur(3px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: 16,
+          }}
+        >
+          <div
+            className="ld-card"
+            style={{
+              maxWidth: 620,
+              width: "100%",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              padding: 24,
+              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 16,
+                borderBottom: "1px solid var(--color-border)",
+                paddingBottom: 12,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: 8,
+                    background: "#f5f3ff",
+                    color: "#6366f1",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Globe size={20} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: 16, fontWeight: 700, color: "var(--color-text-primary)", margin: 0 }}>
+                    Kết nối MCP (Model Context Protocol)
+                  </h3>
+                  <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: 0 }}>
+                    Đồng bộ tài liệu kỹ thuật từ Google Docs, Confluence hoặc Jira
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowMcpModal(false)}
+                className="ld-btn ld-btn-ghost ld-btn-sm"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Platform selector */}
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                padding: 4,
+                background: "var(--color-muted)",
+                borderRadius: 8,
+                marginBottom: 20,
+              }}
+            >
+              {[
+                { key: "GOOGLE_DOCS", label: "Google Docs", icon: <Globe size={14} /> },
+                { key: "CONFLUENCE", label: "Confluence", icon: <ExternalLink size={14} /> },
+                { key: "JIRA", label: "Jira", icon: <CheckCircle2 size={14} /> },
+              ].map((tab) => {
+                const active = mcpPlatform === tab.key;
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => {
+                      setMcpPlatform(tab.key as any);
+                      if (tab.key === "GOOGLE_DOCS") setMcpTitle("Google Docs Tài liệu");
+                      else if (tab.key === "CONFLUENCE") setMcpTitle("Confluence Wiki");
+                      else if (tab.key === "JIRA") setMcpTitle("Jira Đặc tả Yêu cầu");
+                    }}
+                    style={{
+                      flex: 1,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6,
+                      padding: "8px 12px",
+                      fontSize: 12,
+                      fontWeight: active ? 600 : 500,
+                      borderRadius: 6,
+                      border: "none",
+                      background: active ? "#ffffff" : "transparent",
+                      color: active ? "#4f46e5" : "var(--color-text-secondary)",
+                      boxShadow: active ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
+                      cursor: "pointer",
+                      transition: "all 150ms ease",
+                    }}
+                  >
+                    {tab.icon}
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <form onSubmit={handleMcpDocument}>
+              {/* Repository */}
+              <div style={{ marginBottom: 16 }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    marginBottom: 6,
+                    color: "var(--color-text-primary)",
+                  }}
+                >
+                  Repository liên kết <span style={{ color: "#ef4444" }}>*</span>
+                </label>
+                <select
+                  required
+                  value={mcpRepoId}
+                  onChange={(e) => setMcpRepoId(e.target.value)}
+                  className="ld-select"
+                  style={{ width: "100%", padding: "8px 12px", fontSize: 13 }}
+                >
+                  <option value="">-- Chọn repository liên kết --</option>
+                  {repos.map((r) => (
+                    <option key={r.repositoryId} value={r.repositoryId}>
+                      {r.repoFullName || r.repoName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* URL hoặc ID theo nền tảng */}
+              <div style={{ marginBottom: 16 }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    marginBottom: 6,
+                    color: "var(--color-text-primary)",
+                  }}
+                >
+                  {mcpPlatform === "GOOGLE_DOCS" && "Google Doc URL hoặc Document ID"}
+                  {mcpPlatform === "CONFLUENCE" && "Confluence Page URL hoặc Page ID"}
+                  {mcpPlatform === "JIRA" && "Mã Jira Issue Key / Epic Key"}
+                  <span style={{ color: "#ef4444" }}> *</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={mcpUrlOrId}
+                  onChange={(e) => setMcpUrlOrId(e.target.value)}
+                  placeholder={
+                    mcpPlatform === "GOOGLE_DOCS"
+                      ? "https://docs.google.com/document/d/.../edit hoặc Doc ID"
+                      : mcpPlatform === "CONFLUENCE"
+                      ? "https://your-domain.atlassian.net/wiki/spaces/.../pages/12345"
+                      : "Ví dụ: PROJ-101, LD-W6-20"
+                  }
+                  className="ld-input"
+                  style={{ width: "100%", padding: "8px 12px", fontSize: 13 }}
+                />
+              </div>
+
+              {/* Tiêu đề */}
+              <div style={{ marginBottom: 16 }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    marginBottom: 6,
+                    color: "var(--color-text-primary)",
+                  }}
+                >
+                  Tiêu đề tài liệu <span style={{ color: "#ef4444" }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={mcpTitle}
+                  onChange={(e) => setMcpTitle(e.target.value)}
+                  placeholder="Tiêu đề tài liệu sau khi đồng bộ"
+                  className="ld-input"
+                  style={{ width: "100%", padding: "8px 12px", fontSize: 13 }}
+                />
+              </div>
+
+              {/* Đường dẫn đích */}
+              <div style={{ marginBottom: 20 }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    marginBottom: 6,
+                    color: "var(--color-text-primary)",
+                  }}
+                >
+                  Đường dẫn lưu file trong Repo (targetPath)
+                </label>
+                <input
+                  type="text"
+                  value={mcpTargetPath}
+                  onChange={(e) => setMcpTargetPath(e.target.value)}
+                  placeholder={`docs/${mcpPlatform.toLowerCase()}-doc.md`}
+                  className="ld-input"
+                  style={{ width: "100%", padding: "8px 12px", fontSize: 13, fontFamily: "var(--font-mono)" }}
+                />
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowMcpModal(false)}
+                  className="ld-btn ld-btn-secondary"
+                  disabled={mcpConnecting}
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="submit"
+                  disabled={mcpConnecting}
+                  className="ld-btn ld-btn-primary"
+                  style={{ background: "#4f46e5", borderColor: "#4f46e5" }}
+                >
+                  {mcpConnecting ? (
+                    <>
+                      <RefreshCw size={14} className="animate-spin" />
+                      <span>Đang kết nối MCP...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Globe size={14} />
+                      <span>Đồng bộ từ MCP</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* MODAL TẠO BỘ SƯU TẬP MỚI */}
       {showCreateCollectionModal && (
@@ -1006,6 +1802,78 @@ function DocumentListPageContent() {
         </div>
       )}
 
+      {/* MODAL XÁC NHẬN XÓA BỘ SƯU TẬP */}
+      {collectionToDelete && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15, 23, 42, 0.5)",
+            backdropFilter: "blur(2px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: 16,
+          }}
+          onClick={() => setCollectionToDelete(null)}
+        >
+          <div
+            className="ld-card"
+            style={{
+              maxWidth: 440,
+              width: "100%",
+              padding: 24,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+              <div
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 18,
+                  background: "#fef2f2",
+                  color: "#ef4444",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <Trash2 size={18} />
+              </div>
+              <h3 style={{ fontSize: 16, fontWeight: 600, color: "var(--color-text-primary)", margin: 0 }}>
+                Xóa bộ sưu tập này?
+              </h3>
+            </div>
+
+            <p style={{ fontSize: 13, color: "var(--color-text-secondary)", lineHeight: 1.5, marginBottom: 20 }}>
+              Bạn có chắc chắn muốn xóa bộ sưu tập <strong>&ldquo;{collectionToDelete.name}&rdquo;</strong>?
+              Các tài liệu bên trong sẽ <strong>không bị xóa</strong> mà chỉ được chuyển về danh sách &ldquo;Tất cả tài liệu&rdquo;.
+            </p>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => setCollectionToDelete(null)}
+                className="ld-btn ld-btn-secondary"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteCollection}
+                disabled={deletingCol}
+                className="ld-btn ld-btn-danger"
+              >
+                {deletingCol ? "Đang xóa..." : "Xác nhận xóa"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL KẾT QUẢ XÁC MINH CHUỖI BĂM SHA-256 */}
       {integrityDoc && (
         <div
@@ -1111,6 +1979,7 @@ function DocumentListPageContent() {
           </div>
         </div>
       )}
+
     </AppShell>
   );
 }

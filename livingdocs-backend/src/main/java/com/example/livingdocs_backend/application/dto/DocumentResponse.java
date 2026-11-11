@@ -48,6 +48,12 @@ public class DocumentResponse {
     @Schema(description = "Template đã dùng khi sinh tài liệu", example = "1")
     private Long templateId;
 
+    @Schema(description = "Nguồn tài liệu ban đầu (DOCX, GOOGLE_DOCS, CONFLUENCE, JIRA, MARKDOWN, AI_GENERATED, MANUAL)", example = "DOCX")
+    private String sourceType;
+
+    @Schema(description = "Đường dẫn URL hoặc ID gốc của tài liệu nguồn", example = "https://docs.google.com/document/d/...")
+    private String sourceUrl;
+
     @Schema(description = "true khi Markdown thiếu đề mục bắt buộc của template")
     private Boolean structureWarning;
 

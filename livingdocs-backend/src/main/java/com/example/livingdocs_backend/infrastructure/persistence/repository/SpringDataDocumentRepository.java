@@ -8,6 +8,10 @@ import java.util.List;
 
 @Repository
 public interface SpringDataDocumentRepository extends JpaRepository<DocumentEntity, Long> {
+    List<DocumentEntity> findAllByOrderByUpdatedAtDesc();
+    List<DocumentEntity> findByRepoIdOrderByUpdatedAtDesc(Long repoId);
+    List<DocumentEntity> findByCollectionIdOrderByUpdatedAtDesc(Long collectionId);
+    List<DocumentEntity> findByRepoIdAndCollectionIdOrderByUpdatedAtDesc(Long repoId, Long collectionId);
     List<DocumentEntity> findByRepoId(Long repoId);
     List<DocumentEntity> findByCollectionId(Long collectionId);
     List<DocumentEntity> findByRepoIdAndCollectionId(Long repoId, Long collectionId);

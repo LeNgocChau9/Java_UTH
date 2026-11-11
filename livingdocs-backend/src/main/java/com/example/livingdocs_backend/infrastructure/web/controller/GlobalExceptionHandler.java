@@ -88,6 +88,17 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
     }
 
+    @ExceptionHandler(org.springframework.web.multipart.MultipartException.class)
+    public ResponseEntity<Map<String, Object>> handleMultipartException(org.springframework.web.multipart.MultipartException ex) {
+        log.warn("Multipart upload error: {}", ex.getMessage());
+        Map<String, Object> error = new HashMap<>();
+        error.put("status", HttpStatus.BAD_REQUEST.value());
+        error.put("error", "Bad Request");
+        error.put("message", "Lỗi tải lên tệp tin: " + ex.getMessage());
+        error.put("timestamp", Instant.now().toString());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+
     @ExceptionHandler(InvalidDocumentStatusTransitionException.class)
     public ResponseEntity<Map<String, Object>> handleInvalidDocumentStatusTransitionException(InvalidDocumentStatusTransitionException ex) {
         Map<String, Object> error = new HashMap<>();

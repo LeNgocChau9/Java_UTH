@@ -37,6 +37,13 @@ public class DocumentEntity {
     @Column(name = "template_id")
     private Long templateId;
 
+    @Column(name = "source_type", length = 50)
+    @Builder.Default
+    private String sourceType = "MANUAL";
+
+    @Column(name = "source_url", length = 1024)
+    private String sourceUrl;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", length = 50)
     @Builder.Default

@@ -32,8 +32,20 @@ export interface DocumentItem {
   createdAt: string;
   updatedAt: string;
   templateId?: number | null;
+  sourceType?: string | null;
+  sourceUrl?: string | null;
   structureWarning?: boolean;
   missingHeadings?: string[];
+}
+
+export interface ImportExternalDocPayload {
+  repoId: number;
+  title: string;
+  targetPath?: string;
+  sourceType: "GOOGLE_DOCS" | "CONFLUENCE" | "JIRA" | "MARKDOWN" | "DOCX" | string;
+  sourceUrlOrId?: string;
+  content?: string;
+  templateId?: number;
 }
 
 export interface GroundingEvidenceItem {

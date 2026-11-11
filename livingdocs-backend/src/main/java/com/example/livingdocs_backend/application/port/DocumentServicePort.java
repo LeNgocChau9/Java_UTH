@@ -107,4 +107,16 @@ public interface DocumentServicePort {
      * và cập nhật trực tiếp vào tài liệu tổng thể mà không cần sinh lại toàn bộ file.
      */
     RegenerateEntityDocResponse regenerateEntityDoc(Long docId, RegenerateEntityDocRequest request, Long actorId, String actorRole);
+
+    /**
+     * Nạp tài liệu từ file Microsoft Word (.docx), chuẩn hóa thành Markdown,
+     * tự động tạo phiên bản v1 và liên kết với các thực thể code trong repo.
+     */
+    DocumentResponse importDocxDocument(org.springframework.web.multipart.MultipartFile file, Long repoId, String title, String targetPath, Long actorId, String actorRole);
+
+    /**
+     * Nạp tài liệu từ các nguồn doanh nghiệp bên ngoài (Google Docs, Confluence, Jira, Markdown),
+     * tự động tạo phiên bản v1 và liên kết với các thực thể code trong repo.
+     */
+    DocumentResponse importExternalDocument(com.example.livingdocs_backend.application.dto.ImportExternalDocRequest request, Long actorId, String actorRole);
 }
