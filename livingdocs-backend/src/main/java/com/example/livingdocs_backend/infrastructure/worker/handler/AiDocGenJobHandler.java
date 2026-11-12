@@ -41,15 +41,12 @@ public class AiDocGenJobHandler implements JobHandler {
         log.info("[JobHandler - AI_DOC_GEN] Sinh tài liệu cho repoId={}, docId={}, scope={}",
                 payload.getRepositoryId(), payload.getDocumentId(), payload.getDocType());
 
-        AiDocGenerateRequestDto request = new AiDocGenerateRequestDto(
-                payload.getRepositoryId(),
-                payload.getDocumentId(),
-                payload.getTitle(),
-                payload.getDocType() != null ? payload.getDocType() : "PROJECT_README",
-                null,
-                payload.getPrompt(),
-                null
-        );
+        AiDocGenerateRequestDto request = AiDocGenerateRequestDto.builder()
+                .repository_id(payload.getRepositoryId())
+                .scope(payload.getDocType() != null ? payload.getDocType() : "REPOSITORY")
+                .title(payload.getTitle())
+                .note(payload.getPrompt())
+                .build();
 
         AiDocGenerateResponseDto response = aiDocumentationServicePort.generateDocumentation(
                 request,
