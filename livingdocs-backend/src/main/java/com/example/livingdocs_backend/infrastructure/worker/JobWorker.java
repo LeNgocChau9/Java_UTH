@@ -38,8 +38,9 @@ public class JobWorker {
 
     @Scheduled(fixedDelay = 3000)
     public void processPendingJobs() {
-        // Quét các job đang ở trạng thái chờ (QUEUED hoặc PENDING)
-        List<Job> pendingJobs = jobRepositoryPort.findTopJobsByStatus(JobStatus.QUEUED, 5);
+        // Quét các job đang ở trạng thái chờ (QUEUED hoặc PENDING) mà đã đến hạn thử lại (nextRetryAt <= now)
+        java.time.Instant now = java.time.Instant.now();
+        List<Job> pendingJobs = jobRepositoryPort.findReadyJobs(JobStatus.QUEUED, now, 5);
         if (pendingJobs.isEmpty()) {
             return;
         }
@@ -61,7 +62,7 @@ public class JobWorker {
         if (handler == null) {
             String errorMsg = String.format("No JobHandler registered for job type: '%s'", job.getType());
             log.error("[JobWorker] {}", errorMsg);
-            job.recordFailure(errorMsg);
+            job.recordFailure(errorMsg, 0);
             jobRepositoryPort.save(job);
             return;
         }
@@ -76,20 +77,43 @@ public class JobWorker {
             log.info("[JobWorker] Successfully completed job #{} [Type: {}]", job.getJobId(), job.getType());
 
         } catch (Exception ex) {
-            // 4. Bắt lỗi và kích hoạt cơ chế Retry / Dead Letter Queue (DLQ)
+            // 4. Bắt lỗi và kích hoạt cơ chế Retry với Exponential Backoff / Dead Letter Queue (DLQ)
             String errorDetails = extractStackTrace(ex);
-            log.warn("[JobWorker] Job #{} failed on attempt {}/{}. Reason: {}", 
-                    job.getJobId(), job.getAttempts(), job.getMaxAttempts(), ex.getMessage());
+            int attempts = job.getAttempts();
+            int maxAttempts = job.getMaxAttempts();
 
-            job.recordFailure(errorDetails);
+            // Thời gian chờ tăng dần theo cấp số nhân: lần 1: 5s, lần 2: 15s, lần 3: 45s (hoặc maxAttempts)
+            long backoffSeconds = calculateExponentialBackoff(attempts);
+
+            log.warn("[JobWorker] Job #{} failed on attempt {}/{}. Reason: {}. Next retry in {}s", 
+                    job.getJobId(), attempts, maxAttempts, ex.getMessage(), backoffSeconds);
+
+            job.recordFailure(errorDetails, backoffSeconds);
             Job savedJob = jobRepositoryPort.save(job);
 
             if (savedJob.getStatus() == JobStatus.FAILED || savedJob.getStatus() == JobStatus.DEAD) {
-                log.error("[JobWorker - DEAD LETTER QUEUE] Job #{} reached max attempts ({}) and is now FAILED/DEAD! Last error: {}",
-                        job.getJobId(), job.getMaxAttempts(), ex.getMessage());
+                log.error("[JobWorker - DEAD LETTER QUEUE] Job #{} reached max attempts ({}) and is now moved to DLQ (FAILED/DEAD)! Last error: {}",
+                        job.getJobId(), maxAttempts, ex.getMessage());
             } else {
-                log.info("[JobWorker] Job #{} will be retried on next schedule poll.", job.getJobId());
+                log.info("[JobWorker] Job #{} scheduled for retry at {} (Exponential backoff: {}s).", 
+                        job.getJobId(), savedJob.getNextRetryAt(), backoffSeconds);
             }
+        }
+    }
+
+    /**
+     * Tính toán thời gian chờ tăng dần theo cấp số nhân (Exponential Backoff):
+     * Lần 1: 5s
+     * Lần 2: 15s
+     * Lần 3: 45s
+     */
+    public static long calculateExponentialBackoff(int attempt) {
+        if (attempt <= 1) {
+            return 5;
+        } else if (attempt == 2) {
+            return 15;
+        } else {
+            return 45;
         }
     }
 
