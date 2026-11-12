@@ -45,6 +45,30 @@ public class JobRepositoryAdapter implements JobRepositoryPort {
                 .collect(Collectors.toList());
     }
 
+    @Override
+    public List<Job> findReadyJobs(JobStatus status, java.time.Instant now, int limit) {
+        List<JobEntity> entities;
+        if (status == JobStatus.QUEUED || status == JobStatus.PENDING) {
+            entities = springDataJobRepository.findReadyJobsWithLimit(
+                    List.of(JobStatus.QUEUED, JobStatus.PENDING), now, PageRequest.of(0, limit));
+        } else {
+            entities = springDataJobRepository.findReadyJobsWithLimit(
+                    List.of(status), now, PageRequest.of(0, limit));
+        }
+        return entities.stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<Job> findDeadLetterJobs(int limit) {
+        List<JobEntity> entities = springDataJobRepository.findDeadLetterJobsWithLimit(
+                List.of(JobStatus.FAILED, JobStatus.DEAD), PageRequest.of(0, limit));
+        return entities.stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
     private JobEntity toEntity(Job job) {
         return JobEntity.builder()
                 .jobId(job.getJobId())
@@ -56,6 +80,7 @@ public class JobRepositoryAdapter implements JobRepositoryPort {
                 .maxAttempts(job.getMaxAttempts() != null ? job.getMaxAttempts() : 3)
                 .lastError(job.getLastError())
                 .lockedAt(job.getLockedAt())
+                .nextRetryAt(job.getNextRetryAt())
                 .createdAt(job.getCreatedAt())
                 .updatedAt(job.getUpdatedAt())
                 .build();
@@ -72,6 +97,7 @@ public class JobRepositoryAdapter implements JobRepositoryPort {
                 .maxAttempts(entity.getMaxAttempts())
                 .lastError(entity.getLastError())
                 .lockedAt(entity.getLockedAt())
+                .nextRetryAt(entity.getNextRetryAt())
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
                 .build();

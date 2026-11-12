@@ -13,4 +13,6 @@ public interface JobRepositoryPort {
     Job save(Job job);
     Optional<Job> findById(Long jobId);
     List<Job> findTopJobsByStatus(JobStatus status, int limit);
+    List<Job> findReadyJobs(JobStatus status, java.time.Instant now, int limit);
+    List<Job> findDeadLetterJobs(int limit);
 }

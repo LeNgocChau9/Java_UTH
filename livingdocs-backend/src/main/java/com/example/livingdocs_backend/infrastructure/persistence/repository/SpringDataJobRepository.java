@@ -19,4 +19,10 @@ public interface SpringDataJobRepository extends JpaRepository<JobEntity, Long> 
 
     @Query("SELECT j FROM JobEntity j WHERE j.status IN :statuses ORDER BY j.createdAt ASC")
     List<JobEntity> findJobsByStatusesWithLimit(@Param("statuses") Collection<JobStatus> statuses, Pageable pageable);
+
+    @Query("SELECT j FROM JobEntity j WHERE j.status IN :statuses AND (j.nextRetryAt IS NULL OR j.nextRetryAt <= :now) ORDER BY j.createdAt ASC")
+    List<JobEntity> findReadyJobsWithLimit(@Param("statuses") Collection<JobStatus> statuses, @Param("now") java.time.Instant now, Pageable pageable);
+
+    @Query("SELECT j FROM JobEntity j WHERE j.status IN :statuses ORDER BY j.updatedAt DESC")
+    List<JobEntity> findDeadLetterJobsWithLimit(@Param("statuses") Collection<JobStatus> statuses, Pageable pageable);
 }

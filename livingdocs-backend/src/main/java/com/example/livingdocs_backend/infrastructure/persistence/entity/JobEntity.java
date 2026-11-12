@@ -50,6 +50,9 @@ public class JobEntity {
     @Column(name = "locked_at")
     private Instant lockedAt;
 
+    @Column(name = "next_retry_at")
+    private Instant nextRetryAt;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;
