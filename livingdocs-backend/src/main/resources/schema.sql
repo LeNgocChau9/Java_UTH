@@ -403,6 +403,7 @@ CREATE TABLE IF NOT EXISTS public.jobs
     max_attempts integer NOT NULL DEFAULT 3,
     last_error text COLLATE pg_catalog."default",
     locked_at timestamp with time zone,
+    next_retry_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT jobs_pkey PRIMARY KEY (job_id)

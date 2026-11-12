@@ -29,6 +29,7 @@ public class Job {
     private Integer maxAttempts;
     private String lastError;
     private Instant lockedAt;
+    private Instant nextRetryAt;
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -46,6 +47,7 @@ public class Job {
     public void markDone() {
         this.status = JobStatus.COMPLETED;
         this.lockedAt = null;
+        this.nextRetryAt = null;
         this.lastError = null;
         this.updatedAt = Instant.now();
     }
@@ -56,14 +58,24 @@ public class Job {
     }
 
     public void recordFailure(String errorMessage) {
+        recordFailure(errorMessage, 0);
+    }
+
+    public void recordFailure(String errorMessage, long backoffSeconds) {
         this.lastError = errorMessage;
         this.lockedAt = null;
         this.updatedAt = Instant.now();
 
         if (this.attempts >= this.maxAttempts) {
             this.status = JobStatus.FAILED; // Chuyển sang Dead Letter Queue (DLQ)
+            this.nextRetryAt = null;
         } else {
             this.status = JobStatus.QUEUED; // Cho phép lần quét tiếp theo retry
+            if (backoffSeconds > 0) {
+                this.nextRetryAt = Instant.now().plusSeconds(backoffSeconds);
+            } else {
+                this.nextRetryAt = null;
+            }
         }
     }
 }
