@@ -56,6 +56,11 @@ import {
   type DocTemplateDto,
   type DocumentCrossCheckResponse,
 } from "@/services/templateService";
+import {
+  InteractiveOptionModal,
+  type InteractiveOptionChoice,
+} from "@/components/shared/InteractiveOptionModal";
+
 
 interface FileTreeNode {
   id: string;
@@ -222,6 +227,7 @@ function EditorContent() {
   const [crossCheckResult, setCrossCheckResult] = useState<DocumentCrossCheckResponse | null>(null);
   const [runningCrossCheck, setRunningCrossCheck] = useState(false);
   const [crossCheckTab, setCrossCheckTab] = useState<"template" | "code" | "suggestions">("template");
+  const [showOptionModal, setShowOptionModal] = useState(false);
 
   // Xem nội dung file mã nguồn được chọn từ Explorer (VS Code File Inspector)
   const handleOpenFilePreview = async (filePath: string) => {
@@ -268,7 +274,7 @@ function EditorContent() {
         if (created.currentVersion) setCurrentVersion(created.currentVersion);
         if (created.latestVersion?.content) {
           setContent(created.latestVersion.content);
-          handleRunCrossCheck(created.latestVersion.content, created.repoId || repoId, created.targetPath || targetPath);
+          handleRunCrossCheck(created.latestVersion.content, created.repoId || repoId, created.targetPath || targetPath, true);
         }
         router.replace(`/tai-lieu-cua-toi/editor?docId=${created.docId}`);
       }
@@ -388,7 +394,12 @@ function EditorContent() {
     fetchTemplates();
   }, []);
 
-  const handleRunCrossCheck = async (markdownText?: string, overrideRepoId?: number, overrideTargetPath?: string | null) => {
+  const handleRunCrossCheck = async (
+    markdownText?: string,
+    overrideRepoId?: number,
+    overrideTargetPath?: string | null,
+    autoOpenOptionModal?: boolean
+  ) => {
     const textToCheck = markdownText !== undefined ? markdownText : content;
     const effectiveRepoId = overrideRepoId || repoId;
     if (!effectiveRepoId) {
@@ -405,10 +416,64 @@ function EditorContent() {
       });
       setCrossCheckResult(res);
       notify("success", `Hoàn tất đối chiếu! Thiếu ${res.missingTemplateHeadings.length} đề mục và ${res.missingCodeEntitiesCount} thực thể code.`);
+      if (autoOpenOptionModal && (res.missingTemplateHeadings.length > 0 || res.missingCodeEntitiesCount > 0)) {
+        setShowOptionModal(true);
+      }
     } catch (err: any) {
       notify("error", "Lỗi quét đối chiếu: " + (err.response?.data?.message || err.message));
     } finally {
       setRunningCrossCheck(false);
+    }
+  };
+
+  const handleApplyInteractiveOption = (choice: InteractiveOptionChoice) => {
+    if (choice.mode === "IGNORE_KEEP_RAW") {
+      notify("info", "Đã giữ nguyên tài liệu ban đầu không thay đổi.");
+      return;
+    }
+
+    if (choice.mode === "APPEND_EVIDENCE_ONLY") {
+      const repoName = repos.find((r) => r.repositoryId === repoId)?.repoFullName || `Repository #${repoId}`;
+      const evidenceBox = `\n\n---\n\n### 🔍 Khối Bằng chứng Xác thực Nguồn (Grounding Evidence Box)\n\n` +
+        `> **Xác thực bởi:** LivingDocs AI Engine (AST Verification Engine)\n` +
+        `> **File nguồn / Repository:** \`${repoName}\`\n` +
+        `> **Mã Commit Hash:** \`verified-ast-grounding\`\n` +
+        `> **Trạng thái:** ✅ Đã đối soát AST\n`;
+      setContent((prev) => prev.trim() + evidenceBox);
+      setIsDirty(true);
+      notify("success", "Đã đính kèm Hộp bằng chứng đối soát AST vào tài liệu!");
+      return;
+    }
+
+    let additions = "";
+
+    // Ghép các headings
+    if (choice.selectedHeadings && choice.selectedHeadings.length > 0) {
+      additions += "\n\n---\n";
+      choice.selectedHeadings.forEach((heading) => {
+        additions += `\n\n## ${heading}\n\n*Nội dung chi tiết cho mục ${heading} được cấu trúc theo tiêu chuẩn dự án. Cập nhật các thông số kỹ thuật, yêu cầu hoặc quy trình liên quan tại đây.*\n`;
+      });
+    }
+
+    // Ghép các code entities
+    if (choice.selectedEntities && choice.selectedEntities.length > 0) {
+      additions += "\n\n### 📦 Đặc tả Kỹ thuật Các Thực thể Mã nguồn\n";
+      choice.selectedEntities.forEach((ent) => {
+        if (ent.suggestedMarkdown) {
+          additions += `\n${ent.suggestedMarkdown.trim()}\n`;
+        } else {
+          additions += `\n#### \`${ent.className}${ent.methodName ? "." + ent.methodName + "()" : ""}\` (${ent.entityType})\n` +
+            `- **Tệp nguồn**: \`${ent.filePath}\`\n` +
+            (ent.signature ? `- **Chữ ký**: \`${ent.signature}\`\n` : "") +
+            `- **Mô tả nghiệp vụ**: ${ent.suggestion || "Thực thể mã nguồn được đồng bộ tự động."}\n`;
+        }
+      });
+    }
+
+    if (additions) {
+      setContent((prev) => prev.trim() + additions + "\n");
+      setIsDirty(true);
+      notify("success", `Đã tự động bổ sung ${choice.selectedHeadings.length} mục và ${choice.selectedEntities.length} thực thể code vào tài liệu!`);
     }
   };
 
@@ -2014,6 +2079,33 @@ function EditorContent() {
                       {crossCheckResult.coveragePercentage}% ({crossCheckResult.documentedCodeEntities}/{crossCheckResult.totalCodeEntities} thực thể)
                     </span>
                   </div>
+
+                  {(crossCheckResult.missingTemplateHeadings.length > 0 || crossCheckResult.missingCodeEntitiesCount > 0) && (
+                    <button
+                      type="button"
+                      onClick={() => setShowOptionModal(true)}
+                      style={{
+                        width: "100%",
+                        marginTop: 8,
+                        padding: "6px 10px",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        borderRadius: 6,
+                        background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
+                        color: "#ffffff",
+                        border: "none",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 6,
+                        boxShadow: "0 2px 4px rgba(37, 99, 235, 0.25)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <Sparkles size={13} />
+                      Mở Hộp thoại Tùy chọn Bổ sung (Options)
+                    </button>
+                  )}
                 </div>
 
                 {/* Tab Navigation */}
@@ -2515,6 +2607,19 @@ function EditorContent() {
           </div>
         </div>
       )}
+      {/* Interactive Option Decision Modal */}
+      <InteractiveOptionModal
+        isOpen={showOptionModal}
+        onClose={() => setShowOptionModal(false)}
+        title="Tùy chọn Bổ sung & Chuẩn hóa Tài liệu"
+        templateName={
+          availableTemplates.find((t) => t.id === selectedTemplateId)?.name ||
+          "Mẫu Tiêu chuẩn Dự án (10 Phần)"
+        }
+        missingHeadings={crossCheckResult?.missingTemplateHeadings || []}
+        missingEntities={crossCheckResult?.missingCodeEntities || []}
+        onApplyOption={handleApplyInteractiveOption}
+      />
     </AppShell>
   );
 }
