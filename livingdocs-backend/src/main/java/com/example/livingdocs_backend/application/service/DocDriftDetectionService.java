@@ -337,8 +337,8 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
             log.info("[DocDrift] Đã lưu {} bản ghi vào bảng document_change_alerts", savedAlerts.size());
         }
 
-        // 4. Định dạng Markdown comment chi tiết và chuyên nghiệp
-        String commentMarkdown = buildPrDriftCommentMarkdown(prNumber, affectedDocs, diffRequest);
+        // 4. Định dạng Markdown comment chi tiết và chuyên nghiệp kèm deep link tới trang cảnh báo
+        String commentMarkdown = buildPrDriftCommentMarkdown(prNumber, affectedDocs, diffRequest, savedAlerts);
 
         // 5. Gọi GitHub REST API đăng mới hoặc cập nhật comment cũ trên PR
         Long commentId = null;
@@ -400,7 +400,7 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
     @Override
     public String generateDriftCommentMarkdown(int prNumber, List<AffectedDocumentResultDto> affectedDocs,
             AstDiffRequestDto diffRequest) {
-        return buildPrDriftCommentMarkdown(prNumber, affectedDocs, diffRequest);
+        return buildPrDriftCommentMarkdown(prNumber, affectedDocs, diffRequest, null);
     }
 
     private String resolveSeverity(String impactLevel, String changeType) {
@@ -461,7 +461,7 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
     }
 
     private String buildPrDriftCommentMarkdown(int prNumber, List<AffectedDocumentResultDto> affectedDocs,
-            AstDiffRequestDto diffRequest) {
+            AstDiffRequestDto diffRequest, List<DocumentChangeAlertEntity> savedAlerts) {
         StringBuilder sb = new StringBuilder();
         sb.append(BOT_MARKER).append("\n");
         sb.append("## 🚨 LivingDocs — Cảnh Báo Trôi Dạt Tài Liệu (Documentation Drift Alert)\n\n");
@@ -469,11 +469,18 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
                 prNumber, diffRequest != null && diffRequest.head_commit_hash() != null ? diffRequest.head_commit_hash()
                         : "HEAD"));
 
+        Long firstAlertId = (savedAlerts != null && !savedAlerts.isEmpty())
+                ? savedAlerts.get(0).getAlertId()
+                : null;
+        String defaultAlertUrl = firstAlertId != null
+                ? String.format("%s/canh-bao-sai-lech?alertId=%d", frontendUrl, firstAlertId)
+                : String.format("%s/canh-bao-sai-lech", frontendUrl);
+
         if (affectedDocs == null || affectedDocs.isEmpty()) {
             sb.append(
                     "> ✨ **Không phát hiện sự sai lệch tài liệu nào!** Các hàm được thêm mới hoặc giữ nguyên chữ ký tương thích với tài liệu hiện tại.\n\n");
             sb.append(String.format(
-                    "[![LivingDocs Web App](https://img.shields.io/badge/LivingDocs-Mở_Giao_Diện_Web-10b981?style=for-the-badge&logo=googledocs&logoColor=white)](%s/documents)\n\n",
+                    "[![LivingDocs Web App](https://img.shields.io/badge/LivingDocs-Mở_Giao_Diện_Web-10b981?style=for-the-badge&logo=googledocs&logoColor=white)](%s/canh-bao-sai-lech)\n\n",
                     frontendUrl));
             sb.append("---\n*🤖 Báo cáo được tự động cập nhật bởi **LivingDocs CI/CD Bot**.*");
             return sb.toString();
@@ -504,6 +511,15 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
         sb.append("| Mức độ | Tài liệu liên kết | Hàm thay đổi | Loại thay đổi | Chi tiết thay đổi | Thao tác |\n");
         sb.append("| :---: | :--- | :--- | :---: | :--- | :---: |\n");
 
+        Map<Long, Long> docIdToAlertId = new HashMap<>();
+        if (savedAlerts != null) {
+            for (DocumentChangeAlertEntity alert : savedAlerts) {
+                if (alert.getDocumentId() != null && alert.getAlertId() != null) {
+                    docIdToAlertId.putIfAbsent(alert.getDocumentId(), alert.getAlertId());
+                }
+            }
+        }
+
         for (AffectedDocumentResultDto item : affectedDocs) {
             String badge = switch (item.severity() != null ? item.severity().toUpperCase() : "MEDIUM") {
                 case "CRITICAL" -> "🔴 **CRITICAL**";
@@ -512,15 +528,16 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
                 default -> "🔵 **LOW**";
             };
 
+            Long matchedAlertId = item.documentId() != null ? docIdToAlertId.get(item.documentId()) : null;
+            String deepLinkUrl = matchedAlertId != null
+                    ? String.format("%s/canh-bao-sai-lech?alertId=%d", frontendUrl, matchedAlertId)
+                    : defaultAlertUrl;
+
             String docTitle = item.documentTitle() != null ? item.documentTitle() : "Tài liệu liên kết";
             String docPath = item.documentPath() != null ? item.documentPath() : item.relatedFilePath();
-            String docLink = item.documentId() != null
-                    ? String.format("[%s](%s/documents/%d)<br>`%s`", docTitle, frontendUrl, item.documentId(), docPath)
-                    : String.format("**%s**<br>`%s`", docTitle, docPath);
+            String docLink = String.format("[%s](%s)<br>`%s`", docTitle, deepLinkUrl, docPath);
 
-            String actionBtn = item.documentId() != null
-                    ? String.format("[🔍 Xem tài liệu](%s/documents/%d)", frontendUrl, item.documentId())
-                    : String.format("[🔍 Mở LivingDocs](%s/documents)", frontendUrl);
+            String actionBtn = String.format("[🔍 Xử lý sai lệch](%s)", deepLinkUrl);
 
             String detailsClean = item.details() != null ? item.details().replace("\n", " ") : "-";
 
@@ -540,8 +557,8 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
         sb.append(
                 "2. 🤖 **Developer:** Mở ứng dụng LivingDocs để xem đề xuất cập nhật tự động bằng AI (Auto-Update Document):\n\n");
         sb.append(String.format(
-                "[![LivingDocs Web App](https://img.shields.io/badge/LivingDocs-Mở_Giao_Diện_Web-2563eb?style=for-the-badge&logo=googledocs&logoColor=white)](%s/documents)\n\n",
-                frontendUrl));
+                "[![LivingDocs Web App](https://img.shields.io/badge/LivingDocs-Xử_Lý_Sai_Lệch_Ngay-2563eb?style=for-the-badge&logo=googledocs&logoColor=white)](%s)\n\n",
+                defaultAlertUrl));
         sb.append(
                 "---\n*🤖 Báo cáo được tự động đăng và cập nhật bởi **LivingDocs CI/CD Bot** mỗi khi PR nhận commit mới (synchronize).*");
 
