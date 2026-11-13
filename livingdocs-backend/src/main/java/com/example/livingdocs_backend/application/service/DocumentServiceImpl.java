@@ -548,7 +548,11 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 || Boolean.TRUE.equals(request.getCommitToGithub());
         String gitCommitSha = null;
         if (nextStatus == DocumentStatus.PUBLISHED && latest != null && commitRequested) {
-            gitCommitSha = pushCommitToGitHub(saved, latest);
+            try {
+                gitCommitSha = pushCommitToGitHub(saved, latest, actorId, actorRole);
+            } catch (RuntimeException ex) {
+                log.warn("Không đẩy được file lên GitHub cho docId {}: {}", docId, ex.getMessage());
+            }
         }
 
         // Ghi nhận Audit Trail
@@ -1141,11 +1145,16 @@ public class DocumentServiceImpl implements DocumentServicePort {
 
     @Override
     public String commitMarkdownToDefaultBranch(Long docId) {
+        return commitMarkdownToDefaultBranch(docId, null, null);
+    }
+
+    @Override
+    public String commitMarkdownToDefaultBranch(Long docId, Long actorId, String approverLabel) {
         Document doc = documentRepositoryPort.findById(docId)
                 .orElseThrow(() -> new DocumentNotFoundException(docId));
         DocumentVersion latest = documentVersionRepositoryPort.findLatestByDocId(docId)
                 .orElseThrow(() -> new DocumentVersionNotFoundException(docId, doc.getCurrentVersion()));
-        String sha = pushCommitToGitHub(doc, latest);
+        String sha = pushCommitToGitHub(doc, latest, actorId, approverLabel);
         if (!StringUtils.hasText(sha)) {
             throw new IllegalArgumentException(
                     "Không tạo được commit .md trên branch mặc định. Kiểm tra GitHub token và repository.");
@@ -1158,48 +1167,77 @@ public class DocumentServiceImpl implements DocumentServicePort {
     /**
      * Kích hoạt xuất bản: Đẩy commit tài liệu Markdown lên GitHub repository.
      */
-    private String pushCommitToGitHub(Document doc, DocumentVersion version) {
+    private String pushCommitToGitHub(Document doc, DocumentVersion version, Long actorId, String approverLabel) {
         if (doc == null || doc.getRepoId() == null || gitHubClient == null) {
             return null;
         }
 
-        try {
-            var repoOpt = repositoryRepository.findById(doc.getRepoId());
-            if (repoOpt.isEmpty()) {
-                log.warn("Không tìm thấy repository ID: {} để đẩy commit tài liệu docId: {}", doc.getRepoId(),
-                        doc.getDocId());
-                return null;
+        var repoOpt = repositoryRepository.findById(doc.getRepoId());
+        if (repoOpt.isEmpty()) {
+            throw new IllegalArgumentException("Không tìm thấy repository để cam kết tài liệu.");
+        }
+
+        RepositoryEntity repo = repoOpt.get();
+        String token = resolveWriteToken(repo, actorId);
+        if (!StringUtils.hasText(token)) {
+            throw new IllegalArgumentException(
+                    "Tài khoản phê duyệt chưa liên kết GitHub có quyền ghi kho. Liên kết lại GitHub rồi cam kết tiếp.");
+        }
+
+        String[] ownerAndRepo = parseOwnerAndRepo(repo.getRepoFullName());
+        String owner = ownerAndRepo[0];
+        String repoName = ownerAndRepo[1];
+
+        String filePath = StringUtils.hasText(doc.getTargetPath()) ? doc.getTargetPath()
+                : "docs/" + (doc.getTitle() != null ? doc.getTitle() : "document").replaceAll("[^a-zA-Z0-9-_]", "_") + ".md";
+        if (filePath.startsWith("/")) {
+            filePath = filePath.substring(1);
+        }
+        String branch = StringUtils.hasText(repo.getDefaultBranch()) ? repo.getDefaultBranch() : "main";
+        String approver = StringUtils.hasText(approverLabel) ? approverLabel.trim() : "Quản lý";
+        String versionCode = version.getVersionId() != null
+                ? String.valueOf(version.getVersionId())
+                : "v" + version.getVersionNum();
+        String commitMessage = "docs: phê duyệt " + doc.getTitle()
+                + " bởi " + approver
+                + " (phiên bản v" + version.getVersionNum() + ", mã " + versionCode + ")";
+
+        log.info("Bắt đầu đẩy commit xuất bản tài liệu [{}] lên GitHub repository {}/{} path {} branch {}",
+                doc.getTitle(), owner, repoName, filePath, branch);
+
+        String commitSha = gitHubClient.createOrUpdateFile(
+                token, owner, repoName, filePath, version.getContent(), commitMessage, branch);
+        if (!StringUtils.hasText(commitSha)) {
+            throw new IllegalArgumentException("GitHub không trả về mã commit cho file " + filePath + ".");
+        }
+        if (!StringUtils.hasText(doc.getTargetPath())) {
+            doc.setTargetPath(filePath);
+            documentRepositoryPort.save(doc);
+        }
+        log.info("Đã xuất bản thành công tài liệu [{}] lên GitHub, Commit SHA: {}", doc.getTitle(), commitSha);
+        return commitSha;
+    }
+
+    private String resolveWriteToken(RepositoryEntity repo, Long actorId) {
+        if (actorId != null) {
+            String actorToken = usableGitHubToken(
+                    gitHubConnectionRepository.findFirstByUserIdOrderByCreatedAtDesc(actorId));
+            if (actorToken != null) {
+                return actorToken;
             }
+        }
+        return resolveGitHubToken(repo);
+    }
 
-            RepositoryEntity repo = repoOpt.get();
-            String token = resolveGitHubToken(repo);
-            if (!StringUtils.hasText(token)) {
-                log.warn("Không có GitHub Token hợp lệ cho repository: {}. Bỏ qua đẩy commit lên GitHub.",
-                        repo.getRepoFullName());
-                return null;
-            }
-
-            String[] ownerAndRepo = parseOwnerAndRepo(repo.getRepoFullName());
-            String owner = ownerAndRepo[0];
-            String repoName = ownerAndRepo[1];
-
-            String filePath = StringUtils.hasText(doc.getTargetPath()) ? doc.getTargetPath()
-                    : "docs/" + doc.getTitle().replaceAll("[^a-zA-Z0-9-_]", "_") + ".md";
-            String branch = StringUtils.hasText(repo.getDefaultBranch()) ? repo.getDefaultBranch() : "main";
-            String commitMessage = "docs(publish): " + doc.getTitle() + " (v" + version.getVersionNum() + ")";
-
-            log.info("Bắt đầu đẩy commit xuất bản tài liệu [{}] lên GitHub repository {}/{} branch {}",
-                    doc.getTitle(), owner, repoName, branch);
-
-            String commitSha = gitHubClient.createOrUpdateFile(
-                    token, owner, repoName, filePath, version.getContent(), commitMessage, branch);
-
-            log.info("Đã xuất bản thành công tài liệu [{}] lên GitHub, Commit SHA: {}", doc.getTitle(), commitSha);
-            return commitSha;
-        } catch (Exception ex) {
-            log.error("Lỗi khi đẩy commit lên GitHub cho tài liệu docId {}: {}", doc.getDocId(), ex.getMessage(), ex);
+    private String usableGitHubToken(java.util.Optional<com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity> conn) {
+        if (conn.isEmpty() || !StringUtils.hasText(conn.get().getAccessTokenEncrypted())) {
             return null;
         }
+        String token = conn.get().getAccessTokenEncrypted().trim();
+        if ("DUMMY_TOKEN".equals(token) || token.startsWith("enc:v1:") || "placeholder".equalsIgnoreCase(token)) {
+            return null;
+        }
+        return token;
     }
 
     private String resolveGitHubToken(RepositoryEntity repo) {

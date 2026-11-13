@@ -12,7 +12,7 @@ public interface AdminUserServicePort {
     List<AdminUserResponse> listUsers();
     AdminUserResponse createUser(com.example.livingdocs_backend.application.dto.AdminCreateUserRequest request, Long actorId, String actorEmail);
     AdminUserResponse changeRole(Long userId, String role, Long actorId, String actorEmail);
-    AdminUserResponse changeStatus(Long userId, boolean active);
+    AdminUserResponse changeStatus(Long userId, boolean active, Long actorId, String actorEmail);
 
     /** Người dùng gửi yêu cầu quên mật khẩu lên cho Admin duyệt */
     PasswordResetRequestResponse requestPasswordReset(ForgotPasswordRequest request);

@@ -126,10 +126,21 @@ export function switchToSavedAccount(entry: SavedAccountEntry) {
   saveProfile(entry.user);
 }
 
+let refreshInFlight: Promise<AuthResponse> | null = null;
+
 export async function refreshSession(): Promise<AuthResponse> {
-  const { data } = await apiClient.post<AuthResponse>("/api/auth/refresh");
-  saveSession(data);
-  return data;
+  if (!refreshInFlight) {
+    refreshInFlight = apiClient
+      .post<AuthResponse>("/api/auth/refresh")
+      .then(({ data }) => {
+        saveSession(data);
+        return data;
+      })
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
 }
 
 export async function updateCurrentUserProfile(payload: {

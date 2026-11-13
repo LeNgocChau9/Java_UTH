@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AppShell } from "@/components/AppShell";
+import { useSession } from "@/hooks/useSession";
 import { documentService } from "@/services/documentService";
 import { reviewService, type ReviewQueueItem, type ApprovalPolicyItem, type ManagerDelegationItem } from "@/services/reviewService";
 import { repoService, type RepoItem } from "@/services/repoService";
@@ -35,6 +36,7 @@ import {
 } from "lucide-react";
 
 export default function TrungTamPheDuyetManagerPage() {
+  const { user } = useSession();
   // Tài liệu Staff đã duyệt, đang chờ Manager (UNDER_REVIEW_MANAGER)
   const [documents, setDocuments] = useState<ReviewQueueItem[]>([]);
   const [codeLinks, setCodeLinks] = useState<GroundingEvidenceItem[]>([]);
@@ -301,7 +303,10 @@ export default function TrungTamPheDuyetManagerPage() {
         : "Từ chối tài liệu.";
 
     try {
-      const activeDel = activeDelegations.length > 0 ? activeDelegations[0] : null;
+      const actorEmail = user?.email?.trim().toLowerCase();
+      const activeDel = activeDelegations.find((item) =>
+        actorEmail && item.delegateeEmail?.trim().toLowerCase() === actorEmail
+      ) ?? null;
       const result = await reviewService.processManagerAction(selectedDocId, {
         decision,
         comment: managerComment.trim() || defaultComment,
@@ -1384,8 +1389,12 @@ export default function TrungTamPheDuyetManagerPage() {
                     onChange={(e) => setCommitToGithub(e.target.checked)}
                   />
                   <GitBranch size={14} />
-                  Commit vào GitHub Repository (file .md, branch{" "}
-                  {selectedQueue?.defaultBranch || selectedRepo?.defaultBranch || "mặc định"})
+                  Cam kết file Markdown vào{" "}
+                  <code>
+                    {selectedDocDetail?.targetPath || selectedQueue?.targetPath || "docs/"}
+                  </code>
+                  , nhánh {selectedQueue?.defaultBranch || selectedRepo?.defaultBranch || "mặc định"}.
+                  Thông điệp commit ghi người phê duyệt và mã phiên bản.
                 </label>
 
                 <div
@@ -1417,7 +1426,9 @@ export default function TrungTamPheDuyetManagerPage() {
                     <CheckCircle size={16} />
                     {processingAction === "PUBLISH"
                       ? "Đang phê duyệt..."
-                      : "Phê duyệt & Xuất bản"}
+                      : commitToGithub
+                        ? "Phê duyệt và cam kết GitHub"
+                        : "Phê duyệt & Xuất bản"}
                   </button>
 
                   {/* Nút 2: Từ chối / Trả lại Staff */}

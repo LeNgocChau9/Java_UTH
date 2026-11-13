@@ -164,15 +164,20 @@ public class GlobalExceptionHandler {
             status = HttpStatus.BAD_GATEWAY;
         }
 
-        String safeMessage = isExpiredOrUnauthorized
+        boolean writeForbidden = ex.getMessage() != null && ex.getMessage().contains("quyền ghi");
+        String safeMessage = writeForbidden
+                ? ex.getMessage()
+                : (isExpiredOrUnauthorized
                 ? "Phiên đăng nhập đã hết hạn"
-                : "Không thể đồng bộ dữ liệu từ GitHub lúc này. Vui lòng thử lại sau.";
+                : "Không thể đồng bộ dữ liệu từ GitHub lúc này. Vui lòng thử lại sau.");
 
         Map<String, Object> error = new HashMap<>();
         error.put("status", status.value());
         error.put("githubStatus", ex.getStatusCode());
         error.put("error", status.getReasonPhrase());
-        error.put("errorCode", isExpiredOrUnauthorized ? "GITHUB_TOKEN_EXPIRED" : "GITHUB_API_ERROR");
+        error.put("errorCode", writeForbidden
+                ? "GITHUB_WRITE_FORBIDDEN"
+                : (isExpiredOrUnauthorized ? "GITHUB_TOKEN_EXPIRED" : "GITHUB_API_ERROR"));
         error.put("message", safeMessage);
         error.put("timestamp", Instant.now().toString());
         return ResponseEntity.status(status).body(error);
