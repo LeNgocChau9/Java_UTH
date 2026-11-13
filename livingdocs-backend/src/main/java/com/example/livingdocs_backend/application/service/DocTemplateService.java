@@ -1,16 +1,22 @@
 package com.example.livingdocs_backend.application.service;
 
+import com.example.livingdocs_backend.application.dto.CrossCheckSuggestionDto;
 import com.example.livingdocs_backend.application.dto.DocTemplateRequest;
 import com.example.livingdocs_backend.application.dto.DocTemplateResponse;
+import com.example.livingdocs_backend.application.dto.DocumentCrossCheckRequest;
+import com.example.livingdocs_backend.application.dto.DocumentCrossCheckResponse;
+import com.example.livingdocs_backend.application.dto.MissingCodeEntityDto;
 import com.example.livingdocs_backend.application.dto.TemplatePreviewRequest;
 import com.example.livingdocs_backend.application.dto.TemplatePreviewResponse;
 import com.example.livingdocs_backend.application.dto.TemplateValidationResult;
 import com.example.livingdocs_backend.application.dto.TemplateVersionRequest;
 import com.example.livingdocs_backend.application.dto.TemplateVersionResponse;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.CodeEntityJpaEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocTemplate;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentTemplateVersion;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.DocTemplateRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.DocumentTemplateVersionRepository;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataCodeEntityRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -19,7 +25,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.List;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -29,6 +35,7 @@ public class DocTemplateService {
     private final DocumentTemplateVersionRepository versionRepository;
     private final TemplateMarkdownRenderer templateMarkdownRenderer;
     private final TemplateStructureCheck templateStructureCheck;
+    private final SpringDataCodeEntityRepository codeEntityRepository;
     private final ObjectMapper objectMapper;
 
     @Transactional(readOnly = true)
@@ -215,6 +222,188 @@ public class DocTemplateService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "structureJson không phải JSON hợp lệ");
         }
         return raw;
+    }
+
+    @Transactional(readOnly = true)
+    public DocumentCrossCheckResponse crossCheck(DocumentCrossCheckRequest request) {
+        String markdown = request.getMarkdown() != null ? request.getMarkdown() : "";
+        Long repoId = request.getRepositoryId();
+
+        // 1. Đối chiếu Template (Direction 1)
+        Long templateId = request.getTemplateId();
+        DocTemplate template = null;
+        if (templateId != null) {
+            template = docTemplateRepository.findById(templateId).orElse(null);
+        }
+        if (template == null) {
+            template = docTemplateRepository.findAll().stream()
+                    .filter(t -> Boolean.TRUE.equals(t.getIsDefault()))
+                    .findFirst()
+                    .orElseGet(() -> docTemplateRepository.findAll().stream().findFirst().orElse(null));
+        }
+
+        List<String> missingHeadings = new ArrayList<>();
+        List<String> templateWarnings = new ArrayList<>();
+        boolean templateValid = true;
+        String templateName = template != null ? template.getName() : "Không xác định";
+
+        if (template != null) {
+            TemplateValidationResult valResult = templateStructureCheck.check(template.getId(), markdown);
+            templateValid = valResult.isValid();
+            if (valResult.getMissingHeadings() != null) {
+                missingHeadings.addAll(valResult.getMissingHeadings());
+            }
+            if (valResult.getWarnings() != null) {
+                templateWarnings.addAll(valResult.getWarnings());
+            }
+        }
+
+        // 2. Đối chiếu Code Entities (Direction 2: Controller, Service, Entity)
+        List<CodeEntityJpaEntity> repoEntities = codeEntityRepository != null && repoId != null
+                ? codeEntityRepository.findByRepositoryId(repoId)
+                : Collections.emptyList();
+
+        List<MissingCodeEntityDto> missingEntities = new ArrayList<>();
+        int totalEntities = 0;
+        int documentedEntities = 0;
+
+        String markdownLower = markdown.toLowerCase(Locale.ROOT);
+
+        // Gom nhóm theo class để đối chiếu tổng quan
+        Map<String, List<CodeEntityJpaEntity>> byClass = new LinkedHashMap<>();
+        for (CodeEntityJpaEntity entity : repoEntities) {
+            String className = entity.getClassName();
+            if (className == null || className.isBlank()) {
+                className = extractClassNameFromFilePath(entity.getFilePath());
+            }
+            if (className != null && !className.isBlank()) {
+                byClass.computeIfAbsent(className, k -> new ArrayList<>()).add(entity);
+            }
+        }
+
+        totalEntities = byClass.size();
+
+        for (Map.Entry<String, List<CodeEntityJpaEntity>> entry : byClass.entrySet()) {
+            String className = entry.getKey();
+            List<CodeEntityJpaEntity> entities = entry.getValue();
+            CodeEntityJpaEntity primary = entities.get(0);
+
+            String inferredType = inferEntityType(primary, className);
+            // So khớp ranh giới từ (word boundary) để tránh so khớp substring nhầm (ví dụ "Doc" trong "Documentation")
+            java.util.regex.Pattern classPattern = java.util.regex.Pattern.compile("(?i)\\b" + java.util.regex.Pattern.quote(className) + "\\b");
+            boolean isDocumented = classPattern.matcher(markdown).find();
+            if (!isDocumented && primary.getFilePath() != null && !primary.getFilePath().isBlank()) {
+                isDocumented = markdown.contains(primary.getFilePath());
+            }
+            if (!isDocumented) {
+                for (CodeEntityJpaEntity m : entities) {
+                    if (m.getMethodName() != null && !m.getMethodName().isBlank() && m.getMethodName().length() > 2) {
+                        java.util.regex.Pattern methodPattern = java.util.regex.Pattern.compile("(?i)\\b" + java.util.regex.Pattern.quote(m.getMethodName()) + "\\b");
+                        if (methodPattern.matcher(markdown).find()) {
+                            isDocumented = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (isDocumented) {
+                documentedEntities++;
+            } else {
+                StringBuilder mdBuilder = new StringBuilder();
+                mdBuilder.append("\n### ").append(inferredType).append(": `").append(className).append("`\n");
+                mdBuilder.append("- **Tệp nguồn**: `").append(primary.getFilePath()).append("`\n");
+                mdBuilder.append("- **Mô tả chức năng**: Quản lý và xử lý nghiệp vụ cho `").append(className).append("`.\n");
+
+                List<CodeEntityJpaEntity> methods = entities.stream()
+                        .filter(e -> "METHOD".equalsIgnoreCase(e.getEntityType()) && e.getMethodName() != null)
+                        .limit(5)
+                        .toList();
+
+                if (!methods.isEmpty()) {
+                    mdBuilder.append("- **Các phương thức / API tiêu biểu**:\n");
+                    for (CodeEntityJpaEntity m : methods) {
+                        String sig = m.getSignature() != null ? m.getSignature() : m.getMethodName() + "()";
+                        mdBuilder.append("  - `").append(sig).append("`\n");
+                    }
+                }
+                mdBuilder.append("\n");
+
+                missingEntities.add(MissingCodeEntityDto.builder()
+                        .entityId(primary.getEntityId())
+                        .className(className)
+                        .entityType(inferredType)
+                        .filePath(primary.getFilePath())
+                        .signature(primary.getSignature())
+                        .suggestion("Chưa có phần đặc tả tài liệu cho " + inferredType + " `" + className + "`")
+                        .suggestedMarkdown(mdBuilder.toString())
+                        .build());
+            }
+        }
+
+        double coveragePercentage = totalEntities > 0
+                ? Math.round(((double) documentedEntities / totalEntities) * 1000.0) / 10.0
+                : 100.0;
+
+        // 3. Tạo danh sách gợi ý AI / Đề xuất tổng hợp
+        List<CrossCheckSuggestionDto> suggestions = new ArrayList<>();
+
+        // Gợi ý cho các đề mục Template bị thiếu
+        for (String heading : missingHeadings) {
+            String cleanTitle = heading.replaceAll("^#+\\s*", "");
+            String suggestedContent = "\n" + heading + "\n\nNội dung chi tiết cho mục " + cleanTitle + "...\n";
+            suggestions.add(CrossCheckSuggestionDto.builder()
+                    .type("TEMPLATE_HEADING")
+                    .title("Bổ sung đề mục Template: " + heading)
+                    .description("Mẫu tài liệu '" + templateName + "' yêu cầu phải có mục này.")
+                    .suggestedMarkdown(suggestedContent)
+                    .build());
+        }
+
+        // Gợi ý cho các Code Entities bị thiếu (tối đa 15 thực thể)
+        for (MissingCodeEntityDto missingCode : missingEntities.stream().limit(15).toList()) {
+            suggestions.add(CrossCheckSuggestionDto.builder()
+                    .type("CODE_ENTITY")
+                    .title("Bổ sung đặc tả " + missingCode.getEntityType() + " " + missingCode.getClassName())
+                    .description(missingCode.getSuggestion())
+                    .suggestedMarkdown(missingCode.getSuggestedMarkdown())
+                    .build());
+        }
+
+        return DocumentCrossCheckResponse.builder()
+                .templateId(template != null ? template.getId() : null)
+                .templateName(templateName)
+                .templateValid(templateValid)
+                .missingTemplateHeadings(missingHeadings)
+                .templateWarnings(templateWarnings)
+                .repositoryId(repoId)
+                .totalCodeEntities(totalEntities)
+                .documentedCodeEntities(documentedEntities)
+                .missingCodeEntitiesCount(missingEntities.size())
+                .coveragePercentage(coveragePercentage)
+                .missingCodeEntities(missingEntities)
+                .suggestions(suggestions)
+                .build();
+    }
+
+    private String inferEntityType(CodeEntityJpaEntity entity, String className) {
+        String name = className != null ? className.toLowerCase(Locale.ROOT) : "";
+        String path = entity.getFilePath() != null ? entity.getFilePath().toLowerCase(Locale.ROOT) : "";
+        if (name.endsWith("controller") || path.contains("controller")) return "Controller";
+        if (name.endsWith("service") || name.endsWith("serviceimpl") || path.contains("service")) return "Service";
+        if (name.endsWith("entity") || path.contains("entity") || path.contains("model")) return "Entity";
+        if (name.endsWith("repository") || path.contains("repository")) return "Repository";
+        if (entity.getEntityType() != null) return entity.getEntityType();
+        return "Class";
+    }
+
+    private String extractClassNameFromFilePath(String filePath) {
+        if (filePath == null) return null;
+        String clean = filePath.replace('\\', '/');
+        int slash = clean.lastIndexOf('/');
+        String filename = slash >= 0 ? clean.substring(slash + 1) : clean;
+        int dot = filename.lastIndexOf('.');
+        return dot > 0 ? filename.substring(0, dot) : filename;
     }
 
     private String normalizeType(String type) {

@@ -56,6 +56,7 @@ import {
 } from "lucide-react";
 import { useSession } from "@/hooks/useSession";
 import { useRouter } from "next/navigation";
+import { templateService, type DriftAlertNotificationItem } from "@/services/templateService";
 import {
   refreshSession,
   updateCurrentUserProfile,
@@ -307,6 +308,36 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const [notifOpen, setNotifOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+
+  // Cảnh báo sai lệch (Drift Alerts) cho chuông thông báo
+  const [driftSummary, setDriftSummary] = useState<{
+    pendingCount: number;
+    recentAlerts: DriftAlertNotificationItem[];
+  }>({ pendingCount: 0, recentAlerts: [] });
+  const [loadingAlerts, setLoadingAlerts] = useState(false);
+
+  const fetchDriftAlerts = useCallback(async () => {
+    try {
+      setLoadingAlerts(true);
+      const summary = await templateService.getDriftAlertSummary();
+      if (summary) {
+        setDriftSummary({
+          pendingCount: Number(summary.pendingCount || 0),
+          recentAlerts: Array.isArray(summary.recentAlerts) ? summary.recentAlerts : [],
+        });
+      }
+    } catch {
+      // fallback nhẹ nhàng nếu chưa kết nối backend
+    } finally {
+      setLoadingAlerts(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchDriftAlerts();
+    const interval = setInterval(fetchDriftAlerts, 15000);
+    return () => clearInterval(interval);
+  }, [fetchDriftAlerts]);
 
   // Modal cảnh báo hết phiên & gia hạn quyền
   const [showSessionModal, setShowSessionModal] = useState(false);
@@ -830,28 +861,46 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             )}
           </button>
 
-          {/* Notifications */}
+          {/* Notifications Bell */}
           <div style={{ position: "relative" }}>
             <button
               type="button"
-              onClick={() => { setNotifOpen((v) => !v); setUserMenuOpen(false); }}
+              onClick={() => {
+                setNotifOpen((v) => !v);
+                setUserMenuOpen(false);
+                if (!notifOpen) fetchDriftAlerts();
+              }}
               className="ld-btn ld-btn-ghost"
               style={{ padding: "6px 10px", position: "relative", borderRadius: 8 }}
-              aria-label="Thông báo"
+              aria-label={`Thông báo cảnh báo sai lệch (${driftSummary.pendingCount})`}
+              title={`Cảnh báo sai lệch (${driftSummary.pendingCount} chưa xử lý)`}
             >
               <Bell size={17} />
-              <span
-                style={{
-                  position: "absolute",
-                  top: 6,
-                  right: 8,
-                  width: 7,
-                  height: 7,
-                  background: "#087f5b",
-                  borderRadius: "50%",
-                  border: "2px solid #ffffff",
-                }}
-              />
+              {driftSummary.pendingCount > 0 && (
+                <span
+                  style={{
+                    position: "absolute",
+                    top: -2,
+                    right: -2,
+                    minWidth: 18,
+                    height: 18,
+                    padding: "0 5px",
+                    background: "#ef4444",
+                    color: "#ffffff",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    borderRadius: 9999,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    border: "2px solid #ffffff",
+                    boxShadow: "0 2px 4px rgba(239, 68, 68, 0.4)",
+                    lineHeight: 1,
+                  }}
+                >
+                  {driftSummary.pendingCount > 99 ? "99+" : driftSummary.pendingCount}
+                </span>
+              )}
             </button>
 
             {notifOpen && (
@@ -860,24 +909,178 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   position: "absolute",
                   top: "calc(100% + 8px)",
                   right: 0,
-                  width: 320,
+                  width: 360,
+                  maxWidth: "90vw",
                   background: "#ffffff",
                   border: "1px solid #e2e8f0",
-                  borderRadius: 8,
-                  boxShadow: "0 10px 25px -5px rgba(0,0,0,0.08)",
+                  borderRadius: 10,
+                  boxShadow: "0 10px 25px -5px rgba(0,0,0,0.12)",
                   zIndex: 50,
                   overflow: "hidden",
                 }}
               >
-                <div style={{ padding: "12px 16px", borderBottom: "1px solid #e2e8f0" }}>
-                  <p style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", margin: 0 }}>
-                    Thông báo hệ thống
-                  </p>
+                <div
+                  style={{
+                    padding: "12px 16px",
+                    borderBottom: "1px solid #f1f5f9",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    background: "#f8fafc",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <AlertTriangle size={15} style={{ color: "#ef4444" }} />
+                    <p style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", margin: 0 }}>
+                      Cảnh báo sai lệch ({driftSummary.pendingCount})
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      fetchDriftAlerts();
+                    }}
+                    className="ld-btn ld-btn-ghost ld-btn-sm"
+                    style={{ padding: "2px 6px", fontSize: 11 }}
+                    title="Làm mới"
+                  >
+                    <RefreshCw size={12} className={loadingAlerts ? "animate-spin" : ""} />
+                  </button>
                 </div>
-                <div style={{ padding: 16 }}>
-                  <p style={{ fontSize: 13, color: "#64748b", margin: 0 }}>
-                    Hệ thống LivingDocs đã đồng bộ với kho code mới nhất.
-                  </p>
+
+                <div style={{ maxHeight: 340, overflowY: "auto", padding: 8 }}>
+                  {driftSummary.recentAlerts.length === 0 ? (
+                    <div style={{ padding: 20, textAlign: "center", color: "#64748b", fontSize: 12 }}>
+                      <CheckCircle size={22} style={{ color: "#10b981", margin: "0 auto 8px" }} />
+                      <p style={{ margin: 0, fontWeight: 500 }}>Không có cảnh báo sai lệch nào chưa xử lý.</p>
+                      <p style={{ margin: "4px 0 0", fontSize: 11, color: "#94a3b8" }}>
+                        Tài liệu và mã nguồn đang đồng bộ hoàn hảo.
+                      </p>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {driftSummary.recentAlerts.map((alert) => {
+                        const sevColor =
+                          alert.severity === "CRITICAL"
+                            ? "#ef4444"
+                            : alert.severity === "HIGH"
+                            ? "#f97316"
+                            : alert.severity === "LOW"
+                            ? "#64748b"
+                            : "#3b82f6";
+
+                        return (
+                          <div
+                            key={alert.alertId}
+                            style={{
+                              padding: "10px 12px",
+                              borderRadius: 8,
+                              border: "1px solid #f1f5f9",
+                              background: "#ffffff",
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 6,
+                            }}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  padding: "2px 6px",
+                                  borderRadius: 4,
+                                  background: `${sevColor}15`,
+                                  color: sevColor,
+                                  border: `1px solid ${sevColor}30`,
+                                }}
+                              >
+                                {alert.severity}
+                              </span>
+                              {alert.sourceCommit && (
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    fontFamily: "var(--font-mono)",
+                                    color: "#64748b",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 3,
+                                  }}
+                                >
+                                  Commit: {alert.sourceCommit}
+                                </span>
+                              )}
+                              {alert.sourcePrId && (
+                                <span style={{ fontSize: 11, fontWeight: 600, color: "#2563eb" }}>
+                                  PR #{alert.sourcePrId}
+                                </span>
+                              )}
+                            </div>
+
+                            <p style={{ fontSize: 12, color: "#334155", margin: 0, lineHeight: 1.4 }}>
+                              {alert.details}
+                            </p>
+
+                            {alert.documentTitle && (
+                              <p style={{ fontSize: 11, color: "#64748b", margin: 0, fontStyle: "italic" }}>
+                                Tài liệu: {alert.documentTitle}
+                              </p>
+                            )}
+
+                            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 2 }}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setNotifOpen(false);
+                                  router.push(alert.suggestionUrl || `/canh-bao-sai-lech?alertId=${alert.alertId}`);
+                                }}
+                                className="ld-btn ld-btn-primary ld-btn-sm"
+                                style={{
+                                  fontSize: 11,
+                                  padding: "4px 8px",
+                                  background: "#087f5b",
+                                  color: "#ffffff",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 4,
+                                }}
+                              >
+                                <Sparkles size={11} />
+                                <span>Gợi ý sửa tài liệu</span>
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  style={{
+                    padding: "8px 14px",
+                    borderTop: "1px solid #f1f5f9",
+                    background: "#f8fafc",
+                    textAlign: "center",
+                  }}
+                >
+                  <Link
+                    href="/canh-bao-sai-lech"
+                    onClick={() => setNotifOpen(false)}
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: "#087f5b",
+                      textDecoration: "none",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    <span>Xem tất cả cảnh báo sai lệch</span>
+                    <ChevronRight size={13} />
+                  </Link>
                 </div>
               </div>
             )}

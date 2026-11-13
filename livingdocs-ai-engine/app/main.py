@@ -1,9 +1,13 @@
-from fastapi import FastAPI
+import logging
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.api.endpoints import router as api_router
 
 settings = get_settings()
+logger = logging.getLogger("uvicorn.error")
 
 app = FastAPI(
     title="LivingDocs AI Engine API",
@@ -12,6 +16,15 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc"
 )
+
+# Exception handler ghi log rõ ràng khi gặp lỗi validation (422)
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.warning(f"[422 Validation Error] Path: {request.url.path} Errors: {exc.errors()}")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors(), "message": "Dữ liệu yêu cầu không hợp lệ hoặc thiếu trường bắt buộc."}
+    )
 
 # Cấu hình CORS để Spring Boot Backend và Next.js Frontend gọi API thoải mái
 app.add_middleware(

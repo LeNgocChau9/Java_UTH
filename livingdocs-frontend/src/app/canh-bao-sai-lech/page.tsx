@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useMemo, useRef, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import {
   AlertTriangle,
@@ -248,8 +248,11 @@ function computeSideBySideDiff(oldText: string, newText: string): AlignedDiffPai
   return pairs;
 }
 
-export default function CanhBaoSaiLechPage() {
+function CanhBaoSaiLechContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const alertIdParam = searchParams.get("alertId");
+  const targetAlertId = alertIdParam ? Number(alertIdParam) : null;
   const [alerts, setAlerts] = useState<DriftAlertItem[]>([]);
   const [selectedAlertId, setSelectedAlertId] = useState<number | null>(null);
   const [severityFilter, setSeverityFilter] = useState<"all" | SeverityType>("all");
@@ -439,7 +442,12 @@ export default function CanhBaoSaiLechPage() {
           },
         }));
         setAlerts(mapped);
-        setSelectedAlertId(mapped[0].id);
+        if (targetAlertId) {
+          const found = mapped.find((a) => a.id === targetAlertId);
+          setSelectedAlertId(found ? found.id : mapped[0].id);
+        } else {
+          setSelectedAlertId(mapped[0].id);
+        }
       } else {
         // KHÔNG DÙNG MOCK DATA: Khi DB chưa có cảnh báo thì hiển thị 0 cảnh báo thật
         setAlerts([]);
@@ -470,6 +478,15 @@ export default function CanhBaoSaiLechPage() {
     handleScan();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (targetAlertId && alerts.length > 0) {
+      const found = alerts.find((a) => a.id === targetAlertId);
+      if (found) {
+        setSelectedAlertId(found.id);
+      }
+    }
+  }, [targetAlertId, alerts]);
 
   // Hành động 1: Chấp nhận đề xuất (Tạo bản nháp mới & giải quyết cảnh báo)
   const handleAcceptFix = async (alertItem: DriftAlertItem) => {
@@ -1914,4 +1931,33 @@ export default function CanhBaoSaiLechPage() {
   </div>
 </AppShell>
 );
+}
+
+export default function CanhBaoSaiLechPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell>
+          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: 400 }}>
+            <div style={{ textAlign: "center", color: "#64748b" }}>
+              <div
+                style={{
+                  width: 32,
+                  height: 32,
+                  border: "3px solid #b8dec5",
+                  borderTopColor: "#087f5b",
+                  borderRadius: "50%",
+                  animation: "spin 1s linear infinite",
+                  margin: "0 auto 12px",
+                }}
+              />
+              <p>Đang tải cảnh báo sai lệch...</p>
+            </div>
+          </div>
+        </AppShell>
+      }
+    >
+      <CanhBaoSaiLechContent />
+    </Suspense>
+  );
 }

@@ -256,6 +256,21 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(error);
     }
 
+    @ExceptionHandler(org.springframework.web.HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<Map<String, Object>> handleHttpRequestMethodNotSupportedException(org.springframework.web.HttpRequestMethodNotSupportedException ex) {
+        log.warn("Request method not supported: method={}, supportedMethods={}", ex.getMethod(), ex.getSupportedHttpMethods());
+        Map<String, Object> error = new HashMap<>();
+        error.put("status", HttpStatus.METHOD_NOT_ALLOWED.value());
+        error.put("error", "Method Not Allowed");
+        error.put("errorCode", "METHOD_NOT_ALLOWED");
+        error.put("message", "Phương thức " + ex.getMethod() + " không được hỗ trợ cho tài nguyên này.");
+        if (ex.getSupportedHttpMethods() != null && !ex.getSupportedHttpMethods().isEmpty()) {
+            error.put("supportedMethods", ex.getSupportedHttpMethods().stream().map(Object::toString).toList());
+        }
+        error.put("timestamp", Instant.now().toString());
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(error);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGenericException(Exception ex) {
         log.error("Unhandled system error: ", ex);

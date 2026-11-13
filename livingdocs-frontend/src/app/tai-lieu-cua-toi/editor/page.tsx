@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, Suspense } from "react";
+import { useState, useEffect, useRef, Suspense, useMemo, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
@@ -37,14 +37,91 @@ import {
   FileText,
   ShieldCheck,
   ChevronDown,
+  ChevronRight,
   History,
   GitCommit,
-  Code2,
-  Layers,
   ChevronUp,
-  ExternalLink,
   Upload,
+  Folder,
+  FolderOpen,
+  Search,
+  PanelLeft,
+  RefreshCw,
+  Plus,
+  AlertTriangle,
+  Wand2,
 } from "lucide-react";
+import {
+  templateService,
+  type DocTemplateDto,
+  type DocumentCrossCheckResponse,
+} from "@/services/templateService";
+
+interface FileTreeNode {
+  id: string;
+  name: string;
+  fullPath: string;
+  isFolder: boolean;
+  children?: FileTreeNode[];
+}
+
+function buildFileTree(paths: string[]): FileTreeNode[] {
+  const root: FileTreeNode[] = [];
+  paths.forEach((p) => {
+    const cleanPath = p.replace(/\\/g, "/");
+    const parts = cleanPath.split("/").filter(Boolean);
+    let currentArr = root;
+    parts.forEach((part, idx) => {
+      const isFile = idx === parts.length - 1;
+      const fullPath = parts.slice(0, idx + 1).join("/");
+      let existing = currentArr.find((n) => n.name === part);
+      if (!existing) {
+        existing = {
+          id: fullPath,
+          name: part,
+          fullPath,
+          isFolder: !isFile,
+          children: isFile ? undefined : [],
+        };
+        currentArr.push(existing);
+      }
+      if (!isFile && existing.children) {
+        currentArr = existing.children;
+      }
+    });
+  });
+
+  function sortNodes(nodes: FileTreeNode[]) {
+    nodes.sort((a, b) => {
+      if (a.isFolder === b.isFolder) {
+        return a.name.localeCompare(b.name);
+      }
+      return a.isFolder ? -1 : 1;
+    });
+    nodes.forEach((n) => {
+      if (n.children) sortNodes(n.children);
+    });
+  }
+  sortNodes(root);
+  return root;
+}
+
+function getFileIcon(name: string) {
+  const lower = name.toLowerCase();
+  if (lower.endsWith(".java") || lower.endsWith(".ts") || lower.endsWith(".tsx") || lower.endsWith(".js") || lower.endsWith(".py")) {
+    return <FileCode size={14} style={{ color: "#2563eb", flexShrink: 0 }} />;
+  }
+  if (lower.endsWith(".docx") || lower.endsWith(".doc")) {
+    return <FileText size={14} style={{ color: "#2563eb", flexShrink: 0 }} />;
+  }
+  if (lower.endsWith(".md")) {
+    return <FileText size={14} style={{ color: "#087f5b", flexShrink: 0 }} />;
+  }
+  if (lower.endsWith(".json") || lower.endsWith(".yaml") || lower.endsWith(".yml") || lower.endsWith(".xml")) {
+    return <Code size={14} style={{ color: "#d97706", flexShrink: 0 }} />;
+  }
+  return <FileText size={14} style={{ color: "#64748b", flexShrink: 0 }} />;
+}
 
 const SAMPLE_MARKDOWN = `# Tài liệu Kiến trúc Hệ thống LivingDocs
 
@@ -128,6 +205,45 @@ function EditorContent() {
   const docxFileInputRef = useRef<HTMLInputElement>(null);
   const [importingDocx, setImportingDocx] = useState(false);
 
+  // Workspace 3-column Layout States
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
+  const [gitTreeFiles, setGitTreeFiles] = useState<string[]>([]);
+  const [treeSearch, setTreeSearch] = useState<string>("");
+  const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({});
+  const [loadingTree, setLoadingTree] = useState(false);
+  const [selectedRepoFile, setSelectedRepoFile] = useState<string | null>(null);
+  const [viewingFile, setViewingFile] = useState<{ path: string; content: string } | null>(null);
+  const [loadingFileContent, setLoadingFileContent] = useState(false);
+
+  // Template & 2-Way Cross-Check states
+  const [availableTemplates, setAvailableTemplates] = useState<DocTemplateDto[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
+  const [crossCheckResult, setCrossCheckResult] = useState<DocumentCrossCheckResponse | null>(null);
+  const [runningCrossCheck, setRunningCrossCheck] = useState(false);
+  const [crossCheckTab, setCrossCheckTab] = useState<"template" | "code" | "suggestions">("template");
+
+  // Xem nội dung file mã nguồn được chọn từ Explorer (VS Code File Inspector)
+  const handleOpenFilePreview = async (filePath: string) => {
+    setSelectedRepoFile(filePath);
+    setLoadingFileContent(true);
+    try {
+      const res = await repoService.getFileContent(repoId, filePath);
+      if (res && typeof res.content === "string") {
+        setViewingFile({ path: filePath, content: res.content });
+      } else {
+        setViewingFile({ path: filePath, content: "// Tệp rỗng hoặc không có nội dung văn bản." });
+      }
+    } catch (err: any) {
+      setViewingFile({
+        path: filePath,
+        content: `// Không thể tải nội dung tệp "${filePath}":\n// ${err.response?.data?.message || err.message || "Tệp chưa được đồng bộ từ GitHub."}`,
+      });
+    } finally {
+      setLoadingFileContent(false);
+    }
+  };
+
   // Xử lý nạp file Word trực tiếp trong Workspace Editor
   const handleDirectDocxImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -143,7 +259,19 @@ function EditorContent() {
       }
       const created = await documentService.importDocx(formData);
       notify("success", `Nạp tệp "${file.name}" vào Workspace thành công!`);
-      router.push(`/tai-lieu-cua-toi/editor?docId=${created.docId}`);
+      if (created.docId) {
+        setDocId(created.docId);
+        setTitle(created.title);
+        if (created.repoId) setRepoId(created.repoId);
+        if (created.targetPath) setTargetPath(created.targetPath);
+        if (created.status) setStatus(created.status);
+        if (created.currentVersion) setCurrentVersion(created.currentVersion);
+        if (created.latestVersion?.content) {
+          setContent(created.latestVersion.content);
+          handleRunCrossCheck(created.latestVersion.content, created.repoId || repoId, created.targetPath || targetPath);
+        }
+        router.replace(`/tai-lieu-cua-toi/editor?docId=${created.docId}`);
+      }
     } catch (err: any) {
       notify("error", "Lỗi nạp file Word: " + (err.response?.data?.message || err.message));
     } finally {
@@ -158,6 +286,155 @@ function EditorContent() {
   const notify = (type: "success" | "error" | "info", message: string) => {
     setToast({ type, message });
     setTimeout(() => setToast(null), 4000);
+  };
+
+  const filteredPaths = useMemo(() => {
+    if (!treeSearch.trim()) return gitTreeFiles;
+    const q = treeSearch.toLowerCase().trim();
+    return gitTreeFiles.filter((p) => p.toLowerCase().includes(q));
+  }, [gitTreeFiles, treeSearch]);
+
+  const treeNodes = useMemo(() => {
+    return buildFileTree(filteredPaths);
+  }, [filteredPaths]);
+
+  const toggleFolder = (path: string) => {
+    setOpenFolders((prev) => ({ ...prev, [path]: !prev[path] }));
+  };
+
+  const expandAllFolders = () => {
+    const all: Record<string, boolean> = {};
+    const recurse = (nodes: FileTreeNode[]) => {
+      nodes.forEach((n) => {
+        if (n.isFolder) {
+          all[n.fullPath] = true;
+          if (n.children) recurse(n.children);
+        }
+      });
+    };
+    recurse(treeNodes);
+    setOpenFolders(all);
+  };
+
+  const collapseAllFolders = () => {
+    setOpenFolders({});
+  };
+
+  const fetchRepoTree = useCallback(async (repositoryId: number) => {
+    setLoadingTree(true);
+    try {
+      const items = await repoService.getRepositoryTree(repositoryId);
+      if (items && items.length > 0) {
+        const filePaths = items
+          .filter((it) => it.type === "blob" || it.path?.includes("."))
+          .map((it) => it.path);
+        setGitTreeFiles(filePaths);
+        const initialOpen: Record<string, boolean> = {};
+        filePaths.forEach((p) => {
+          const parts = p.split("/");
+          if (parts.length > 1) {
+            initialOpen[parts[0]] = true;
+            if (parts.length > 2) initialOpen[`${parts[0]}/${parts[1]}`] = true;
+          }
+        });
+        setOpenFolders(initialOpen);
+      } else {
+        const fallback = [
+          "src/main/java/com/example/controller/DocumentController.java",
+          "src/main/java/com/example/service/DocumentService.java",
+          "src/main/java/com/example/entity/DocumentEntity.java",
+          "src/main/java/com/example/repository/DocumentRepository.java",
+          "docs/architecture.md",
+          "docs/api-specification.md",
+          "README.md",
+        ];
+        setGitTreeFiles(fallback);
+        setOpenFolders({ src: true, "src/main": true, docs: true });
+      }
+    } catch {
+      const fallback = [
+        "src/main/java/com/example/controller/DocumentController.java",
+        "src/main/java/com/example/service/DocumentService.java",
+        "src/main/java/com/example/entity/DocumentEntity.java",
+        "docs/architecture.md",
+        "README.md",
+      ];
+      setGitTreeFiles(fallback);
+      setOpenFolders({ src: true, docs: true });
+    } finally {
+      setLoadingTree(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (repoId) {
+      fetchRepoTree(repoId);
+    }
+  }, [repoId, fetchRepoTree]);
+
+  useEffect(() => {
+    const fetchTemplates = async () => {
+      try {
+        const list = await templateService.getTemplates();
+        if (list && list.length > 0) {
+          setAvailableTemplates(list);
+          const def = list.find((t) => t.isDefault) || list[0];
+          setSelectedTemplateId(def.id);
+        }
+      } catch {
+        // ignore
+      }
+    };
+    fetchTemplates();
+  }, []);
+
+  const handleRunCrossCheck = async (markdownText?: string, overrideRepoId?: number, overrideTargetPath?: string | null) => {
+    const textToCheck = markdownText !== undefined ? markdownText : content;
+    const effectiveRepoId = overrideRepoId || repoId;
+    if (!effectiveRepoId) {
+      notify("error", "Vui lòng chọn repository liên kết!");
+      return;
+    }
+    setRunningCrossCheck(true);
+    try {
+      const res = await templateService.crossCheck({
+        templateId: selectedTemplateId || undefined,
+        repositoryId: effectiveRepoId,
+        markdown: textToCheck,
+        targetPath: overrideTargetPath || targetPath,
+      });
+      setCrossCheckResult(res);
+      notify("success", `Hoàn tất đối chiếu! Thiếu ${res.missingTemplateHeadings.length} đề mục và ${res.missingCodeEntitiesCount} thực thể code.`);
+    } catch (err: any) {
+      notify("error", "Lỗi quét đối chiếu: " + (err.response?.data?.message || err.message));
+    } finally {
+      setRunningCrossCheck(false);
+    }
+  };
+
+  const handleApplySnippet = (snippet: string, titleStr: string) => {
+    setContent((prev) => {
+      const trimmed = prev.trim();
+      return trimmed ? `${trimmed}\n\n${snippet.trim()}\n` : snippet.trim();
+    });
+    setIsDirty(true);
+    notify("success", `Đã bổ sung "${titleStr}" vào tài liệu!`);
+  };
+
+  const handleApplyAllSuggestions = () => {
+    if (!crossCheckResult || !crossCheckResult.suggestions || crossCheckResult.suggestions.length === 0) {
+      notify("info", "Không có gợi ý nào cần áp dụng.");
+      return;
+    }
+    let additions = "";
+    crossCheckResult.suggestions.forEach((s) => {
+      if (s.suggestedMarkdown) {
+        additions += `\n\n${s.suggestedMarkdown.trim()}`;
+      }
+    });
+    setContent((prev) => prev.trim() + additions + "\n");
+    setIsDirty(true);
+    notify("success", `Đã áp dụng tất cả ${crossCheckResult.suggestions.length} gợi ý vào tài liệu!`);
   };
 
   // Nạp danh sách repositories và collections
@@ -202,6 +479,7 @@ function EditorContent() {
         if (doc.latestVersion) {
           setContent(doc.latestVersion.content || "");
           setLatestHash(doc.latestVersion.hash || "");
+          handleRunCrossCheck(doc.latestVersion.content || "", doc.repoId, doc.targetPath || undefined);
         }
         setIsDirty(false);
       } catch (err: any) {
@@ -401,6 +679,83 @@ function EditorContent() {
     words: content.trim() ? content.trim().split(/\s+/).length : 0,
     chars: content.length,
     lines: content.split("\n").length,
+  };
+
+  const renderTreeNode = (node: FileTreeNode, depth = 0) => {
+    if (node.isFolder) {
+      const isOpen = !!openFolders[node.fullPath];
+      return (
+        <div key={node.id}>
+          <button
+            type="button"
+            onClick={() => toggleFolder(node.fullPath)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              width: "100%",
+              padding: "4px 8px",
+              paddingLeft: `${depth * 10 + 6}px`,
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              fontSize: 12,
+              color: "#334155",
+              textAlign: "left",
+              borderRadius: 4,
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = "#f1f5f9")}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+          >
+            {isOpen ? <ChevronDown size={13} style={{ color: "#64748b" }} /> : <ChevronRight size={13} style={{ color: "#64748b" }} />}
+            {isOpen ? <FolderOpen size={14} style={{ color: "#0284c7" }} /> : <Folder size={14} style={{ color: "#0284c7" }} />}
+            <span style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {node.name}
+            </span>
+          </button>
+          {isOpen && node.children && (
+            <div>{node.children.map((child) => renderTreeNode(child, depth + 1))}</div>
+          )}
+        </div>
+      );
+    }
+    const isSelected = selectedRepoFile === node.fullPath;
+    const isNodeLoading = loadingFileContent && isSelected;
+    return (
+      <button
+        key={node.id}
+        type="button"
+        onClick={() => handleOpenFilePreview(node.fullPath)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          width: "100%",
+          padding: "4px 8px",
+          paddingLeft: `${depth * 10 + 16}px`,
+          border: "none",
+          background: isSelected ? "#e0f2fe" : "transparent",
+          color: isSelected ? "#0369a1" : "#475569",
+          cursor: "pointer",
+          fontSize: 12,
+          textAlign: "left",
+          borderRadius: 4,
+          fontFamily: "var(--font-mono)",
+        }}
+        onMouseEnter={(e) => {
+          if (!isSelected) e.currentTarget.style.background = "#f8fafc";
+        }}
+        onMouseLeave={(e) => {
+          if (!isSelected) e.currentTarget.style.background = "transparent";
+        }}
+        title={`Xem nội dung mã nguồn: ${node.fullPath}`}
+      >
+        {isNodeLoading ? <RefreshCw size={13} className="animate-spin" style={{ color: "#0284c7" }} /> : getFileIcon(node.name)}
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+          {node.name}
+        </span>
+      </button>
+    );
   };
 
   if (loading) {
@@ -615,6 +970,40 @@ function EditorContent() {
               <span>{saving ? "Đang lưu..." : "Lưu nháp"}</span>
             </button>
 
+            {/* NÚT BẬT/TẮT CỘT EXPLORER */}
+            <button
+              type="button"
+              onClick={() => setLeftSidebarOpen((v) => !v)}
+              className={`ld-btn ${leftSidebarOpen ? "ld-btn-secondary" : "ld-btn-ghost"}`}
+              style={{ fontSize: 12, padding: "6px 10px", display: "inline-flex", alignItems: "center", gap: 5 }}
+              title={leftSidebarOpen ? "Thu gọn Repo Explorer" : "Mở Repo Explorer"}
+            >
+              <PanelLeft size={14} style={{ color: leftSidebarOpen ? "#087f5b" : "#64748b" }} />
+              <span>Explorer</span>
+            </button>
+
+            {/* NÚT BẬT/TẮT PANEL ĐỐI CHIẾU TEMPLATE & AI */}
+            <button
+              type="button"
+              onClick={() => setRightSidebarOpen((v) => !v)}
+              className={`ld-btn ${rightSidebarOpen ? "ld-btn-secondary" : "ld-btn-ghost"}`}
+              style={{ fontSize: 12, padding: "6px 10px", display: "inline-flex", alignItems: "center", gap: 6 }}
+              title={rightSidebarOpen ? "Thu gọn Panel Đối chiếu Template & AI" : "Mở Panel Đối chiếu Template & AI"}
+            >
+              <Sparkles size={14} style={{ color: rightSidebarOpen ? "#087f5b" : "#64748b" }} />
+              <span>Đối chiếu Template & AI</span>
+              {crossCheckResult && (
+                <span
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: "50%",
+                    background: crossCheckResult.templateValid && crossCheckResult.missingCodeEntitiesCount === 0 ? "#10b981" : "#ef4444",
+                  }}
+                />
+              )}
+            </button>
+
             {/* NÚT GỬI ĐỂ REVIEW */}
             <button
               type="button"
@@ -747,6 +1136,140 @@ function EditorContent() {
           </div>
         </div>
       </div>
+
+      {/* 3-COLUMN VS CODE WORKSPACE CONTAINER */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns:
+            leftSidebarOpen && rightSidebarOpen
+              ? "270px minmax(0, 1fr) 350px"
+              : leftSidebarOpen && !rightSidebarOpen
+              ? "270px minmax(0, 1fr)"
+              : !leftSidebarOpen && rightSidebarOpen
+              ? "minmax(0, 1fr) 350px"
+              : "minmax(0, 1fr)",
+          gap: 16,
+          alignItems: "start",
+        }}
+      >
+        {/* CỘT TRÁI: REPO FILE EXPLORER (CÂY THƯ MỤC REPO NHƯ VS CODE) */}
+        {leftSidebarOpen && (
+          <div
+            style={{
+              background: "#ffffff",
+              border: "1px solid var(--color-border)",
+              borderRadius: 8,
+              display: "flex",
+              flexDirection: "column",
+              height: "calc(100vh - 180px)",
+              minHeight: 650,
+              overflow: "hidden",
+            }}
+          >
+            {/* Header Explorer */}
+            <div
+              style={{
+                padding: "10px 14px",
+                borderBottom: "1px solid var(--color-border)",
+                background: "var(--color-muted)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <Folder size={14} style={{ color: "#087f5b" }} />
+                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.05em", color: "var(--color-text-secondary)", textTransform: "uppercase" }}>
+                  Explorer
+                </span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <button
+                  type="button"
+                  onClick={() => fetchRepoTree(repoId)}
+                  className="ld-btn ld-btn-ghost ld-btn-sm"
+                  style={{ padding: 2 }}
+                  title="Đồng bộ lại cây thư mục"
+                >
+                  <RefreshCw size={12} className={loadingTree ? "animate-spin" : ""} />
+                </button>
+              </div>
+            </div>
+
+            {/* Repo Sub-Header */}
+            <div style={{ padding: "8px 12px", borderBottom: "1px solid var(--color-border)", background: "#fafafa" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                📦 {repos.find((r) => r.repositoryId === repoId)?.repoFullName || "Repository"}
+              </div>
+              {/* Search file box */}
+              <div style={{ position: "relative", marginTop: 6 }}>
+                <Search size={12} style={{ position: "absolute", left: 8, top: 7, color: "#94a3b8" }} />
+                <input
+                  type="text"
+                  value={treeSearch}
+                  onChange={(e) => setTreeSearch(e.target.value)}
+                  placeholder="Lọc tệp mã nguồn..."
+                  style={{
+                    width: "100%",
+                    fontSize: 11,
+                    padding: "4px 8px 4px 24px",
+                    borderRadius: 4,
+                    border: "1px solid #cbd5e1",
+                    background: "#ffffff",
+                    outline: "none",
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Tree Content */}
+            <div style={{ flex: 1, overflowY: "auto", padding: "6px 4px" }}>
+              {loadingTree ? (
+                <div style={{ padding: 20, textAlign: "center", fontSize: 12, color: "#64748b" }}>
+                  Đang tải cấu trúc tệp...
+                </div>
+              ) : treeNodes.length === 0 ? (
+                <div style={{ padding: 20, textAlign: "center", fontSize: 12, color: "#94a3b8" }}>
+                  Không tìm thấy tệp phù hợp
+                </div>
+              ) : (
+                treeNodes.map((n) => renderTreeNode(n, 0))
+              )}
+            </div>
+
+            {/* Tree Footer Actions */}
+            <div
+              style={{
+                padding: "8px 12px",
+                borderTop: "1px solid var(--color-border)",
+                background: "var(--color-muted)",
+                display: "flex",
+                justifyContent: "space-between",
+                fontSize: 11,
+                color: "#64748b",
+              }}
+            >
+              <button
+                type="button"
+                onClick={expandAllFolders}
+                style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", padding: 0 }}
+              >
+                Mở tất cả
+              </button>
+              <button
+                type="button"
+                onClick={collapseAllFolders}
+                style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", padding: 0 }}
+              >
+                Thu gọn
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* CỘT GIỮA: TRÌNH SOẠN THẢO VÀ XEM TRƯỚC MARKDOWN */}
+        <div style={{ minWidth: 0, display: "flex", flexDirection: "column" }}>
 
       {/* KHỐI BẰNG CHỨNG XÁC THỰC (GROUNDING EVIDENCE BOX) */}
       <div
@@ -1390,6 +1913,339 @@ function EditorContent() {
           </div>
         )}
       </div>
+        </div>
+
+        {/* CỘT PHẢI: PANEL ĐỐI CHIẾU TEMPLATE & AI ASSISTANT */}
+        {rightSidebarOpen && (
+          <div
+            style={{
+              background: "#ffffff",
+              border: "1px solid var(--color-border)",
+              borderRadius: 8,
+              display: "flex",
+              flexDirection: "column",
+              height: "calc(100vh - 180px)",
+              minHeight: 650,
+              overflow: "hidden",
+            }}
+          >
+            {/* Header Right Panel */}
+            <div
+              style={{
+                padding: "10px 14px",
+                borderBottom: "1px solid var(--color-border)",
+                background: "var(--color-muted)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <Sparkles size={14} style={{ color: "#087f5b" }} />
+                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.05em", color: "var(--color-text-secondary)", textTransform: "uppercase" }}>
+                  Đối chiếu Template & AI
+                </span>
+              </div>
+            </div>
+
+            {/* Template Selector & Run Button */}
+            <div style={{ padding: 12, borderBottom: "1px solid var(--color-border)", background: "#fafafa" }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 4 }}>
+                Mẫu chuẩn (Doc Template)
+              </label>
+              <select
+                value={selectedTemplateId || ""}
+                onChange={(e) => setSelectedTemplateId(e.target.value ? Number(e.target.value) : null)}
+                className="ld-select"
+                style={{ width: "100%", padding: "5px 8px", fontSize: 12, marginBottom: 8 }}
+              >
+                {availableTemplates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    📄 {t.name} {t.isDefault ? "(Mặc định)" : ""}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                onClick={() => handleRunCrossCheck()}
+                disabled={runningCrossCheck}
+                className="ld-btn ld-btn-primary ld-btn-sm"
+                style={{ width: "100%", justifyContent: "center", gap: 6, fontSize: 12, padding: "6px 12px" }}
+              >
+                <Wand2 size={13} className={runningCrossCheck ? "animate-spin" : ""} />
+                <span>{runningCrossCheck ? "Đang đối chiếu..." : "Quét đối chiếu 2 chiều"}</span>
+              </button>
+            </div>
+
+            {/* Results or Placeholder */}
+            {!crossCheckResult ? (
+              <div style={{ flex: 1, padding: 24, textAlign: "center", color: "#64748b", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+                <Sparkles size={32} style={{ color: "#087f5b", opacity: 0.5, marginBottom: 10 }} />
+                <p style={{ fontSize: 13, fontWeight: 600, color: "#1e293b", margin: "0 0 6px" }}>
+                  Chưa quét đối chiếu
+                </p>
+                <p style={{ fontSize: 11, lineHeight: 1.5, margin: 0 }}>
+                  Bấm &quot;Quét đối chiếu 2 chiều&quot; để kiểm tra cấu trúc tài liệu Word so với Template chuẩn và thực thể mã nguồn (Controller, Service, Entity).
+                </p>
+              </div>
+            ) : (
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                {/* Summary Badges */}
+                <div style={{ padding: "10px 12px", borderBottom: "1px solid #f1f5f9", background: "#f8fafc" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, color: "#475569" }}>Cấu trúc Template:</span>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: "1px 6px",
+                        borderRadius: 4,
+                        background: crossCheckResult.templateValid ? "#dcfce7" : "#fee2e2",
+                        color: crossCheckResult.templateValid ? "#15803d" : "#b91c1c",
+                      }}
+                    >
+                      {crossCheckResult.templateValid ? "✓ Hợp lệ" : `Thiếu ${crossCheckResult.missingTemplateHeadings.length} mục`}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: 11, color: "#475569" }}>Bao phủ Code AST:</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: crossCheckResult.coveragePercentage >= 80 ? "#15803d" : "#d97706" }}>
+                      {crossCheckResult.coveragePercentage}% ({crossCheckResult.documentedCodeEntities}/{crossCheckResult.totalCodeEntities} thực thể)
+                    </span>
+                  </div>
+                </div>
+
+                {/* Tab Navigation */}
+                <div style={{ display: "flex", borderBottom: "1px solid #e2e8f0", background: "#ffffff" }}>
+                  <button
+                    type="button"
+                    onClick={() => setCrossCheckTab("template")}
+                    style={{
+                      flex: 1,
+                      padding: "8px 4px",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      border: "none",
+                      borderBottom: crossCheckTab === "template" ? "2px solid #087f5b" : "2px solid transparent",
+                      color: crossCheckTab === "template" ? "#087f5b" : "#64748b",
+                      background: "transparent",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Template ({crossCheckResult.missingTemplateHeadings.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCrossCheckTab("code")}
+                    style={{
+                      flex: 1,
+                      padding: "8px 4px",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      border: "none",
+                      borderBottom: crossCheckTab === "code" ? "2px solid #087f5b" : "2px solid transparent",
+                      color: crossCheckTab === "code" ? "#087f5b" : "#64748b",
+                      background: "transparent",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Code ({crossCheckResult.missingCodeEntitiesCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCrossCheckTab("suggestions")}
+                    style={{
+                      flex: 1,
+                      padding: "8px 4px",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      border: "none",
+                      borderBottom: crossCheckTab === "suggestions" ? "2px solid #087f5b" : "2px solid transparent",
+                      color: crossCheckTab === "suggestions" ? "#087f5b" : "#64748b",
+                      background: "transparent",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Gợi ý AI ({crossCheckResult.suggestions.length})
+                  </button>
+                </div>
+
+                {/* Tab Content */}
+                <div style={{ flex: 1, overflowY: "auto", padding: 10 }}>
+                  {crossCheckTab === "template" && (
+                    <div>
+                      {crossCheckResult.missingTemplateHeadings.length === 0 ? (
+                        <div style={{ padding: 16, textAlign: "center", color: "#15803d", fontSize: 12 }}>
+                          <CheckCircle2 size={20} style={{ margin: "0 auto 6px" }} />
+                          <p style={{ margin: 0, fontWeight: 600 }}>Tài liệu đầy đủ các đề mục bắt buộc theo Template!</p>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          {crossCheckResult.missingTemplateHeadings.map((h, idx) => (
+                            <div
+                              key={idx}
+                              style={{
+                                padding: "8px 10px",
+                                borderRadius: 6,
+                                border: "1px solid #fee2e2",
+                                background: "#fff5f5",
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 4,
+                              }}
+                            >
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <AlertTriangle size={13} style={{ color: "#ef4444", flexShrink: 0 }} />
+                                <span style={{ fontSize: 12, fontWeight: 600, color: "#991b1b" }}>{h}</span>
+                              </div>
+                              <p style={{ fontSize: 11, color: "#7f1d1d", margin: 0 }}>
+                                Thiếu phần này so với mẫu &quot;{crossCheckResult.templateName}&quot;.
+                              </p>
+                              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4 }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleApplySnippet(`\n${h}\n\nNội dung chi tiết cho ${h}...\n`, h)}
+                                  className="ld-btn ld-btn-ghost ld-btn-sm"
+                                  style={{ fontSize: 11, color: "#087f5b", padding: "2px 6px" }}
+                                >
+                                  <Plus size={11} />
+                                  <span>Bổ sung mục này</span>
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {crossCheckTab === "code" && (
+                    <div>
+                      {crossCheckResult.missingCodeEntities.length === 0 ? (
+                        <div style={{ padding: 16, textAlign: "center", color: "#15803d", fontSize: 12 }}>
+                          <CheckCircle2 size={20} style={{ margin: "0 auto 6px" }} />
+                          <p style={{ margin: 0, fontWeight: 600 }}>Tất cả Controller, Service, Entity trong repository đã được mô tả!</p>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          {crossCheckResult.missingCodeEntities.map((ent, idx) => (
+                            <div
+                              key={ent.entityId || idx}
+                              style={{
+                                padding: "8px 10px",
+                                borderRadius: 6,
+                                border: "1px solid #fed7aa",
+                                background: "#fffaf0",
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 4,
+                              }}
+                            >
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    padding: "1px 5px",
+                                    borderRadius: 3,
+                                    background: ent.entityType === "Controller" ? "#dbeafe" : ent.entityType === "Service" ? "#dcfce7" : "#f3e8ff",
+                                    color: ent.entityType === "Controller" ? "#1d4ed8" : ent.entityType === "Service" ? "#15803d" : "#7e22ce",
+                                  }}
+                                >
+                                  {ent.entityType}
+                                </span>
+                                <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "#64748b" }}>
+                                  {ent.filePath ? ent.filePath.split("/").pop() : ""}
+                                </span>
+                              </div>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: "#1e293b", fontFamily: "var(--font-mono)" }}>
+                                {ent.className}
+                              </span>
+                              <p style={{ fontSize: 11, color: "#7c2d12", margin: 0 }}>
+                                {ent.suggestion}
+                              </p>
+                              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4 }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleApplySnippet(ent.suggestedMarkdown, ent.className)}
+                                  className="ld-btn ld-btn-ghost ld-btn-sm"
+                                  style={{ fontSize: 11, color: "#087f5b", padding: "2px 6px" }}
+                                >
+                                  <Plus size={11} />
+                                  <span>Thêm đặc tả</span>
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {crossCheckTab === "suggestions" && (
+                    <div>
+                      {crossCheckResult.suggestions.length > 0 && (
+                        <div style={{ marginBottom: 10 }}>
+                          <button
+                            type="button"
+                            onClick={handleApplyAllSuggestions}
+                            className="ld-btn ld-btn-primary ld-btn-sm"
+                            style={{ width: "100%", justifyContent: "center", fontSize: 11, padding: "5px 10px" }}
+                          >
+                            <Sparkles size={12} />
+                            <span>Áp dụng tất cả ({crossCheckResult.suggestions.length} gợi ý)</span>
+                          </button>
+                        </div>
+                      )}
+                      {crossCheckResult.suggestions.length === 0 ? (
+                        <div style={{ padding: 16, textAlign: "center", color: "#64748b", fontSize: 12 }}>
+                          Không có gợi ý nào cần xử lý.
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          {crossCheckResult.suggestions.map((sug, idx) => (
+                            <div
+                              key={idx}
+                              style={{
+                                padding: "8px 10px",
+                                borderRadius: 6,
+                                border: "1px solid #e2e8f0",
+                                background: "#f8fafc",
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 4,
+                              }}
+                            >
+                              <span style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>
+                                {sug.title}
+                              </span>
+                              <p style={{ fontSize: 11, color: "#475569", margin: 0 }}>
+                                {sug.description}
+                              </p>
+                              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 2 }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleApplySnippet(sug.suggestedMarkdown, sug.title)}
+                                  className="ld-btn ld-btn-ghost ld-btn-sm"
+                                  style={{ fontSize: 11, color: "#087f5b", padding: "2px 6px" }}
+                                >
+                                  <Plus size={11} />
+                                  <span>Chèn vào tài liệu</span>
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* MODAL XÁC NHẬN "GỬI ĐỂ REVIEW" */}
       {showConfirmReview && (
@@ -1479,6 +2335,182 @@ function EditorContent() {
                 <Send size={14} />
                 <span>Xác nhận gửi review</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL TRÌNH XEM TỆP MÃ NGUỒN (VS CODE FILE INSPECTOR) */}
+      {viewingFile && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15, 23, 42, 0.6)",
+            backdropFilter: "blur(2px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: 16,
+          }}
+        >
+          <div
+            className="ld-card"
+            style={{
+              maxWidth: 820,
+              width: "100%",
+              maxHeight: "88vh",
+              display: "flex",
+              flexDirection: "column",
+              padding: 0,
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+              borderRadius: 10,
+              overflow: "hidden",
+              animation: "fadeIn 150ms ease",
+            }}
+          >
+            {/* Header Modal */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "12px 18px",
+                background: "#0f172a",
+                color: "#ffffff",
+                borderBottom: "1px solid #1e293b",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                <FileCode size={16} style={{ color: "#38bdf8", flexShrink: 0 }} />
+                <span
+                  style={{
+                    fontSize: 13,
+                    fontFamily: "var(--font-mono)",
+                    fontWeight: 600,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                  title={viewingFile.path}
+                >
+                  {viewingFile.path}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingFile(null)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#94a3b8",
+                  cursor: "pointer",
+                  fontSize: 18,
+                  lineHeight: 1,
+                  padding: "2px 6px",
+                  borderRadius: 4,
+                }}
+                title="Đóng cửa sổ"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Action Bar */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "8px 16px",
+                background: "#1e293b",
+                borderBottom: "1px solid #334155",
+                gap: 8,
+                flexWrap: "wrap",
+              }}
+            >
+              <span style={{ fontSize: 11, color: "#94a3b8" }}>
+                {viewingFile.content.split("\n").length} dòng mã nguồn
+              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(viewingFile.content);
+                    notify("success", "Đã sao chép mã nguồn vào Clipboard!");
+                  }}
+                  className="ld-btn ld-btn-ghost ld-btn-sm"
+                  style={{ color: "#e2e8f0", fontSize: 11, padding: "4px 8px" }}
+                >
+                  <Copy size={12} />
+                  <span>Sao chép mã</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const snippet = `\n\n> 📄 **Tham chiếu mã nguồn**: [\`${viewingFile.path}\`](${viewingFile.path})\n`;
+                    setContent((prev) => prev.trim() + snippet);
+                    setIsDirty(true);
+                    notify("success", `Đã chèn tham chiếu ${viewingFile.path} vào tài liệu!`);
+                    setViewingFile(null);
+                  }}
+                  className="ld-btn ld-btn-primary ld-btn-sm"
+                  style={{ fontSize: 11, padding: "4px 10px" }}
+                >
+                  <Plus size={12} />
+                  <span>Chèn tham chiếu vào tài liệu</span>
+                </button>
+                {viewingFile.path.toLowerCase().endsWith(".md") && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTargetPath(viewingFile.path);
+                      setIsDirty(true);
+                      notify("success", `Đã đặt tệp đích thành ${viewingFile.path}`);
+                      setViewingFile(null);
+                    }}
+                    className="ld-btn ld-btn-secondary ld-btn-sm"
+                    style={{ fontSize: 11, padding: "4px 8px" }}
+                  >
+                    <span>Đặt làm tệp đích</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Code Content */}
+            <div
+              style={{
+                flex: 1,
+                overflowY: "auto",
+                background: "#090d16",
+                color: "#e2e8f0",
+                padding: "12px 16px",
+                fontFamily: "var(--font-mono)",
+                fontSize: 12.5,
+                lineHeight: 1.6,
+                maxHeight: "62vh",
+              }}
+            >
+              <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                {viewingFile.content.split("\n").map((line, idx) => (
+                  <div key={idx} style={{ display: "flex", gap: 14 }}>
+                    <span
+                      style={{
+                        color: "#475569",
+                        userSelect: "none",
+                        minWidth: 32,
+                        textAlign: "right",
+                        fontSize: 11,
+                      }}
+                    >
+                      {idx + 1}
+                    </span>
+                    <span style={{ flex: 1 }}>{line || " "}</span>
+                  </div>
+                ))}
+              </pre>
             </div>
           </div>
         </div>

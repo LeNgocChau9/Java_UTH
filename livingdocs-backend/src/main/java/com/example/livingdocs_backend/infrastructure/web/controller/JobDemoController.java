@@ -26,6 +26,21 @@ public class JobDemoController {
     private final JobRepositoryPort jobRepositoryPort;
 
     @Operation(
+            summary = "Tra cứu danh sách các tác vụ nền theo trạng thái",
+            description = "Cho phép tra cứu các tác vụ nền gần đây hoặc theo trạng thái (QUEUED, PROCESSING, COMPLETED, FAILED, DEAD)."
+    )
+    @GetMapping
+    public ResponseEntity<List<JobProgressResponseDto>> listJobs(
+            @RequestParam(required = false) JobStatus status,
+            @RequestParam(defaultValue = "50") int limit
+    ) {
+        List<Job> jobs = (status != null)
+                ? jobRepositoryPort.findTopJobsByStatus(status, Math.min(limit, 100))
+                : jobRepositoryPort.findDeadLetterJobs(Math.min(limit, 100));
+        return ResponseEntity.ok(jobs.stream().map(this::toProgressDto).toList());
+    }
+
+    @Operation(
             summary = "Theo dõi tiến trình tác vụ nền theo thời gian thực",
             description = "Cho phép frontend polling / theo dõi trạng thái tiến trình sinh tài liệu hoặc quét mã nguồn (QUEUED, PROCESSING, COMPLETED, FAILED/DEAD), thông tin exponential backoff và payload/kết quả thực thi."
     )
@@ -74,6 +89,18 @@ public class JobDemoController {
                     Job saved = jobRepositoryPort.save(job);
                     return ResponseEntity.ok(toProgressDto(saved));
                 })
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @Operation(summary = "Kiểm tra thông tin job trong DLQ trước khi retry")
+    @GetMapping("/dlq/{jobId}/retry")
+    public ResponseEntity<JobProgressResponseDto> getJobDlqRetryInfo(
+            @Parameter(description = "Mã định danh tác vụ nền (jobId)", example = "1")
+            @PathVariable Long jobId
+    ) {
+        return jobRepositoryPort.findById(jobId)
+                .map(this::toProgressDto)
+                .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 

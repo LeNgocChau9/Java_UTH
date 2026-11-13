@@ -11,4 +11,10 @@ public interface SpringDataDocumentChangeAlertRepository extends JpaRepository<D
     List<DocumentChangeAlertEntity> findByRepositoryId(Long repositoryId);
     List<DocumentChangeAlertEntity> findByRepositoryIdAndStatus(Long repositoryId, String status);
     List<DocumentChangeAlertEntity> findBySourcePrId(Long sourcePrId);
+    long countByStatusIgnoreCase(String status);
+    long countByStatusInIgnoreCase(List<String> statuses);
+    List<DocumentChangeAlertEntity> findByStatusIgnoreCase(String status);
+    List<DocumentChangeAlertEntity> findByStatusInIgnoreCase(List<String> statuses);
+    List<DocumentChangeAlertEntity> findTop10ByStatusInIgnoreCaseOrderByCreatedAtDesc(List<String> statuses);
+    List<DocumentChangeAlertEntity> findTop10ByOrderByCreatedAtDesc();
 }

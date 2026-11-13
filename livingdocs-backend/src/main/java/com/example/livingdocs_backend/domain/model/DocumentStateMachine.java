@@ -54,13 +54,21 @@ public class DocumentStateMachine {
                 ALL_ACTIVE_ACTORS
         );
 
-        // 2. UNDER_REVIEW_STAFF ➔ UNDER_REVIEW_MANAGER hoặc REJECTED (Duyệt cấp 1: chỉ STAFF hoặc MANAGER)
+        // 2. UNDER_REVIEW_STAFF ➔ UNDER_REVIEW_MANAGER, PUBLISHED (khi áp dụng chính sách 1 cấp) hoặc REJECTED
         VALID_TRANSITIONS.put(
                 DocumentStatus.UNDER_REVIEW_STAFF,
-                EnumSet.of(DocumentStatus.UNDER_REVIEW_MANAGER, DocumentStatus.REJECTED)
+                EnumSet.of(DocumentStatus.UNDER_REVIEW_MANAGER, DocumentStatus.PUBLISHED, DocumentStatus.APPROVED, DocumentStatus.REJECTED)
         );
         ALLOWED_ROLES_PER_TRANSITION.put(
                 new TransitionKey(DocumentStatus.UNDER_REVIEW_STAFF, DocumentStatus.UNDER_REVIEW_MANAGER),
+                LEVEL_1_REVIEWERS
+        );
+        ALLOWED_ROLES_PER_TRANSITION.put(
+                new TransitionKey(DocumentStatus.UNDER_REVIEW_STAFF, DocumentStatus.PUBLISHED),
+                LEVEL_1_REVIEWERS
+        );
+        ALLOWED_ROLES_PER_TRANSITION.put(
+                new TransitionKey(DocumentStatus.UNDER_REVIEW_STAFF, DocumentStatus.APPROVED),
                 LEVEL_1_REVIEWERS
         );
         ALLOWED_ROLES_PER_TRANSITION.put(

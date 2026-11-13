@@ -40,9 +40,12 @@ public class CodeIndexService implements CodeIndexServicePort {
                 .version(java.net.http.HttpClient.Version.HTTP_1_1)
                 .connectTimeout(java.time.Duration.ofSeconds(10))
                 .build();
+        org.springframework.http.client.JdkClientHttpRequestFactory requestFactory =
+                new org.springframework.http.client.JdkClientHttpRequestFactory(httpClient);
+        requestFactory.setReadTimeout(java.time.Duration.ofSeconds(15));
         this.restClient = RestClient.builder()
                 .baseUrl(aiEngineUrl)
-                .requestFactory(new org.springframework.http.client.JdkClientHttpRequestFactory(httpClient))
+                .requestFactory(requestFactory)
                 .build();
     }
 

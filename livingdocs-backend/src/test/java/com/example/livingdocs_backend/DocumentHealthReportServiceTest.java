@@ -1,11 +1,14 @@
 package com.example.livingdocs_backend;
 
 import com.example.livingdocs_backend.application.dto.RepoCoverageDto;
+import com.example.livingdocs_backend.application.dto.health.CoverageGapsResponse;
 import com.example.livingdocs_backend.application.dto.health.DocumentHealthReportResponse;
 import com.example.livingdocs_backend.application.dto.health.MissingDocEntityStatsDto;
 import com.example.livingdocs_backend.application.port.DashboardStatsQueryPort;
 import com.example.livingdocs_backend.application.service.DocumentHealthReportServiceImpl;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.CodeEntityJpaEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataCodeEntityRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,6 +20,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -27,13 +31,15 @@ class DocumentHealthReportServiceTest {
 
     private DashboardStatsQueryPort queryPort;
     private SpringDataRepositoryRepository repositoryRepository;
+    private SpringDataCodeEntityRepository codeEntityRepository;
     private DocumentHealthReportServiceImpl healthReportService;
 
     @BeforeEach
     void setUp() {
         queryPort = mock(DashboardStatsQueryPort.class);
         repositoryRepository = mock(SpringDataRepositoryRepository.class);
-        healthReportService = new DocumentHealthReportServiceImpl(queryPort, repositoryRepository);
+        codeEntityRepository = mock(SpringDataCodeEntityRepository.class);
+        healthReportService = new DocumentHealthReportServiceImpl(queryPort, repositoryRepository, codeEntityRepository);
     }
 
     @Test
@@ -135,5 +141,75 @@ class DocumentHealthReportServiceTest {
         assertTrue(markdown.contains("Thống Kê Hàm & Lớp Còn Thiếu Tài Liệu"));
         assertTrue(markdown.contains("CRITICAL"));
         assertTrue(markdown.contains("Đánh Giá Mức Độ Tuân Thủ"));
+    }
+
+    @Test
+    void queriesCoverageGapsGroupedByPackageClassAndMethod() {
+        when(repositoryRepository.findById(1L)).thenReturn(Optional.of(
+                RepositoryEntity.builder()
+                        .repositoryId(1L)
+                        .repoName("livingdocs-backend")
+                        .build()
+        ));
+
+        List<CodeEntityJpaEntity> mockEntities = List.of(
+                CodeEntityJpaEntity.builder()
+                        .entityId(101L)
+                        .repositoryId(1L)
+                        .filePath("src/main/java/com/example/livingdocs_backend/domain/model/Document.java")
+                        .entityType("CLASS")
+                        .className("Document")
+                        .docStatus("UNDOCUMENTED")
+                        .startLine(10)
+                        .endLine(80)
+                        .build(),
+                CodeEntityJpaEntity.builder()
+                        .entityId(102L)
+                        .repositoryId(1L)
+                        .filePath("src/main/java/com/example/livingdocs_backend/domain/model/Document.java")
+                        .entityType("METHOD")
+                        .className("Document")
+                        .methodName("publish")
+                        .signature("public void publish(String publisher)")
+                        .docStatus("UNDOCUMENTED")
+                        .startLine(45)
+                        .endLine(55)
+                        .build(),
+                CodeEntityJpaEntity.builder()
+                        .entityId(103L)
+                        .repositoryId(1L)
+                        .filePath("src/main/java/com/example/livingdocs_backend/infrastructure/web/controller/UserController.java")
+                        .entityType("METHOD")
+                        .className("UserController")
+                        .methodName("getProfile")
+                        .signature("public ResponseEntity<?> getProfile()")
+                        .docStatus("UNDOCUMENTED")
+                        .startLine(30)
+                        .endLine(40)
+                        .build()
+        );
+
+        when(codeEntityRepository.findCoverageGaps(1L)).thenReturn(mockEntities);
+
+        CoverageGapsResponse response = healthReportService.getCoverageGaps(1L);
+
+        assertNotNull(response);
+        assertEquals(1L, response.getRepositoryId());
+        assertEquals("livingdocs-backend", response.getRepositoryName());
+        assertEquals(3L, response.getTotalMissing());
+        assertEquals(1L, response.getMissingClasses());
+        assertEquals(2L, response.getMissingMethods());
+        assertEquals(3, response.getItems().size());
+
+        // Kiểm tra phân nhóm theo 2 packages
+        assertEquals(2, response.getPackages().size());
+        assertEquals("com.example.livingdocs_backend.domain.model", response.getPackages().get(0).getPackageName());
+        assertEquals(2, response.getPackages().get(0).getTotalMissing());
+        assertEquals(1, response.getPackages().get(0).getClasses().size());
+        assertEquals("Document", response.getPackages().get(0).getClasses().get(0).getClassName());
+        assertEquals(1, response.getPackages().get(0).getClasses().get(0).getMethods().size());
+
+        assertEquals("com.example.livingdocs_backend.infrastructure.web.controller", response.getPackages().get(1).getPackageName());
+        assertEquals(1, response.getPackages().get(1).getTotalMissing());
     }
 }

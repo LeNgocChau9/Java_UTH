@@ -39,6 +39,14 @@ public class DriftAlertController {
         return ResponseEntity.ok(driftAlertService.findAll(repositoryId, status));
     }
 
+    @GetMapping("/summary")
+    @Operation(summary = "Lấy tổng số và danh sách cảnh báo sai lệch chưa xử lý (PENDING/OPEN) cho chuông thông báo")
+    public ResponseEntity<com.example.livingdocs_backend.application.dto.DriftAlertSummaryResponse> getSummary(
+            @RequestParam(required = false) Long repositoryId
+    ) {
+        return ResponseEntity.ok(driftAlertService.getNotificationSummary(repositoryId));
+    }
+
     @PatchMapping("/{id}")
     @Operation(
             summary = "Cập nhật trạng thái cảnh báo drift",

@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen2.5-coder:7b"
-    ai_provider: str = "auto"  # auto (Gemini -> fallback Ollama), ollama, gemini
+    ai_provider: str = "ollama"  # ollama (Qwen 2.5 Coder 7B trên GPU RTX 4060), auto, gemini
 
     model_config = SettingsConfigDict(
         env_file=[

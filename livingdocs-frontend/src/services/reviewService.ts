@@ -67,6 +67,29 @@ export interface ReviewHistoryItem {
   reviewedAt: string;
 }
 
+export interface ApprovalPolicyItem {
+  docType: string;
+  tiers: number; // 1 | 2
+  description?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface ManagerDelegationItem {
+  id?: string;
+  delegatorId?: number;
+  delegatorEmail?: string;
+  delegatorName: string;
+  delegateeId?: number;
+  delegateeEmail?: string;
+  delegateeName: string;
+  fromDate: string;
+  toDate: string;
+  reason?: string;
+  active?: boolean;
+  createdAt?: string;
+}
+
 export const reviewService = {
   /**
    * GET /api/reviews/staff/queue
@@ -118,6 +141,9 @@ export const reviewService = {
       note?: string;
       actorRole?: string;
       commitToGithub?: boolean;
+      delegationId?: string;
+      delegatedFromEmail?: string;
+      delegatedFromName?: string;
     }
   ): Promise<ReviewActionResponse> {
     const res = await apiClient.post<ReviewActionResponse>(`/api/reviews/${id}/manager-action`, payload);
@@ -130,6 +156,42 @@ export const reviewService = {
    */
   async getReviewHistory(): Promise<ReviewHistoryItem[]> {
     const res = await apiClient.get<ReviewHistoryItem[]>("/api/reviews/history");
+    return res.data;
+  },
+
+  /**
+   * GET /api/reviews/policies
+   * Lấy cấu hình phê duyệt 1 cấp / 2 cấp theo loại tài liệu (doc_type).
+   */
+  async getApprovalPolicies(): Promise<ApprovalPolicyItem[]> {
+    const res = await apiClient.get<ApprovalPolicyItem[]>("/api/reviews/policies");
+    return res.data;
+  },
+
+  /**
+   * PUT /api/reviews/policies
+   * Cập nhật danh sách chính sách phê duyệt 1 cấp vs 2 cấp.
+   */
+  async updateApprovalPolicies(policies: ApprovalPolicyItem[]): Promise<ApprovalPolicyItem[]> {
+    const res = await apiClient.put<ApprovalPolicyItem[]>("/api/reviews/policies", policies);
+    return res.data;
+  },
+
+  /**
+   * GET /api/reviews/delegations
+   * Lấy danh sách các bản ghi ủy quyền phê duyệt giữa các Quản lý.
+   */
+  async getManagerDelegations(): Promise<ManagerDelegationItem[]> {
+    const res = await apiClient.get<ManagerDelegationItem[]>("/api/reviews/delegations");
+    return res.data;
+  },
+
+  /**
+   * POST /api/reviews/delegations
+   * Tạo bản ghi ủy quyền phê duyệt Manager mới.
+   */
+  async createManagerDelegation(delegation: ManagerDelegationItem): Promise<ManagerDelegationItem> {
+    const res = await apiClient.post<ManagerDelegationItem>("/api/reviews/delegations", delegation);
     return res.data;
   },
 };

@@ -19,6 +19,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import com.example.livingdocs_backend.application.dto.github.GitHubCheckRunResultDto;
 import com.example.livingdocs_backend.application.dto.github.GitHubCommitDto;
 import com.example.livingdocs_backend.application.dto.github.GitHubFileDto;
 import com.example.livingdocs_backend.application.dto.github.GitHubPublishResultDto;
@@ -1084,7 +1085,7 @@ public class GitHubClient implements GitHubClientPort {
     }
 
     @Override
-    public com.example.livingdocs_backend.application.dto.github.GitHubCheckRunResultDto postCheckRun(
+    public GitHubCheckRunResultDto postCheckRun(
             String token,
             String owner,
             String repo,
@@ -1138,7 +1139,7 @@ public class GitHubClient implements GitHubClientPort {
                 Long checkId = resp.path("id").isNumber() ? resp.path("id").asLong() : null;
                 String htmlUrl = resp.path("html_url").asText("");
                 log.info("[GitHubClient] Tạo Check Run thành công qua Checks API: checkId={}, conclusion={}", checkId, conclusion);
-                return com.example.livingdocs_backend.application.dto.github.GitHubCheckRunResultDto.builder()
+                return GitHubCheckRunResultDto.builder()
                         .checkRunId(checkId)
                         .name(finalCheckName)
                         .headSha(headSha)
@@ -1196,7 +1197,7 @@ public class GitHubClient implements GitHubClientPort {
             if (statusResp != null) {
                 Long statusId = statusResp.path("id").isNumber() ? statusResp.path("id").asLong() : null;
                 log.info("[GitHubClient] Gửi trạng thái Commit Status thành công: statusId={}, state={}", statusId, state);
-                return com.example.livingdocs_backend.application.dto.github.GitHubCheckRunResultDto.builder()
+                return GitHubCheckRunResultDto.builder()
                         .checkRunId(statusId)
                         .name(finalCheckName)
                         .headSha(headSha)

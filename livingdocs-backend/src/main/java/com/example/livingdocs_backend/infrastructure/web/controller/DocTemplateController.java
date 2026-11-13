@@ -67,6 +67,14 @@ public class DocTemplateController {
         return ResponseEntity.ok(docTemplateService.validate(id, request.getMarkdown()));
     }
 
+    @PostMapping("/cross-check")
+    @Operation(summary = "Đối chiếu 2 chiều: Tài liệu Word/Markdown vs Template chuẩn và Code Entities",
+            description = "Quét cấu trúc đề mục so với Template đồng thời quét Controller/Service/Entity từ code_entities xem phần nào chưa được tài liệu hóa.")
+    public ResponseEntity<com.example.livingdocs_backend.application.dto.DocumentCrossCheckResponse> crossCheck(
+            @Valid @RequestBody com.example.livingdocs_backend.application.dto.DocumentCrossCheckRequest request) {
+        return ResponseEntity.ok(docTemplateService.crossCheck(request));
+    }
+
     @PostMapping("/{id}/preview")
     @Operation(summary = "Xem trước mẫu với dữ liệu giả",
             description = "Nhận class name và danh sách method, điền vào structure của template rồi trả Markdown.")

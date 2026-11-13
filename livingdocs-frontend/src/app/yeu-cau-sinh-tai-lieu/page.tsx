@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { isAxiosError } from "axios";
 import ReactMarkdown from "react-markdown";
@@ -11,7 +11,6 @@ import {
   Sparkles,
   Loader2,
   CheckCircle,
-  Info,
   FileCode2,
   Send,
   Eye,
@@ -82,7 +81,7 @@ interface AnalysisProgressStep {
   id: number;
   key: string;
   title: string;
-  desc: string;
+  desc?: string;
   icon: typeof Search;
 }
 
@@ -91,28 +90,28 @@ const ANALYSIS_STEPS: AnalysisProgressStep[] = [
     id: 1,
     key: "scan",
     title: "Đang quét mã",
-    desc: "Đọc cây thư mục, tệp nguồn và nội dung commit từ GitHub",
+    desc: "",
     icon: Search,
   },
   {
     id: 2,
     key: "ast",
     title: "Đang bóc tách AST",
-    desc: "Phân tích cấu trúc Tree-sitter (Class, Method, Signature, Params)",
+    desc: "",
     icon: Code2,
   },
   {
     id: 3,
     key: "llm",
     title: "Đang gọi LLM",
-    desc: "Google Gemini AI tổng hợp và biên soạn tài liệu kỹ thuật chuẩn",
+    desc: "",
     icon: Cpu,
   },
   {
     id: 4,
     key: "complete",
     title: "Hoàn tất",
-    desc: "Đóng gói Markdown, gắn Genesis Hash và lưu trữ an toàn",
+    desc: "",
     icon: FileCheck2,
   },
 ];
@@ -128,10 +127,19 @@ const STANDARD_TEMPLATES: {
   icon: typeof FileText;
 }[] = [
   {
+    id: 6,
+    name: "Tài liệu Dự án Tiêu chuẩn (10 Phần)",
+    type: "PROJECT_DOCUMENTATION",
+    badge: "Mặc định (10 Phần)",
+    description: "Bộ tài liệu kỹ thuật toàn diện 10 phần: Phần đầu, Giới thiệu, Yêu cầu, Cài đặt, Bắt đầu, Chức năng chi tiết, Sự cố, Bảo mật, Hỗ trợ, Phụ lục.",
+    recommendedScope: "REPOSITORY",
+    icon: FileText,
+  },
+  {
     id: 1,
     name: "API Reference",
     type: "API_REFERENCE",
-    badge: "Mặc định",
+    badge: "Chi tiết API",
     description: "Bảng chi tiết phương thức, chữ ký hàm, kiểu trả về, tham số & xử lý ngoại lệ.",
     recommendedScope: "FILE",
     icon: Code2,
@@ -168,11 +176,11 @@ const STANDARD_TEMPLATES: {
 export default function YeuCauSinhPage() {
   const [repo, setRepo] = useState("");
   const [branch, setBranch] = useState("main");
-  const [templateId, setTemplateId] = useState<string>("1");
+  const [templateId, setTemplateId] = useState<string>("6");
   const [scopeType, setScopeType] = useState<ScopeType>("FILE");
   const [scope, setScope] = useState("");
   const [note, setNote] = useState("");
-  const [aiProvider, setAiProvider] = useState<"auto" | "ollama" | "gemini">("auto");
+  const [aiProvider, setAiProvider] = useState<"auto" | "ollama" | "gemini">("ollama");
   const [step, setStep] = useState<Step>("idle");
   const [repositories, setRepositories] = useState<RepoItem[]>([]);
   const [templates, setTemplates] = useState<DocTemplateOption[]>([]);
@@ -201,9 +209,35 @@ export default function YeuCauSinhPage() {
     ])
       .then(([items, tpls]) => {
         setRepositories(items);
-        if (items.length > 0 && items[0]?.repositoryId) {
+        const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+        const paramRepo = params?.get("repositoryId") || params?.get("repoId");
+        const paramFile = params?.get("filePath") || params?.get("file");
+        const paramScopeType = params?.get("scopeType") as ScopeType;
+        const paramClass = params?.get("className");
+        const paramMethod = params?.get("methodName");
+
+        if (paramRepo) {
+          setRepo(paramRepo);
+          const matched = items.find((r) => String(r.repositoryId) === paramRepo);
+          if (matched?.defaultBranch) {
+            setBranch(matched.defaultBranch);
+          }
+        } else if (items.length > 0 && items[0]?.repositoryId) {
           setRepo(String(items[0].repositoryId));
           setBranch(items[0].defaultBranch || "main");
+        }
+
+        if (paramFile) {
+          setScope(paramFile);
+        }
+        if (paramScopeType && ["FILE", "PACKAGE", "REPOSITORY"].includes(paramScopeType)) {
+          setScopeType(paramScopeType);
+        }
+        if (paramClass || paramMethod) {
+          const entityDesc = [paramClass ? `Lớp: ${paramClass}` : null, paramMethod ? `Phương thức: ${paramMethod}` : null]
+            .filter(Boolean)
+            .join(" | ");
+          setNote(`Yêu cầu AI sinh tài liệu đặc tả cho ${entityDesc}`);
         }
 
         // Ưu tiên các template chuẩn, merge cùng templates từ database
@@ -444,22 +478,22 @@ export default function YeuCauSinhPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            file_path: selectedTarget,
+            file_path: selectedTarget || "README.md",
             template_type: selectedTemplate?.type || "API_REFERENCE",
-            class_name: className,
-            provider: aiProvider,
+            class_name: className || "AppService",
+            provider: aiProvider || "auto",
             entities: selectedFileEntities.map((ent) => ({
               entity_type: ent.entityType || "METHOD",
-              class_name: ent.className || className,
-              method_name: ent.methodName,
-              signature: ent.signature,
+              class_name: ent.className || className || "AppService",
+              method_name: ent.methodName || "element",
+              signature: ent.signature || `${ent.entityType || "METHOD"} ${ent.methodName || "element"}()`,
               return_type: "void",
-              parameters: ent.parameters,
-              start_line: ent.startLine,
-              end_line: ent.endLine,
-              doc_status: ent.docStatus,
-              javadoc: ent.javadoc,
-              annotations: ent.annotations || [],
+              parameters: ent.parameters || "",
+              start_line: typeof ent.startLine === "number" ? ent.startLine : 1,
+              end_line: typeof ent.endLine === "number" ? ent.endLine : 1,
+              doc_status: ent.docStatus || "UNDOCUMENTED",
+              javadoc: ent.javadoc || "",
+              annotations: Array.isArray(ent.annotations) ? ent.annotations : [],
             })),
           }),
         });
@@ -653,12 +687,9 @@ service.initialize();
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <FolderGit2 size={18} className="text-emerald-600" />
                   <p style={{ fontSize: 14, fontWeight: 700, color: "#0f766e", margin: 0 }}>
-                    1. Thiết lập thông số & Phạm vi sinh tài liệu
+                    1. Thiết lập thông số
                   </p>
                 </div>
-                <span className="text-xs font-medium text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-full">
-                  3 Phạm vi khả dụng
-                </span>
               </div>
 
               <div style={{ padding: 22, display: "flex", flexDirection: "column", gap: 20 }}>
@@ -1152,9 +1183,6 @@ service.initialize();
                     <h3 style={{ fontSize: 14.5, fontWeight: 700, color: "#0f766e", margin: 0 }}>
                       Tiến trình Phân tích & Biên soạn AI (Dynamic Progress)
                     </h3>
-                    <p style={{ fontSize: 12, color: "#475569", margin: "2px 0 0" }}>
-                      Hệ thống đang thực hiện luồng phân tích AST và điều phối Google Gemini...
-                    </p>
                   </div>
                 </div>
                 <span style={{ fontSize: 13, fontWeight: 700, color: "#0f766e", fontFamily: "monospace" }}>
@@ -1262,9 +1290,6 @@ service.initialize();
                       <div>
                         <p style={{ fontSize: 12, fontWeight: 700, color: textColor, margin: 0 }}>
                           {s.title}
-                        </p>
-                        <p style={{ fontSize: 10.5, color: "#64748b", margin: "3px 0 0", lineHeight: 1.35 }}>
-                          {s.desc}
                         </p>
                       </div>
                     </div>
@@ -1623,22 +1648,7 @@ service.initialize();
             </div>
           </div>
 
-          {/* Note */}
-          <div
-            className="ld-card"
-            style={{
-              display: "flex",
-              gap: 10,
-              background: "#f0fdf4",
-              border: "1px solid #bbf7d0",
-              padding: 14,
-            }}
-          >
-            <Info size={16} style={{ color: "#0f766e", marginTop: 2, flexShrink: 0 }} />
-            <p style={{ fontSize: 12, color: "#334155", margin: 0, lineHeight: 1.55 }}>
-              Tài liệu sau khi sinh sẽ được lưu ở trạng thái <strong>DRAFT</strong>. Bạn có thể kiểm tra kỹ trước khi bấm <strong>Gửi duyệt</strong> để chuyển vào hàng đợi xem xét của Staff.
-            </p>
-          </div>
+
         </div>
       </div>
 

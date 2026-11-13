@@ -1,11 +1,15 @@
 package com.example.livingdocs_backend.application.service;
 
 import com.example.livingdocs_backend.application.dto.DriftAlertActionRequest;
+import com.example.livingdocs_backend.application.dto.DriftAlertNotificationDto;
 import com.example.livingdocs_backend.application.dto.DriftAlertResponse;
+import com.example.livingdocs_backend.application.dto.DriftAlertSummaryResponse;
 import com.example.livingdocs_backend.application.port.AuditServicePort;
 import com.example.livingdocs_backend.domain.model.AuditAction;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentChangeAlertEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentChangeAlertRepository;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentRepository;
 import com.example.livingdocs_backend.infrastructure.security.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -25,8 +29,10 @@ public class DriftAlertService {
     static final Set<String> HANDLER_ROLES = Set.of("MANAGER", "TECH_LEAD", "ADMIN");
     static final Set<String> SEVERITIES = Set.of("LOW", "MEDIUM", "HIGH", "CRITICAL");
     private static final String OPEN = "OPEN";
+    private static final String PENDING = "PENDING";
 
     private final SpringDataDocumentChangeAlertRepository alertRepository;
+    private final SpringDataDocumentRepository documentRepository;
     private final AuditServicePort auditServicePort;
 
     @Transactional(readOnly = true)
@@ -37,7 +43,80 @@ public class DriftAlertService {
         if (repositoryId != null) {
             return alertRepository.findByRepositoryId(repositoryId);
         }
+        if (status != null && !status.isBlank()) {
+            return alertRepository.findByStatusIgnoreCase(status.trim());
+        }
         return alertRepository.findAll();
+    }
+
+    @Transactional(readOnly = true)
+    public DriftAlertSummaryResponse getNotificationSummary(Long repositoryId) {
+        List<String> pendingStatuses = List.of(PENDING, OPEN);
+        long count;
+        List<DocumentChangeAlertEntity> alertEntities;
+
+        if (repositoryId != null) {
+            List<DocumentChangeAlertEntity> list = alertRepository.findByRepositoryId(repositoryId).stream()
+                    .filter(a -> a.getStatus() != null && pendingStatuses.contains(a.getStatus().toUpperCase(Locale.ROOT)))
+                    .sorted((a, b) -> {
+                        Instant t1 = a.getCreatedAt() != null ? a.getCreatedAt() : Instant.EPOCH;
+                        Instant t2 = b.getCreatedAt() != null ? b.getCreatedAt() : Instant.EPOCH;
+                        return t2.compareTo(t1);
+                    })
+                    .toList();
+            count = list.size();
+            alertEntities = list.stream().limit(10).toList();
+        } else {
+            count = alertRepository.countByStatusInIgnoreCase(pendingStatuses);
+            alertEntities = alertRepository.findTop10ByStatusInIgnoreCaseOrderByCreatedAtDesc(pendingStatuses);
+        }
+
+        List<DriftAlertNotificationDto> recent = alertEntities.stream().map(a -> {
+            String docTitle = null;
+            if (a.getDocumentId() != null && documentRepository != null) {
+                docTitle = documentRepository.findById(a.getDocumentId())
+                        .map(DocumentEntity::getTitle)
+                        .orElse(null);
+            }
+            String commitShort = a.getSourceCommit() != null && a.getSourceCommit().length() > 7
+                    ? a.getSourceCommit().substring(0, 7)
+                    : a.getSourceCommit();
+            String details = a.getDetails();
+            if (details == null || details.isBlank()) {
+                if (a.getSourcePrId() != null) {
+                    details = "Phát hiện sai lệch tại Pull Request #" + a.getSourcePrId();
+                } else if (commitShort != null) {
+                    details = "Phát hiện sai lệch tại commit " + commitShort;
+                } else {
+                    details = "Phát hiện trôi dạt mã nguồn so với tài liệu hiện tại";
+                }
+            }
+
+            String suggestionUrl = "/canh-bao-sai-lech?alertId=" + a.getAlertId();
+            if (a.getDocumentId() != null) {
+                suggestionUrl = "/canh-bao-sai-lech?alertId=" + a.getAlertId() + "&docId=" + a.getDocumentId();
+            }
+
+            return DriftAlertNotificationDto.builder()
+                    .alertId(a.getAlertId())
+                    .repositoryId(a.getRepositoryId())
+                    .documentId(a.getDocumentId())
+                    .documentTitle(docTitle)
+                    .severity(a.getSeverity() != null ? a.getSeverity().toUpperCase(Locale.ROOT) : "MEDIUM")
+                    .classification(a.getClassification() != null ? a.getClassification() : "SEMANTIC")
+                    .status(a.getStatus() != null ? a.getStatus().toUpperCase(Locale.ROOT) : PENDING)
+                    .sourceCommit(commitShort)
+                    .sourcePrId(a.getSourcePrId())
+                    .details(details)
+                    .createdAt(a.getCreatedAt())
+                    .suggestionUrl(suggestionUrl)
+                    .build();
+        }).toList();
+
+        return DriftAlertSummaryResponse.builder()
+                .pendingCount(count)
+                .recentAlerts(recent)
+                .build();
     }
 
     @Transactional
@@ -45,7 +124,7 @@ public class DriftAlertService {
         requireHandler(actor);
         DocumentChangeAlertEntity alert = alertRepository.findById(alertId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy cảnh báo drift " + alertId));
-        if (!OPEN.equalsIgnoreCase(alert.getStatus())) {
+        if (!OPEN.equalsIgnoreCase(alert.getStatus()) && !PENDING.equalsIgnoreCase(alert.getStatus())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Cảnh báo đang ở trạng thái " + alert.getStatus() + " và không thể xử lý thêm");
         }

@@ -85,6 +85,42 @@ public class ReviewController {
         return ResponseEntity.ok(reviewServicePort.getReviewHistory());
     }
 
+    @GetMapping("/policies")
+    @PreAuthorize("hasAnyRole('STAFF','MANAGER','TECH_LEAD','ADMIN')")
+    @Operation(summary = "Lấy danh sách chính sách phê duyệt", description = "Lấy cấu hình phê duyệt 1 cấp vs 2 cấp dựa trên doc_type.")
+    public ResponseEntity<List<com.example.livingdocs_backend.application.dto.ApprovalPolicyDto>> getPolicies() {
+        return ResponseEntity.ok(reviewServicePort.getApprovalPolicies());
+    }
+
+    @PutMapping("/policies")
+    @PreAuthorize("hasAnyRole('MANAGER','TECH_LEAD','ADMIN')")
+    @Operation(summary = "Cập nhật chính sách phê duyệt", description = "Cập nhật số cấp phê duyệt (1 hoặc 2) cho từng loại tài liệu.")
+    public ResponseEntity<List<com.example.livingdocs_backend.application.dto.ApprovalPolicyDto>> updatePolicies(
+            @RequestBody List<com.example.livingdocs_backend.application.dto.ApprovalPolicyDto> policies,
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+        Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
+        String actorEmail = userPrincipal != null ? userPrincipal.getEmail() : null;
+        return ResponseEntity.ok(reviewServicePort.updateApprovalPolicies(policies, actorId, actorEmail));
+    }
+
+    @GetMapping("/delegations")
+    @PreAuthorize("hasAnyRole('STAFF','MANAGER','TECH_LEAD','ADMIN')")
+    @Operation(summary = "Lấy danh sách ủy quyền Manager", description = "Lấy danh sách các ủy quyền quyền duyệt giữa các Quản lý.")
+    public ResponseEntity<List<com.example.livingdocs_backend.application.dto.ManagerDelegationDto>> getDelegations() {
+        return ResponseEntity.ok(reviewServicePort.getManagerDelegations());
+    }
+
+    @PostMapping("/delegations")
+    @PreAuthorize("hasAnyRole('MANAGER','TECH_LEAD','ADMIN')")
+    @Operation(summary = "Tạo mới ủy quyền phê duyệt Manager", description = "Quản lý ủy quyền quyền duyệt cho Quản lý khác trong khoảng thời gian xác định.")
+    public ResponseEntity<com.example.livingdocs_backend.application.dto.ManagerDelegationDto> createDelegation(
+            @RequestBody com.example.livingdocs_backend.application.dto.ManagerDelegationDto delegation,
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+        Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
+        String actorEmail = userPrincipal != null ? userPrincipal.getEmail() : null;
+        return ResponseEntity.ok(reviewServicePort.createManagerDelegation(delegation, actorId, actorEmail));
+    }
+
     private String principalRole(UserPrincipal userPrincipal) {
         if (userPrincipal == null || userPrincipal.getAuthorities() == null || userPrincipal.getAuthorities().isEmpty()) {
             return null;

@@ -37,4 +37,32 @@ public interface ReviewServicePort {
      * Lấy toàn bộ lịch sử xem xét tài liệu từ trước đến nay (GET /api/reviews/history).
      */
     List<com.example.livingdocs_backend.application.dto.ReviewHistoryItemResponse> getReviewHistory();
+
+    /**
+     * Lấy danh sách cấu hình chính sách phê duyệt 1 cấp / 2 cấp theo loại tài liệu (doc_type).
+     */
+    List<com.example.livingdocs_backend.application.dto.ApprovalPolicyDto> getApprovalPolicies();
+
+    /**
+     * Cập nhật danh sách cấu hình chính sách phê duyệt (1 cấp / 2 cấp).
+     */
+    List<com.example.livingdocs_backend.application.dto.ApprovalPolicyDto> updateApprovalPolicies(
+            List<com.example.livingdocs_backend.application.dto.ApprovalPolicyDto> policies,
+            Long actorId,
+            String actorEmail
+    );
+
+    /**
+     * Lấy danh sách ủy quyền phê duyệt giữa các Manager.
+     */
+    List<com.example.livingdocs_backend.application.dto.ManagerDelegationDto> getManagerDelegations();
+
+    /**
+     * Tạo bản ghi ủy quyền phê duyệt mới giữa các Manager.
+     */
+    com.example.livingdocs_backend.application.dto.ManagerDelegationDto createManagerDelegation(
+            com.example.livingdocs_backend.application.dto.ManagerDelegationDto delegation,
+            Long actorId,
+            String actorEmail
+    );
 }

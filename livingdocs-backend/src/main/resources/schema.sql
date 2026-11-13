@@ -261,7 +261,7 @@ CREATE TABLE IF NOT EXISTS public.review_comments
 CREATE TABLE IF NOT EXISTS public.document_change_alerts
 (
     alert_id bigserial NOT NULL,
-    document_id bigint NOT NULL,
+    document_id bigint,
     repository_id bigint NOT NULL,
     classification character varying(30) COLLATE pg_catalog."default" NOT NULL DEFAULT 'SEMANTIC'::character varying,
     severity character varying(20) COLLATE pg_catalog."default" NOT NULL DEFAULT 'MEDIUM'::character varying,

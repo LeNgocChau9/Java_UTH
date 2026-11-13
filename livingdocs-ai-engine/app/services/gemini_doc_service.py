@@ -52,8 +52,10 @@ class GeminiDocService:
 
     @classmethod
     def _normalize_template_type(cls, template_type: Optional[str]) -> str:
-        """Chuẩn hóa loại mẫu tài liệu về một trong 4 loại chuẩn."""
+        """Chuẩn hóa loại mẫu tài liệu về một trong các loại chuẩn (mặc định ưu tiên PROJECT_DOCUMENTATION 10 phần)."""
         raw = (template_type or "").strip().upper()
+        if "10" in raw or "PROJECT_DOC" in raw or "PROJECT_DOCUMENTATION" in raw or "TIÊU CHUẨN" in raw or "STANDARD" in raw or "DỰ ÁN" in raw or "PROJECT" in raw:
+            return "PROJECT_DOCUMENTATION"
         if "API" in raw or "REFERENCE" in raw:
             return "API_REFERENCE"
         if "README" in raw or "INTRO" in raw:
@@ -62,7 +64,7 @@ class GeminiDocService:
             return "MODULE_GUIDE"
         if "ADR" in raw or "DECISION" in raw:
             return "ADR"
-        return "API_REFERENCE"
+        return "PROJECT_DOCUMENTATION"
 
     @classmethod
     def _build_grounding_box_markdown(
@@ -169,6 +171,75 @@ class GeminiDocService:
             f"- **Trách nhiệm:** Điều phối luồng dữ liệu, đảm bảo tính toàn vẹn nghiệp vụ.\n"
         )
 
+        if tpl == "PROJECT_DOCUMENTATION":
+            return f"""# Tài liệu Dự án Tiêu chuẩn: {target_name}
+
+> **Mẫu áp dụng:** PROJECT_DOCUMENTATION (10 Phần Tiêu Chuẩn)  
+> **File mã nguồn:** `{file_path}`  
+> **Tác nhân sinh:** LivingDocs Smart AST Synthesizer  
+> **Trạng thái:** ACTIVE (Đã đồng bộ AST)  
+> **Phiên bản:** 1.0.0
+
+---
+
+## 1. Phần đầu tài liệu
+- **Trang bìa:** Tên phần mềm `{target_name}`, Phiên bản v1.0.0, Đơn vị phát hành LivingDocs.
+- **Lịch sử chỉnh sửa:**
+  | Phiên bản | Ngày | Người sửa | Nội dung thay đổi |
+  | v1.0.0 | (Hiện tại) | LivingDocs Synthesizer | Tạo tài liệu dự án tiêu chuẩn từ AST |
+- **Mục lục:** Gồm 10 phần tổng quan, chức năng, kiến trúc và vận hành.
+
+## 2. Giới thiệu
+- **Mục đích của tài liệu:** Mô tả toàn diện kiến trúc, các thành phần và phương thức của `{target_name}`.
+- **Đối tượng sử dụng:** Nhà phát triển, Quản trị viên, Đội ngũ kiểm thử và Khách hàng.
+- **Phạm vi & Tổng quan:** Thành phần cốt lõi tại `{file_path}` thực thi các xử lý nghiệp vụ trọng tâm.
+- **Thuật ngữ & Quy ước:** AST (Abstract Syntax Tree), Tree-sitter, Genesis Hash, Verification Evidence.
+
+## 3. Yêu cầu hệ thống
+- **Phần cứng:** CPU tối thiểu 4 cores, RAM 8GB trở lên, 10GB dung lượng trống.
+- **Môi trường:** Java 17+, Python 3.10+, Node.js 18+, CSDL PostgreSQL.
+- **Mạng & Quyền hạn:** Mở cổng 8080, 8000, 3000, 5433; quyền hạn tài khoản dịch vụ.
+
+## 4. Cài đặt và cấu hình
+- **Tải về và cài đặt:** Clone repository từ GitHub, build backend bằng `./mvnw clean install` và frontend bằng `npm install`.
+- **Cấu hình ban đầu:** Thiết lập cấu hình `.env`, cấu hình kết nối CSDL và AI Engine.
+- **Kích hoạt tài khoản:** Khởi tạo tài khoản hệ thống và cấp quyền truy cập.
+
+## 5. Bắt đầu sử dụng
+- **Đăng nhập & Quản lý phiên:** Xác thực tài khoản qua JWT Token.
+- **Giao diện chính:** Thanh điều hướng menu, cây thư mục mã nguồn và chuông thông báo.
+- **Quy trình sử dụng cơ bản:** Khởi tạo, sinh tài liệu, gửi duyệt và xuất bản tài liệu.
+
+## 6. Hướng dẫn chi tiết từng chức năng
+### Bảng tổng hợp thực thể mã nguồn (AST)
+{table_md}
+
+### Chi tiết các phần tử & phương thức
+{details_md}
+
+## 7. Xử lý sự cố
+- **Bảng mã lỗi thường gặp:**
+  | Mã lỗi | Nguyên nhân | Biện pháp khắc phục |
+  | 400 Bad Request | Dữ liệu đầu vào không hợp lệ | Kiểm tra lại payload gửi lên |
+  | 401 Unauthorized | Token xác thực hết hạn | Đăng nhập lại để làm mới token |
+  | 404 Not Found | Không tìm thấy tài nguyên | Kiểm tra định danh tài nguyên |
+  | 500 Internal Error | Lỗi nội bộ hệ thống | Kiểm tra file log server |
+- **FAQ:** Kiểm tra kết nối cơ sở dữ liệu và AI Engine nếu gặp độ trễ.
+
+## 8. Bảo mật và sao lưu
+- **Bảo mật:** Mật khẩu mã hóa BCrypt, Token JWT HS256, phân quyền RBAC và kiểm tra tính toàn vẹn.
+- **Sao lưu:** Sao lưu định kỳ CSDL PostgreSQL và lưu trữ an toàn Genesis Hash.
+
+## 9. Hỗ trợ
+- **Kênh hỗ trợ:** Email: support@livingdocs.com | Hotline kỹ thuật.
+- **Báo lỗi:** Gửi phản hồi hoặc mở issue trên GitHub kèm thông tin chi tiết.
+
+## 10. Phụ lục
+- **Danh sách phím tắt:** Phím tắt thao tác nhanh trong editor Markdown.
+- **Bảng thuật ngữ:** Giải thích chi tiết các định danh và cấu trúc AST.
+- **Giấy phép:** Bản quyền phần mềm LivingDocs.
+"""
+
         return f"""# Tài liệu Kỹ thuật cho `{target_name}`
 
 > **Mẫu áp dụng:** {tpl}  
@@ -205,7 +276,8 @@ Thành phần `{target_name}` nằm trong tệp `{file_path}`, đóng vai trò �
         source_code: Optional[str]
     ) -> str:
         """
-        Thiết kế System Prompt chuẩn mực kỹ thuật theo 4 mẫu tài liệu:
+        Thiết kế System Prompt chuẩn mực kỹ thuật theo các mẫu tài liệu:
+        - PROJECT_DOCUMENTATION: Mẫu tài liệu Dự án tiêu chuẩn đầy đủ 10 phần.
         - API_REFERENCE: Bảng tham số, Endpoint/Method, HTTP status & Error codes.
         - README: Giới thiệu, tính năng cốt lõi, cấu trúc thành phần, cài đặt & Quick start.
         - MODULE_GUIDE: Bounded Context, Workflow dữ liệu, ràng buộc kỹ thuật, xử lý ngoại lệ.
@@ -230,7 +302,76 @@ Nhiệm vụ của bạn là phân tích sâu sắc toàn bộ cấu trúc mã n
 {code_context}
 """
 
-        if template_type == "API_REFERENCE":
+        if template_type == "PROJECT_DOCUMENTATION":
+            template_rules = f"""### QUY TẮC CẤU TRÚC MARKDOWN BẮT BUỘC (MẪU TÀI LIỆU DỰ ÁN TIÊU CHUẨN ĐỦ 10 PHẦN):
+Tài liệu BẮT BUỘC PHẢI CÓ ĐỦ 10 ĐỀ MỤC LỚN sau (từ ## 1 đến ## 10), TUYỆT ĐỐI KHÔNG ĐƯỢC RÚT GỌN XUỐNG 5 PHẦN, KHÔNG ĐƯỢC BỎ BỚT MỤC NÀO:
+
+# Tài liệu Dự án Tiêu chuẩn: {target_name}
+> **Mẫu áp dụng:** PROJECT_DOCUMENTATION (10 Phần Toàn diện) | **File nguồn:** `{file_path}` | **Trạng thái:** ACTIVE | **Phiên bản:** 1.0.0
+
+## 1. Phần đầu tài liệu
+- **Trang bìa:** Tên phần mềm `{target_name}`, Phiên bản v1.0.0, Tên tài liệu: Đặc tả Kỹ thuật Dự án Tiêu chuẩn, Đơn vị phát hành LivingDocs, Ngày phát hành (thời điểm hiện tại).
+- **Lịch sử chỉnh sửa tài liệu:** Bảng Markdown đầy đủ cột: Phiên bản, Ngày, Người sửa, Nội dung thay đổi.
+- **Mục lục:** Liệt kê đầy đủ 10 chương mục chính và danh mục hình ảnh, bảng biểu.
+
+## 2. Giới thiệu
+- **Mục đích của tài liệu:** Hướng dẫn chi tiết kiến trúc, thiết kế, triển khai và bảo trì cho thành phần `{target_name}`.
+- **Đối tượng sử dụng:** Lập trình viên, Quản trị viên hệ thống, Kỹ sư kiểm thử (QA) và Khách hàng/Stakeholders.
+- **Phạm vi và tổng quan phần mềm:** Các chức năng chính, lợi ích kỹ thuật và kinh doanh trong dự án.
+- **Thuật ngữ, từ viết tắt & Quy ước trình bày:** Bảng giải thích chi tiết các thuật ngữ (AST, Genesis Hash, Tree-sitter, Semantic Drift), ký hiệu chú ý và cảnh báo.
+- **Tài liệu tham khảo liên quan:** Các đường dẫn, RFC hoặc tài liệu phụ thuộc.
+
+## 3. Yêu cầu hệ thống
+- **Yêu cầu phần cứng:** Cấu hình CPU tối thiểu (4 Cores), RAM khuyến nghị (8GB - 16GB), Dung lượng ổ đĩa khả dụng (tối thiểu 10GB).
+- **Hệ điều hành & Môi trường phụ thuộc:** Windows 10/11, macOS hoặc Linux; Yêu cầu Java 17+, Python 3.10+, Node.js 18+.
+- **Yêu cầu kết nối mạng & Quyền truy cập:** Cổng kết nối (8080 Backend, 8000 AI Engine, 3000 Frontend, 5433 CSDL), cấu hình Firewall và quyền hạn tài khoản dịch vụ.
+
+## 4. Cài đặt và cấu hình
+- **Tải về và cài đặt:** Hướng dẫn chi tiết từng bước clone kho lưu trữ Git, cài đặt dependencies (Maven, npm, pip) và build ứng dụng.
+- **Cấu hình ban đầu:** Thiết lập cấu hình file `.env`, file `application.properties`, cấu hình kết nối CSDL PostgreSQL và Ollama/Gemini.
+- **Kích hoạt bản quyền & Đăng ký tài khoản:** Khởi tạo tài khoản quản trị (Admin) và thiết lập kết nối GitHub OAuth2.
+- **Cập nhật & Gỡ cài đặt:** Quy trình cập nhật mã nguồn mới (git pull, database migration) và quy trình gỡ bỏ, sao lưu an toàn.
+
+## 5. Bắt đầu sử dụng (Quick Start)
+- **Đăng nhập, đăng xuất, đổi mật khẩu:** Quy trình chứng thực an toàn qua JWT Token và GitHub OAuth.
+- **Giới thiệu giao diện chính:** Thanh công cụ, menu điều hướng, cây thư mục mã nguồn và chuông thông báo trạng thái.
+- **Phân quyền và vai trò người dùng:** Ma trận quyền hạn Admin (Toàn quyền), Manager (Phê duyệt), Staff (Thẩm định), User (Tạo tài liệu).
+- **Quy trình sử dụng cơ bản:** Luồng 4 bước tạo tài liệu, kiểm thử AST, gửi phê duyệt và xuất bản tài liệu.
+
+## 6. Hướng dẫn chi tiết từng chức năng
+- **Bảng tổng hợp chức năng từ mã nguồn AST:**
+  | STT | Tên chức năng / Thành phần | Phương thức / Endpoint | Điều kiện cần | Kết quả mong đợi |
+  (Liệt kê đầy đủ mọi class và method bóc tách từ AST)
+- **Đặc tả chi tiết:** Phân tích sâu từng hàm, tham số đầu vào, kiểu dữ liệu trả về và logic nghiệp vụ bên trong.
+
+## 7. Xử lý sự cố (Troubleshooting)
+- **Bảng mã lỗi và biện pháp khắc phục:**
+  | Mã lỗi | Tên lỗi | Nguyên nhân phát sinh | Hướng xử lý |
+  | 400 | Bad Request | Tham số yêu cầu không hợp lệ | Kiểm tra payload JSON gửi lên |
+  | 401 | Unauthorized | Token JWT hết hạn hoặc chưa đăng nhập | Đăng nhập lại hoặc làm mới token |
+  | 403 | Forbidden | Không có quyền hạn phù hợp | Yêu cầu cấp quyền từ Quản trị viên |
+  | 404 | Not Found | Tài nguyên không tồn tại | Kiểm tra đường dẫn URL hoặc ID |
+  | 422 | Unprocessable | Sai schema định dạng dữ liệu | Chuẩn hóa schema theo OpenAPI spec |
+  | 500 | Internal Server Error | Lỗi hệ thống nội bộ | Kiểm tra file log server để khắc phục |
+- **Câu hỏi thường gặp (FAQ):** Giải đáp chi tiết các thắc mắc phổ biến khi cài đặt và sử dụng.
+- **Các lỗi thường gặp khi cài đặt và sử dụng:** Khắc phục lỗi kết nối DB, timeout AI Engine và xung đột cổng mạng.
+
+## 8. Bảo mật và sao lưu
+- **Lưu ý bảo mật tài khoản & Dữ liệu:** Mã hóa mật khẩu một chiều (BCrypt), mã hóa Token JWT (HS256 256-bit), CORS & Spring Security.
+- **Sao lưu và phục hồi dữ liệu:** Lịch trình sao lưu tự động PostgreSQL hàng ngày và quy trình khôi phục khi gặp thảm họa.
+
+## 9. Hỗ trợ & Phản hồi
+- **Thông tin liên hệ bộ phận hỗ trợ:** Email hỗ trợ kỹ thuật (support@livingdocs.com), Hotline và kênh Discord/Slack.
+- **Cách báo lỗi & Gửi phản hồi:** Hướng dẫn mở Issue trên GitHub Repository kèm log lỗi và các bước tái hiện.
+
+## 10. Phụ lục
+- **Danh sách phím tắt:** Bảng phím tắt thao tác nhanh trong trình soạn thảo Markdown.
+- **Bảng thuật ngữ (Glossary):** Bảng giải nghĩa đầy đủ các khái niệm kỹ thuật trong dự án (AST, Genesis Hash, Tree-sitter, Semantic Drift).
+- **Giấy phép, bản quyền & Điều khoản sử dụng:** Bản quyền phần mềm LivingDocs, giấy phép MIT và điều khoản sử dụng.
+- **Mẫu biểu, dữ liệu mẫu & Chỉ mục tra cứu:** Cấu trúc JSON mẫu và bảng chỉ mục tra cứu nhanh.
+"""
+
+        elif template_type == "API_REFERENCE":
             template_rules = f"""### QUY TẮC CẤU TRÚC MARKDOWN BẮT BUỘC (MẪU API_REFERENCE):
 Tài liệu PHẢI tuân thủ chính xác các đề mục sau:
 

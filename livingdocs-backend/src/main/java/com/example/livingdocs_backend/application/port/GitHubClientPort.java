@@ -1,5 +1,6 @@
 package com.example.livingdocs_backend.application.port;
 
+import com.example.livingdocs_backend.application.dto.github.GitHubCheckRunResultDto;
 import com.example.livingdocs_backend.application.dto.github.GitHubCommitDto;
 import com.example.livingdocs_backend.application.dto.github.GitHubFileDto;
 import com.example.livingdocs_backend.application.dto.github.GitHubPrFileDto;
@@ -130,7 +131,7 @@ public interface GitHubClientPort {
      * @param summary Nội dung tóm tắt giải thích lý do chặn hoặc thông báo hợp lệ
      * @param detailsUrl Đường dẫn xem chi tiết trên hệ thống LivingDocs
      */
-    default com.example.livingdocs_backend.application.dto.github.GitHubCheckRunResultDto postCheckRun(
+    default GitHubCheckRunResultDto postCheckRun(
             String token,
             String owner,
             String repo,

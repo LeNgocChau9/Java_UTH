@@ -1,11 +1,17 @@
 package com.example.livingdocs_backend.application.service;
 
 import com.example.livingdocs_backend.application.dto.RepoCoverageDto;
+import com.example.livingdocs_backend.application.dto.health.CoverageGapClassDto;
+import com.example.livingdocs_backend.application.dto.health.CoverageGapItemDto;
+import com.example.livingdocs_backend.application.dto.health.CoverageGapPackageDto;
+import com.example.livingdocs_backend.application.dto.health.CoverageGapsResponse;
 import com.example.livingdocs_backend.application.dto.health.DocumentHealthReportResponse;
 import com.example.livingdocs_backend.application.dto.health.MissingDocEntityStatsDto;
 import com.example.livingdocs_backend.application.dto.health.ProjectComplianceDto;
 import com.example.livingdocs_backend.application.port.DashboardStatsQueryPort;
 import com.example.livingdocs_backend.application.port.DocumentHealthReportServicePort;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.CodeEntityJpaEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataCodeEntityRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +35,7 @@ public class DocumentHealthReportServiceImpl implements DocumentHealthReportServ
 
     private final DashboardStatsQueryPort queryPort;
     private final SpringDataRepositoryRepository repositoryRepository;
+    private final SpringDataCodeEntityRepository codeEntityRepository;
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
             .withZone(ZoneId.systemDefault());
@@ -96,7 +103,175 @@ public class DocumentHealthReportServiceImpl implements DocumentHealthReportServ
     @Transactional(readOnly = true)
     public String exportHealthReportMarkdown(Long repositoryId) {
         DocumentHealthReportResponse report = generateHealthReport(repositoryId);
-        return renderMarkdownReport(report);
+        CoverageGapsResponse gaps = getCoverageGaps(repositoryId);
+        return renderMarkdownReport(report, gaps);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public CoverageGapsResponse getCoverageGaps(Long repositoryId) {
+        String repoName = null;
+        if (repositoryId != null) {
+            repoName = repositoryRepository.findById(repositoryId)
+                    .map(r -> r.getRepoFullName() != null ? r.getRepoFullName() : r.getRepoName())
+                    .orElse(null);
+        }
+
+        List<CodeEntityJpaEntity> entities = (codeEntityRepository != null)
+                ? codeEntityRepository.findCoverageGaps(repositoryId)
+                : List.of();
+
+        List<CoverageGapItemDto> allItems = new ArrayList<>();
+        long missingClasses = 0L;
+        long missingMethods = 0L;
+
+        Map<String, List<CodeEntityJpaEntity>> byPackage = new LinkedHashMap<>();
+
+        for (CodeEntityJpaEntity e : entities) {
+            String pkg = extractPackage(e.getFilePath());
+            byPackage.computeIfAbsent(pkg, k -> new ArrayList<>()).add(e);
+
+            String type = e.getEntityType() != null ? e.getEntityType().toUpperCase() : "UNKNOWN";
+            if ("CLASS".equals(type) || "INTERFACE".equals(type) || "ENUM".equals(type)) {
+                missingClasses++;
+            } else if ("METHOD".equals(type) || "FUNCTION".equals(type)) {
+                missingMethods++;
+            }
+
+            allItems.add(CoverageGapItemDto.builder()
+                    .entityId(e.getEntityId())
+                    .repositoryId(e.getRepositoryId())
+                    .filePath(e.getFilePath())
+                    .packageName(pkg)
+                    .entityType(e.getEntityType())
+                    .className(e.getClassName())
+                    .methodName(e.getMethodName())
+                    .signature(e.getSignature())
+                    .returnType(e.getReturnType())
+                    .startLine(e.getStartLine())
+                    .endLine(e.getEndLine())
+                    .docStatus(e.getDocStatus())
+                    .build());
+        }
+
+        List<CoverageGapPackageDto> packageDtos = new ArrayList<>();
+
+        for (Map.Entry<String, List<CodeEntityJpaEntity>> pkgEntry : byPackage.entrySet()) {
+            String pkgName = pkgEntry.getKey();
+            List<CodeEntityJpaEntity> pkgEntities = pkgEntry.getValue();
+
+            Map<String, List<CodeEntityJpaEntity>> byClass = new LinkedHashMap<>();
+            for (CodeEntityJpaEntity e : pkgEntities) {
+                String clsName = (e.getClassName() != null && !e.getClassName().isBlank())
+                        ? e.getClassName()
+                        : "(Module: " + getFileBasename(e.getFilePath()) + ")";
+                byClass.computeIfAbsent(clsName, k -> new ArrayList<>()).add(e);
+            }
+
+            List<CoverageGapClassDto> classDtos = new ArrayList<>();
+            List<CoverageGapItemDto> pkgItems = new ArrayList<>();
+
+            for (Map.Entry<String, List<CodeEntityJpaEntity>> classEntry : byClass.entrySet()) {
+                String clsName = classEntry.getKey();
+                List<CodeEntityJpaEntity> classEntities = classEntry.getValue();
+
+                CodeEntityJpaEntity classEntity = null;
+                List<CoverageGapItemDto> methodDtos = new ArrayList<>();
+
+                for (CodeEntityJpaEntity ce : classEntities) {
+                    CoverageGapItemDto item = CoverageGapItemDto.builder()
+                            .entityId(ce.getEntityId())
+                            .repositoryId(ce.getRepositoryId())
+                            .filePath(ce.getFilePath())
+                            .packageName(pkgName)
+                            .entityType(ce.getEntityType())
+                            .className(ce.getClassName())
+                            .methodName(ce.getMethodName())
+                            .signature(ce.getSignature())
+                            .returnType(ce.getReturnType())
+                            .startLine(ce.getStartLine())
+                            .endLine(ce.getEndLine())
+                            .docStatus(ce.getDocStatus())
+                            .build();
+
+                    pkgItems.add(item);
+
+                    String type = ce.getEntityType() != null ? ce.getEntityType().toUpperCase() : "";
+                    if ("CLASS".equals(type) || "INTERFACE".equals(type) || "ENUM".equals(type)) {
+                        classEntity = ce;
+                    } else {
+                        methodDtos.add(item);
+                    }
+                }
+
+                String filePath = !classEntities.isEmpty() ? classEntities.get(0).getFilePath() : "";
+                String classType = classEntity != null ? classEntity.getEntityType() : "CLASS";
+
+                classDtos.add(CoverageGapClassDto.builder()
+                        .className(clsName)
+                        .filePath(filePath)
+                        .entityType(classType)
+                        .classEntityId(classEntity != null ? classEntity.getEntityId() : null)
+                        .classDocumented(classEntity == null)
+                        .methods(methodDtos)
+                        .totalMissing(classEntities.size())
+                        .build());
+            }
+
+            packageDtos.add(CoverageGapPackageDto.builder()
+                    .packageName(pkgName)
+                    .totalMissing(pkgEntities.size())
+                    .classes(classDtos)
+                    .items(pkgItems)
+                    .build());
+        }
+
+        return CoverageGapsResponse.builder()
+                .repositoryId(repositoryId)
+                .repositoryName(repoName)
+                .totalMissing(entities.size())
+                .missingClasses(missingClasses)
+                .missingMethods(missingMethods)
+                .packages(packageDtos)
+                .items(allItems)
+                .build();
+    }
+
+    public static String extractPackage(String filePath) {
+        if (filePath == null || filePath.isBlank()) {
+            return "default";
+        }
+        String normalized = filePath.replace('\\', '/');
+        int javaIdx = normalized.indexOf("/src/main/java/");
+        if (javaIdx >= 0) {
+            String sub = normalized.substring(javaIdx + "/src/main/java/".length());
+            int lastSlash = sub.lastIndexOf('/');
+            if (lastSlash > 0) {
+                return sub.substring(0, lastSlash).replace('/', '.');
+            }
+        }
+        int genericJavaIdx = normalized.indexOf("/java/");
+        if (genericJavaIdx >= 0) {
+            String sub = normalized.substring(genericJavaIdx + "/java/".length());
+            int lastSlash = sub.lastIndexOf('/');
+            if (lastSlash > 0) {
+                return sub.substring(0, lastSlash).replace('/', '.');
+            }
+        }
+        int lastSlash = normalized.lastIndexOf('/');
+        if (lastSlash > 0) {
+            return normalized.substring(0, lastSlash);
+        }
+        return "root";
+    }
+
+    private static String getFileBasename(String filePath) {
+        if (filePath == null || filePath.isBlank()) {
+            return "unknown";
+        }
+        String normalized = filePath.replace('\\', '/');
+        int idx = normalized.lastIndexOf('/');
+        return idx >= 0 ? normalized.substring(idx + 1) : normalized;
     }
 
     private ProjectComplianceDto evaluateCompliance(double coverage, double freshness, Map<String, Long> alerts) {
@@ -157,7 +332,7 @@ public class DocumentHealthReportServiceImpl implements DocumentHealthReportServ
                 .build();
     }
 
-    private String renderMarkdownReport(DocumentHealthReportResponse r) {
+    private String renderMarkdownReport(DocumentHealthReportResponse r, CoverageGapsResponse gaps) {
         StringBuilder sb = new StringBuilder();
         String scopeTitle = r.getRepositoryName() != null ? "Kho lưu trữ: `" + r.getRepositoryName() + "`" : "Toàn bộ hệ thống";
 
@@ -235,9 +410,35 @@ public class DocumentHealthReportServiceImpl implements DocumentHealthReportServ
             sb.append("\n");
         }
 
+        // 6. Khoảng trống tài liệu theo gói mã nguồn
+        if (gaps != null && gaps.getPackages() != null && !gaps.getPackages().isEmpty()) {
+            sb.append("## 6. Chi Tiết Khoảng Trống Tài Liệu Theo Gói (Coverage Gaps by Package)\n\n");
+            sb.append(String.format("Tổng số thực thể thiếu tài liệu: **%d** (Gồm %d lớp, %d hàm/phương thức)\n\n",
+                    gaps.getTotalMissing(), gaps.getMissingClasses(), gaps.getMissingMethods()));
+            sb.append("| Gói mã nguồn (Package) | Tổng thiếu | Danh sách lớp liên quan |\n");
+            sb.append("| :--- | :--- | :--- |\n");
+            for (CoverageGapPackageDto pkg : gaps.getPackages()) {
+                List<String> classNames = pkg.getClasses().stream()
+                        .map(CoverageGapClassDto::getClassName)
+                        .limit(5)
+                        .toList();
+                String classesStr = String.join(", ", classNames);
+                if (pkg.getClasses().size() > 5) {
+                    classesStr += " và " + (pkg.getClasses().size() - 5) + " lớp khác...";
+                }
+                sb.append(String.format("| `%s` | **%d** | %s |\n",
+                        pkg.getPackageName(), pkg.getTotalMissing(), classesStr.isEmpty() ? "—" : classesStr));
+            }
+            sb.append("\n");
+        }
+
         sb.append("---\n");
         sb.append("*Báo cáo được sinh tự động bởi LivingDocs Health Monitor Engine.*\n");
 
         return sb.toString();
+    }
+
+    private String renderMarkdownReport(DocumentHealthReportResponse r) {
+        return renderMarkdownReport(r, null);
     }
 }

@@ -1,5 +1,6 @@
 package com.example.livingdocs_backend.infrastructure.web.controller;
 
+import com.example.livingdocs_backend.application.dto.health.CoverageGapsResponse;
 import com.example.livingdocs_backend.application.dto.health.DocumentHealthReportResponse;
 import com.example.livingdocs_backend.application.port.DocumentHealthReportServicePort;
 import io.swagger.v3.oas.annotations.Operation;
@@ -26,7 +27,7 @@ public class DocumentHealthReportController {
 
     private final DocumentHealthReportServicePort healthReportServicePort;
 
-    @GetMapping("/health")
+    @GetMapping({"/health", "/documentation-health"})
     @Operation(
             summary = "Tổng hợp & xuất báo cáo tình trạng sức khỏe tài liệu",
             description = "Tổng hợp toàn diện các chỉ số: tỷ lệ bao phủ, độ mới theo commit mới nhất, số lượng hàm và lớp còn thiếu tài liệu, "
@@ -58,5 +59,24 @@ public class DocumentHealthReportController {
 
         DocumentHealthReportResponse report = healthReportServicePort.generateHealthReport(repositoryId);
         return ResponseEntity.ok(report);
+    }
+
+    @GetMapping("/coverage-gaps")
+    @Operation(
+            summary = "Truy vấn danh sách khoảng trống tài liệu (Coverage Gaps)",
+            description = "Truy vấn các thực thể mã nguồn (code_entities) còn thiếu tài liệu (chưa liên kết trong doc_code_links), "
+                    + "phân nhóm đa cấp theo Gói mã nguồn (package), Lớp (class), Phương thức/Hàm (method/function) và Loại thực thể (entityType). "
+                    + "Hỗ trợ lọc theo repositoryId hoặc trả về toàn bộ hệ thống nếu bỏ trống."
+    )
+    public ResponseEntity<CoverageGapsResponse> getCoverageGaps(
+            @Parameter(description = "ID kho lưu trữ. Bỏ trống để truy vấn toàn bộ hệ thống.")
+            @RequestParam(required = false) Long repositoryId
+    ) {
+        if (repositoryId != null && repositoryId <= 0) {
+            throw new IllegalArgumentException("repositoryId phải là số nguyên dương");
+        }
+
+        CoverageGapsResponse gaps = healthReportServicePort.getCoverageGaps(repositoryId);
+        return ResponseEntity.ok(gaps);
     }
 }

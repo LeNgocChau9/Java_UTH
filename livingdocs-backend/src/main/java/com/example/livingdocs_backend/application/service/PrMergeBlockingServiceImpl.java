@@ -37,7 +37,6 @@ import java.util.*;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class PrMergeBlockingServiceImpl implements PrMergeBlockingServicePort {
 
     public static final String PR_BLOCKING_SETTING_KEY = "pr_merge_blocking_policy";
@@ -50,6 +49,26 @@ public class PrMergeBlockingServiceImpl implements PrMergeBlockingServicePort {
     private final DocumentRepositoryPort documentRepositoryPort;
     private final GitHubClientPort gitHubClient;
     private final ObjectMapper objectMapper;
+
+    public PrMergeBlockingServiceImpl(
+            SpringDataAdminSettingRepository adminSettingRepository,
+            SpringDataDocumentChangeAlertRepository alertRepository,
+            SpringDataPullRequestRepository pullRequestRepository,
+            SpringDataRepositoryRepository repositoryRepository,
+            SpringDataGitHubConnectionRepository gitHubConnectionRepository,
+            DocumentRepositoryPort documentRepositoryPort,
+            GitHubClientPort gitHubClient,
+            ObjectMapper objectMapper
+    ) {
+        this.adminSettingRepository = adminSettingRepository;
+        this.alertRepository = alertRepository;
+        this.pullRequestRepository = pullRequestRepository;
+        this.repositoryRepository = repositoryRepository;
+        this.gitHubConnectionRepository = gitHubConnectionRepository;
+        this.documentRepositoryPort = documentRepositoryPort;
+        this.gitHubClient = gitHubClient;
+        this.objectMapper = objectMapper != null ? objectMapper.copy().findAndRegisterModules() : new ObjectMapper().findAndRegisterModules();
+    }
 
     @Value("${app.frontend.url:http://localhost:3000}")
     private String frontendUrl;
@@ -149,8 +168,8 @@ public class PrMergeBlockingServiceImpl implements PrMergeBlockingServicePort {
 
         String token = resolveToken(repo);
         String[] parts = repo.getRepoFullName().split("/");
-        if (parts.length != 2 || !StringUtils.hasText(token)) {
-            log.warn("[PrMergeBlocking] Thiếu GitHub token hoặc repoFullName không hợp lệ ({})", repo.getRepoFullName());
+        if (parts.length != 2) {
+            log.warn("[PrMergeBlocking] repoFullName không hợp lệ ({})", repo.getRepoFullName());
             return null;
         }
         String owner = parts[0];

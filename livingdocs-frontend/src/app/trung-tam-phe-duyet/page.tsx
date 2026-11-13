@@ -5,7 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AppShell } from "@/components/AppShell";
 import { documentService } from "@/services/documentService";
-import { reviewService, type ReviewQueueItem } from "@/services/reviewService";
+import { reviewService, type ReviewQueueItem, type ApprovalPolicyItem, type ManagerDelegationItem } from "@/services/reviewService";
 import { repoService, type RepoItem } from "@/services/repoService";
 import type {
   DocumentDetail,
@@ -28,6 +28,10 @@ import {
   ExternalLink,
   UserCheck,
   Info,
+  Sliders,
+  Users,
+  Calendar,
+  Plus,
 } from "lucide-react";
 
 export default function TrungTamPheDuyetManagerPage() {
@@ -58,6 +62,38 @@ export default function TrungTamPheDuyetManagerPage() {
 
   // Tab xem trước (Nội dung tài liệu vs Audit Trail)
   const [activeTab, setActiveTab] = useState<"content" | "audit">("content");
+
+  // Tab điều hướng chính: queue (Hàng đợi) | policies (Chính sách 1 cấp/2 cấp) | delegations (Ủy quyền)
+  const [mainTab, setMainTab] = useState<"queue" | "policies" | "delegations">("queue");
+
+  // Quản lý chính sách phê duyệt 1-tier vs 2-tier (LD-W6-09)
+  const [policies, setPolicies] = useState<ApprovalPolicyItem[]>([]);
+  const [loadingPolicies, setLoadingPolicies] = useState<boolean>(false);
+  const [policySuccessMsg, setPolicySuccessMsg] = useState<string | null>(null);
+  const [policyErrorMsg, setPolicyErrorMsg] = useState<string | null>(null);
+  const [showAddPolicyRow, setShowAddPolicyRow] = useState<boolean>(false);
+  const [newDocType, setNewDocType] = useState<string>("");
+  const [newDocTypeTiers, setNewDocTypeTiers] = useState<1 | 2>(1);
+  const [newDocTypeDesc, setNewDocTypeDesc] = useState<string>("");
+
+  // Quản lý ủy quyền Manager Delegation (LD-W6-10)
+  const [delegations, setDelegations] = useState<ManagerDelegationItem[]>([]);
+  const [loadingDelegations, setLoadingDelegations] = useState<boolean>(false);
+  const [showDelegationModal, setShowDelegationModal] = useState<boolean>(false);
+  const [delegationSuccessMsg, setDelegationSuccessMsg] = useState<string | null>(null);
+  const [delegationErrorMsg, setDelegationErrorMsg] = useState<string | null>(null);
+  const [submittingDelegation, setSubmittingDelegation] = useState<boolean>(false);
+  const [newDelegatorName, setNewDelegatorName] = useState<string>("Quản lý A");
+  const [newDelegatorEmail, setNewDelegatorEmail] = useState<string>("managerA@livingdocs.internal");
+  const [newDelegateeName, setNewDelegateeName] = useState<string>("Quản lý B");
+  const [newDelegateeEmail, setNewDelegateeEmail] = useState<string>("managerB@livingdocs.internal");
+  const [newFromDate, setNewFromDate] = useState<string>(() => new Date().toISOString().substring(0, 10));
+  const [newToDate, setNewToDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 14);
+    return d.toISOString().substring(0, 10);
+  });
+  const [newReason, setNewReason] = useState<string>("Nghỉ phép thường niên / Công tác");
 
   // 1. Tải danh sách tài liệu UNDER_REVIEW_MANAGER từ API thật
   const fetchManagerQueue = useCallback(async () => {
@@ -104,6 +140,111 @@ export default function TrungTamPheDuyetManagerPage() {
   useEffect(() => {
     fetchManagerQueue();
   }, [fetchManagerQueue]);
+
+  // Tải danh sách Chính sách phê duyệt
+  const fetchPolicies = useCallback(async () => {
+    setLoadingPolicies(true);
+    setPolicyErrorMsg(null);
+    try {
+      const data = await reviewService.getApprovalPolicies();
+      setPolicies(data);
+    } catch (err) {
+      console.error("Lỗi tải chính sách phê duyệt:", err);
+      setPolicyErrorMsg("Không thể tải danh sách chính sách phê duyệt.");
+    } finally {
+      setLoadingPolicies(false);
+    }
+  }, []);
+
+  // Tải danh sách Ủy quyền phê duyệt Manager
+  const fetchDelegations = useCallback(async () => {
+    setLoadingDelegations(true);
+    setDelegationErrorMsg(null);
+    try {
+      const data = await reviewService.getManagerDelegations();
+      setDelegations(data);
+    } catch (err) {
+      console.error("Lỗi tải danh sách ủy quyền:", err);
+      setDelegationErrorMsg("Không thể tải danh sách ủy quyền phê duyệt.");
+    } finally {
+      setLoadingDelegations(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPolicies();
+    fetchDelegations();
+  }, [fetchPolicies, fetchDelegations]);
+
+  // Lưu cấu hình chính sách phê duyệt
+  const handleSavePolicies = async () => {
+    setLoadingPolicies(true);
+    setPolicySuccessMsg(null);
+    setPolicyErrorMsg(null);
+    try {
+      const updated = await reviewService.updateApprovalPolicies(policies);
+      setPolicies(updated);
+      setPolicySuccessMsg("Đã lưu cấu hình chính sách phê duyệt thành công!");
+      setTimeout(() => setPolicySuccessMsg(null), 4000);
+    } catch (err) {
+      console.error("Lỗi lưu chính sách phê duyệt:", err);
+      setPolicyErrorMsg("Không thể lưu cấu hình chính sách phê duyệt.");
+    } finally {
+      setLoadingPolicies(false);
+    }
+  };
+
+  const handleToggleTier = (docType: string) => {
+    setPolicies((prev) =>
+      prev.map((p) =>
+        p.docType.toLowerCase() === docType.toLowerCase()
+          ? { ...p, tiers: p.tiers === 1 ? 2 : 1 }
+          : p
+      )
+    );
+  };
+
+  // Tạo ủy quyền Manager mới
+  const handleCreateDelegation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmittingDelegation(true);
+    setDelegationErrorMsg(null);
+    setDelegationSuccessMsg(null);
+    try {
+      const created = await reviewService.createManagerDelegation({
+        delegatorName: newDelegatorName.trim() || "Quản lý A",
+        delegatorEmail: newDelegatorEmail.trim() || "managerA@livingdocs.internal",
+        delegateeName: newDelegateeName.trim() || "Quản lý B",
+        delegateeEmail: newDelegateeEmail.trim() || "managerB@livingdocs.internal",
+        fromDate: newFromDate,
+        toDate: newToDate,
+        reason: newReason.trim() || "Ủy quyền phê duyệt",
+        active: true,
+      });
+      setDelegations((prev) => [...prev, created]);
+      setDelegationSuccessMsg(`Đã tạo ủy quyền thành công: ${created.delegatorName} ủy quyền cho ${created.delegateeName}!`);
+      setShowDelegationModal(false);
+      setTimeout(() => setDelegationSuccessMsg(null), 4000);
+    } catch (err) {
+      console.error("Lỗi tạo ủy quyền:", err);
+      setDelegationErrorMsg("Không thể tạo bản ghi ủy quyền phê duyệt.");
+    } finally {
+      setSubmittingDelegation(false);
+    }
+  };
+
+  // Danh sách ủy quyền đang có hiệu lực tại thời điểm hiện tại
+  const activeDelegations = useMemo(() => {
+    const today = new Date().toISOString().substring(0, 10);
+    return delegations.filter((d) => {
+      if (d.active === false) return false;
+      const from = d.fromDate ? d.fromDate.substring(0, 10) : "";
+      const to = d.toDate ? d.toDate.substring(0, 10) : "";
+      if (from && today < from) return false;
+      if (to && today > to) return false;
+      return true;
+    });
+  }, [delegations]);
 
   // 2. Tải chi tiết tài liệu và lịch sử Audit Trail khi chọn tài liệu
   const handleSelectDoc = async (docId: number) => {
@@ -160,20 +301,26 @@ export default function TrungTamPheDuyetManagerPage() {
         : "Từ chối tài liệu.";
 
     try {
+      const activeDel = activeDelegations.length > 0 ? activeDelegations[0] : null;
       const result = await reviewService.processManagerAction(selectedDocId, {
         decision,
         comment: managerComment.trim() || defaultComment,
         commitToGithub: decision === "PUBLISH" && commitToGithub,
+        delegationId: activeDel?.id,
+        delegatedFromEmail: activeDel?.delegatorEmail,
+        delegatedFromName: activeDel?.delegatorName,
       });
 
-      const successText =
+      const delegationNotice = activeDel ? ` (Ủy quyền: ${activeDel.delegateeName} phê duyệt thay cho ${activeDel.delegatorName})` : "";
+      const successText = (
         decision === "PUBLISH"
           ? result.commitSha
             ? `Đã phê duyệt (PUBLISHED) và đẩy file .md lên GitHub. Commit: ${result.commitSha}`
             : "Đã phê duyệt xuất bản (PUBLISHED). Không đẩy file lên GitHub."
           : decision === "RETURN_STAFF"
           ? "Đã yêu cầu sửa đổi và trả tài liệu về Staff (UNDER_REVIEW_STAFF)."
-          : "Đã từ chối tài liệu (REJECTED). Tài liệu không được xuất bản.";
+          : "Đã từ chối tài liệu (REJECTED). Tài liệu không được xuất bản."
+      ) + delegationNotice;
 
       setActionSuccessMsg(successText);
       setManagerComment("");
@@ -290,6 +437,112 @@ export default function TrungTamPheDuyetManagerPage() {
         </div>
       </div>
 
+      {/* Navigation Tabs (LD-W6-09 & LD-W6-10) */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          borderBottom: "1px solid #e2e8f0",
+          marginBottom: 20,
+        }}
+      >
+        <button
+          onClick={() => setMainTab("queue")}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "10px 18px",
+            border: "none",
+            background: "none",
+            borderBottom: mainTab === "queue" ? "2px solid #0f766e" : "2px solid transparent",
+            color: mainTab === "queue" ? "#0f766e" : "#64748b",
+            fontWeight: mainTab === "queue" ? 600 : 500,
+            fontSize: 14,
+            cursor: "pointer",
+          }}
+        >
+          <FileText size={16} />
+          <span>Hàng đợi phê duyệt</span>
+          <span
+            className="ld-badge"
+            style={{
+              background: mainTab === "queue" ? "#ccfbf1" : "#f1f5f9",
+              color: mainTab === "queue" ? "#0f766e" : "#64748b",
+              fontSize: 11,
+              padding: "2px 8px",
+            }}
+          >
+            {documents.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setMainTab("policies")}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "10px 18px",
+            border: "none",
+            background: "none",
+            borderBottom: mainTab === "policies" ? "2px solid #0f766e" : "2px solid transparent",
+            color: mainTab === "policies" ? "#0f766e" : "#64748b",
+            fontWeight: mainTab === "policies" ? 600 : 500,
+            fontSize: 14,
+            cursor: "pointer",
+          }}
+        >
+          <Sliders size={16} />
+          <span>Chính sách phê duyệt (1 cấp / 2 cấp)</span>
+          <span
+            className="ld-badge"
+            style={{
+              background: "#e0f2fe",
+              color: "#0284c7",
+              fontSize: 11,
+              padding: "2px 8px",
+            }}
+          >
+            {policies.length} quy tắc
+          </span>
+        </button>
+
+        <button
+          onClick={() => setMainTab("delegations")}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "10px 18px",
+            border: "none",
+            background: "none",
+            borderBottom: mainTab === "delegations" ? "2px solid #0f766e" : "2px solid transparent",
+            color: mainTab === "delegations" ? "#0f766e" : "#64748b",
+            fontWeight: mainTab === "delegations" ? 600 : 500,
+            fontSize: 14,
+            cursor: "pointer",
+          }}
+        >
+          <Users size={16} />
+          <span>Ủy quyền Manager</span>
+          {activeDelegations.length > 0 && (
+            <span
+              className="ld-badge"
+              style={{
+                background: "#dcfce7",
+                color: "#166534",
+                fontSize: 11,
+                padding: "2px 8px",
+              }}
+            >
+              {activeDelegations.length} hiệu lực
+            </span>
+          )}
+        </button>
+      </div>
+
       {error && (
         <div
           style={{
@@ -309,15 +562,46 @@ export default function TrungTamPheDuyetManagerPage() {
         </div>
       )}
 
-      {/* Main Layout 2 Cột: Bên trái là danh sách hàng đợi, bên phải là chi tiết đối chiếu & ra quyết định */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "340px 1fr",
-          gap: 20,
-          alignItems: "start",
-        }}
-      >
+      {/* TAB 1: HÀNG ĐỢI PHÊ DUYỆT */}
+      {mainTab === "queue" && (
+        <>
+          {activeDelegations.length > 0 && (
+            <div
+              style={{
+                background: "#f0fdf4",
+                border: "1px solid #bbf7d0",
+                borderRadius: 8,
+                padding: "10px 16px",
+                marginBottom: 16,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#166534" }}>
+                <UserCheck size={18} />
+                <span>
+                  <strong>Ủy quyền đang kích hoạt:</strong>{" "}
+                  {activeDelegations
+                    .map((d) => `${d.delegateeName} phê duyệt thay cho ${d.delegatorName} (${d.fromDate} ➔ ${d.toDate})`)
+                    .join("; ")}
+                </span>
+              </div>
+              <span className="ld-badge" style={{ background: "#dcfce7", color: "#166534", fontSize: 11 }}>
+                Có hiệu lực
+              </span>
+            </div>
+          )}
+
+          {/* Main Layout 2 Cột: Bên trái là danh sách hàng đợi, bên phải là chi tiết đối chiếu & ra quyết định */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "340px 1fr",
+              gap: 20,
+              alignItems: "start",
+            }}
+          >
         {/* CỘT TRÁI: Danh sách tài liệu UNDER_REVIEW_MANAGER */}
         <div
           className="ld-card"
@@ -1215,6 +1499,511 @@ export default function TrungTamPheDuyetManagerPage() {
           )}
         </div>
       </div>
+      </>
+      )}
+
+      {/* TAB 2: CHÍNH SÁCH PHÊ DUYỆT 1 CẤP / 2 CẤP (LD-W6-09) */}
+      {mainTab === "policies" && (
+        <div className="ld-card" style={{ padding: 24, border: "1px solid #e2e8f0" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+            <div>
+              <h2 style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", marginBottom: 6 }}>
+                Cấu hình chính sách phê duyệt theo loại tài liệu (doc_type)
+              </h2>
+              <p style={{ fontSize: 13, color: "#64748b", margin: 0, maxWidth: 850 }}>
+                Thiết lập quy trình kiểm duyệt tài liệu linh hoạt theo loại tài liệu (doc_type):
+                <br />• <strong>1 Cấp (Staff duyệt)</strong>: Staff sau khi rà soát và đối chiếu mã nguồn sẽ phê duyệt xuất bản trực tiếp lên hệ thống (PUBLISHED).
+                <br />• <strong>2 Cấp (Staff ➔ Manager)</strong>: Sau khi Staff duyệt, tài liệu sẽ chuyển sang hàng đợi của Manager (UNDER_REVIEW_MANAGER) để quản lý ký duyệt lần cuối.
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                onClick={() => setShowAddPolicyRow(!showAddPolicyRow)}
+                className="ld-btn ld-btn-ghost"
+                style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6, borderColor: "#cbd5e1" }}
+              >
+                <Plus size={14} />
+                Thêm loại tài liệu
+              </button>
+              <button
+                onClick={handleSavePolicies}
+                className="ld-btn ld-btn-primary"
+                disabled={loadingPolicies}
+                style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}
+              >
+                {loadingPolicies ? <RefreshCw size={14} className="animate-spin" /> : <Check size={14} />}
+                Lưu chính sách
+              </button>
+            </div>
+          </div>
+
+          {policySuccessMsg && (
+            <div
+              style={{
+                padding: "10px 14px",
+                background: "#f0fdf4",
+                color: "#166534",
+                borderRadius: 6,
+                marginBottom: 16,
+                border: "1px solid #bbf7d0",
+                fontSize: 13,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <CheckCircle size={16} />
+              {policySuccessMsg}
+            </div>
+          )}
+
+          {policyErrorMsg && (
+            <div
+              style={{
+                padding: "10px 14px",
+                background: "#fef2f2",
+                color: "#b91c1c",
+                borderRadius: 6,
+                marginBottom: 16,
+                border: "1px solid #fecaca",
+                fontSize: 13,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <AlertCircle size={16} />
+              {policyErrorMsg}
+            </div>
+          )}
+
+          {showAddPolicyRow && (
+            <div style={{ padding: 16, background: "#f8fafc", borderRadius: 8, border: "1px dashed #cbd5e1", marginBottom: 20 }}>
+              <h4 style={{ fontSize: 13, fontWeight: 600, color: "#1e293b", marginBottom: 12 }}>Thêm mới quy tắc loại tài liệu</h4>
+              <div style={{ display: "grid", gridTemplateColumns: "180px 180px 1fr auto", gap: 12, alignItems: "center" }}>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>
+                    Loại tài liệu (doc_type)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="VD: RUNBOOK, SECURITY..."
+                    value={newDocType}
+                    onChange={(e) => setNewDocType(e.target.value.toUpperCase())}
+                    className="ld-input"
+                    style={{ fontSize: 13, padding: "6px 10px", width: "100%" }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>
+                    Số cấp phê duyệt
+                  </label>
+                  <select
+                    value={newDocTypeTiers}
+                    onChange={(e) => setNewDocTypeTiers(Number(e.target.value) as 1 | 2)}
+                    className="ld-input"
+                    style={{ fontSize: 13, padding: "6px 10px", width: "100%" }}
+                  >
+                    <option value={1}>1 Cấp (Staff duyệt)</option>
+                    <option value={2}>2 Cấp (Staff + Manager)</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>
+                    Mô tả quy tắc
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Mục đích hoặc ghi chú..."
+                    value={newDocTypeDesc}
+                    onChange={(e) => setNewDocTypeDesc(e.target.value)}
+                    className="ld-input"
+                    style={{ fontSize: 13, padding: "6px 10px", width: "100%" }}
+                  />
+                </div>
+                <div style={{ paddingTop: 18 }}>
+                  <button
+                    onClick={() => {
+                      if (!newDocType.trim()) return;
+                      setPolicies([
+                        ...policies,
+                        {
+                          docType: newDocType.trim().toUpperCase(),
+                          tiers: newDocTypeTiers,
+                          description: newDocTypeDesc.trim(),
+                          updatedAt: new Date().toISOString(),
+                          updatedBy: "Manager",
+                        },
+                      ]);
+                      setNewDocType("");
+                      setNewDocTypeDesc("");
+                      setShowAddPolicyRow(false);
+                    }}
+                    className="ld-btn ld-btn-primary"
+                    style={{ fontSize: 13, padding: "6px 14px" }}
+                  >
+                    Thêm
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: "#f8fafc", borderBottom: "2px solid #e2e8f0", textAlign: "left" }}>
+                  <th style={{ padding: "10px 14px", fontWeight: 600, color: "#475569" }}>Loại tài liệu (doc_type)</th>
+                  <th style={{ padding: "10px 14px", fontWeight: 600, color: "#475569" }}>Quy trình phê duyệt</th>
+                  <th style={{ padding: "10px 14px", fontWeight: 600, color: "#475569" }}>Mô tả chính sách</th>
+                  <th style={{ padding: "10px 14px", fontWeight: 600, color: "#475569" }}>Cập nhật lần cuối</th>
+                  <th style={{ padding: "10px 14px", fontWeight: 600, color: "#475569", textAlign: "right" }}>Thao tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                {policies.map((p, idx) => (
+                  <tr key={idx} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                    <td style={{ padding: "12px 14px" }}>
+                      <span className="ld-badge" style={{ background: "#f1f5f9", color: "#334155", fontWeight: 700, fontFamily: "monospace" }}>
+                        {p.docType}
+                      </span>
+                    </td>
+                    <td style={{ padding: "12px 14px" }}>
+                      {p.tiers === 1 ? (
+                        <span className="ld-badge" style={{ background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0", fontWeight: 600 }}>
+                          ⚡ 1 Cấp (Staff duyệt xuất bản trực tiếp)
+                        </span>
+                      ) : (
+                        <span className="ld-badge" style={{ background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe", fontWeight: 600 }}>
+                          🛡️ 2 Cấp (Staff duyệt ➔ Manager ký xuất bản)
+                        </span>
+                      )}
+                    </td>
+                    <td style={{ padding: "12px 14px", color: "#475569" }}>
+                      <input
+                        type="text"
+                        value={p.description || ""}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setPolicies(policies.map((item, i) => (i === idx ? { ...item, description: val } : item)));
+                        }}
+                        className="ld-input"
+                        style={{ width: "100%", fontSize: 13, padding: "4px 8px" }}
+                      />
+                    </td>
+                    <td style={{ padding: "12px 14px", color: "#64748b", fontSize: 12 }}>
+                      {p.updatedBy || "SYSTEM"}
+                    </td>
+                    <td style={{ padding: "12px 14px", textAlign: "right" }}>
+                      <button
+                        onClick={() => handleToggleTier(p.docType)}
+                        className="ld-btn ld-btn-ghost"
+                        style={{ fontSize: 12, padding: "4px 10px", borderColor: "#cbd5e1" }}
+                        title="Chuyển đổi giữa 1 cấp và 2 cấp"
+                      >
+                        Đổi sang {p.tiers === 1 ? "2 Cấp" : "1 Cấp"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: ỦY QUYỀN PHÊ DUYỆT MANAGER (LD-W6-10) */}
+      {mainTab === "delegations" && (
+        <div className="ld-card" style={{ padding: 24, border: "1px solid #e2e8f0" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+            <div>
+              <h2 style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", marginBottom: 6 }}>
+                Ủy quyền phê duyệt Manager (Manager Delegation)
+              </h2>
+              <p style={{ fontSize: 13, color: "#64748b", margin: 0, maxWidth: 850 }}>
+                Cho phép Quản lý A ủy quyền quyền phê duyệt cho Quản lý B trong khoảng thời gian xác định (nghỉ phép, công tác).
+                Mọi thao tác phê duyệt sẽ được hệ thống đối chiếu và ghi nhận minh bạch vào Audit Trail:
+                <code style={{ background: "#f1f5f9", padding: "2px 6px", borderRadius: 4, marginLeft: 6, color: "#0f766e", fontWeight: 600 }}>
+                  Quản lý B phê duyệt thay cho Quản lý A theo ủy quyền
+                </code>.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowDelegationModal(true)}
+              className="ld-btn ld-btn-primary"
+              style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}
+            >
+              <Plus size={14} />
+              Tạo ủy quyền mới
+            </button>
+          </div>
+
+          {delegationSuccessMsg && (
+            <div
+              style={{
+                padding: "10px 14px",
+                background: "#f0fdf4",
+                color: "#166534",
+                borderRadius: 6,
+                marginBottom: 16,
+                border: "1px solid #bbf7d0",
+                fontSize: 13,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <CheckCircle size={16} />
+              {delegationSuccessMsg}
+            </div>
+          )}
+
+          {delegationErrorMsg && (
+            <div
+              style={{
+                padding: "10px 14px",
+                background: "#fef2f2",
+                color: "#b91c1c",
+                borderRadius: 6,
+                marginBottom: 16,
+                border: "1px solid #fecaca",
+                fontSize: 13,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <AlertCircle size={16} />
+              {delegationErrorMsg}
+            </div>
+          )}
+
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: "#f8fafc", borderBottom: "2px solid #e2e8f0", textAlign: "left" }}>
+                  <th style={{ padding: "10px 14px", fontWeight: 600, color: "#475569" }}>Quản lý ủy quyền (Manager A)</th>
+                  <th style={{ padding: "10px 14px", fontWeight: 600, color: "#475569" }}>Quản lý nhận ủy quyền (Manager B)</th>
+                  <th style={{ padding: "10px 14px", fontWeight: 600, color: "#475569" }}>Khoảng thời gian (From ➔ To)</th>
+                  <th style={{ padding: "10px 14px", fontWeight: 600, color: "#475569" }}>Lý do ủy quyền</th>
+                  <th style={{ padding: "10px 14px", fontWeight: 600, color: "#475569" }}>Trạng thái</th>
+                </tr>
+              </thead>
+              <tbody>
+                {delegations.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ padding: 28, textAlign: "center", color: "#94a3b8" }}>
+                      Chưa có bản ghi ủy quyền nào. Nhấn &quot;Tạo ủy quyền mới&quot; để thiết lập.
+                    </td>
+                  </tr>
+                ) : (
+                  delegations.map((d, idx) => {
+                    const today = new Date().toISOString().substring(0, 10);
+                    const from = d.fromDate ? d.fromDate.substring(0, 10) : "";
+                    const to = d.toDate ? d.toDate.substring(0, 10) : "";
+                    const isCurrentlyActive = d.active !== false && (!from || today >= from) && (!to || today <= to);
+                    return (
+                      <tr key={idx} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                        <td style={{ padding: "12px 14px" }}>
+                          <div style={{ fontWeight: 600, color: "#1e293b" }}>{d.delegatorName}</div>
+                          <div style={{ fontSize: 11, color: "#64748b" }}>{d.delegatorEmail}</div>
+                        </td>
+                        <td style={{ padding: "12px 14px" }}>
+                          <div style={{ fontWeight: 600, color: "#0f766e" }}>{d.delegateeName}</div>
+                          <div style={{ fontSize: 11, color: "#64748b" }}>{d.delegateeEmail}</div>
+                        </td>
+                        <td style={{ padding: "12px 14px", color: "#334155" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <Calendar size={14} style={{ color: "#64748b" }} />
+                            <span>
+                              {d.fromDate || "Bắt đầu"} ➔ {d.toDate || "Vô thời hạn"}
+                            </span>
+                          </div>
+                        </td>
+                        <td style={{ padding: "12px 14px", color: "#475569" }}>
+                          {d.reason || "Không ghi chú"}
+                        </td>
+                        <td style={{ padding: "12px 14px" }}>
+                          {isCurrentlyActive ? (
+                            <span className="ld-badge" style={{ background: "#dcfce7", color: "#166534", border: "1px solid #bbf7d0", fontWeight: 600 }}>
+                              ● Đang hiệu lực
+                            </span>
+                          ) : (
+                            <span className="ld-badge" style={{ background: "#f1f5f9", color: "#64748b", border: "1px solid #e2e8f0" }}>
+                              Hết hạn / Tạm dừng
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL TẠO ỦY QUYỀN MỚI (LD-W6-10) */}
+      {showDelegationModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+          }}
+        >
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: 12,
+              padding: 24,
+              width: 520,
+              maxWidth: "90vw",
+              boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: "#0f172a", margin: 0 }}>
+                Tạo ủy quyền phê duyệt Manager
+              </h3>
+              <button
+                onClick={() => setShowDelegationModal(false)}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "#64748b" }}
+              >
+                <XCircle size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateDelegation}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>
+                    Quản lý ủy quyền (Manager A)
+                  </label>
+                  <input
+                    type="text"
+                    value={newDelegatorName}
+                    onChange={(e) => setNewDelegatorName(e.target.value)}
+                    className="ld-input"
+                    style={{ width: "100%", fontSize: 13, padding: "8px 12px" }}
+                    required
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>
+                    Email Manager A
+                  </label>
+                  <input
+                    type="email"
+                    value={newDelegatorEmail}
+                    onChange={(e) => setNewDelegatorEmail(e.target.value)}
+                    className="ld-input"
+                    style={{ width: "100%", fontSize: 13, padding: "8px 12px" }}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>
+                    Quản lý nhận ủy quyền (Manager B)
+                  </label>
+                  <input
+                    type="text"
+                    value={newDelegateeName}
+                    onChange={(e) => setNewDelegateeName(e.target.value)}
+                    className="ld-input"
+                    style={{ width: "100%", fontSize: 13, padding: "8px 12px" }}
+                    required
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>
+                    Email Manager B
+                  </label>
+                  <input
+                    type="email"
+                    value={newDelegateeEmail}
+                    onChange={(e) => setNewDelegateeEmail(e.target.value)}
+                    className="ld-input"
+                    style={{ width: "100%", fontSize: 13, padding: "8px 12px" }}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>
+                    Từ ngày (From Date)
+                  </label>
+                  <input
+                    type="date"
+                    value={newFromDate}
+                    onChange={(e) => setNewFromDate(e.target.value)}
+                    className="ld-input"
+                    style={{ width: "100%", fontSize: 13, padding: "8px 12px" }}
+                    required
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>
+                    Đến ngày (To Date)
+                  </label>
+                  <input
+                    type="date"
+                    value={newToDate}
+                    onChange={(e) => setNewToDate(e.target.value)}
+                    className="ld-input"
+                    style={{ width: "100%", fontSize: 13, padding: "8px 12px" }}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>
+                  Lý do ủy quyền
+                </label>
+                <input
+                  type="text"
+                  value={newReason}
+                  onChange={(e) => setNewReason(e.target.value)}
+                  className="ld-input"
+                  style={{ width: "100%", fontSize: 13, padding: "8px 12px" }}
+                  placeholder="VD: Đi công tác nước ngoài, nghỉ phép..."
+                />
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowDelegationModal(false)}
+                  className="ld-btn ld-btn-ghost"
+                  style={{ fontSize: 13 }}
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingDelegation}
+                  className="ld-btn ld-btn-primary"
+                  style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}
+                >
+                  {submittingDelegation ? <RefreshCw size={14} className="animate-spin" /> : <Check size={14} />}
+                  Xác nhận tạo ủy quyền
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

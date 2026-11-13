@@ -46,6 +46,8 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
     private final SpringDataRepositoryRepository repositoryRepository;
     private final SpringDataPullRequestRepository pullRequestRepository;
     private final SpringDataCommitRepository commitRepository;
+    private final com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentChangeAlertRepository alertRepository;
+    private final com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentRepository documentRepository;
     private final ObjectMapper objectMapper;
     private final JobQueue jobQueue;
 
@@ -282,6 +284,39 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
             autoUpdateMsg = " | Đã kích hoạt Auto-Update Pipeline cho tài liệu";
             log.info("[Webhook - Push] Đã kích hoạt Job [{}] cho commit {} (repo: {})",
                     JOB_TYPE_AUTO_DOC_UPDATE, headCommitSha, repo.getRepoFullName());
+
+            // Ghi nhận cảnh báo sai lệch (Drift Alert PENDING) cho commit mới để thông báo trên chuông
+            if (alertRepository != null) {
+                final String finalHeadSha = headCommitSha;
+                boolean duplicate = alertRepository.findByRepositoryId(repo.getRepositoryId()).stream()
+                        .anyMatch(a -> finalHeadSha != null && finalHeadSha.equals(a.getSourceCommit())
+                                && "PENDING".equalsIgnoreCase(a.getStatus()));
+                if (!duplicate) {
+                    Long linkedDocId = null;
+                    if (documentRepository != null) {
+                        var docs = documentRepository.findByRepoIdOrderByUpdatedAtDesc(repo.getRepositoryId());
+                        if (docs != null && !docs.isEmpty()) {
+                            linkedDocId = docs.get(0).getDocId();
+                        }
+                    }
+                    com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentChangeAlertEntity driftAlert =
+                            com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentChangeAlertEntity.builder()
+                                    .repositoryId(repo.getRepositoryId())
+                                    .documentId(linkedDocId)
+                                    .sourceCommit(finalHeadSha)
+                                    .classification("SEMANTIC")
+                                    .severity("MEDIUM")
+                                    .status("PENDING")
+                                    .details(String.format("Commit mới %s từ %s: %s",
+                                            (finalHeadSha != null && finalHeadSha.length() > 7 ? finalHeadSha.substring(0, 7) : finalHeadSha),
+                                            commitAuthor != null ? commitAuthor : "Developer",
+                                            latestCommitMessage != null && !latestCommitMessage.isBlank() ? latestCommitMessage : "Cập nhật mã nguồn"))
+                                    .createdAt(Instant.now())
+                                    .build();
+                    alertRepository.save(driftAlert);
+                    log.info("[Webhook - Push] Đã ghi nhận cảnh báo sai lệch (Drift Alert PENDING) cho commit {}", finalHeadSha);
+                }
+            }
         } catch (Exception e) {
             log.error("[Webhook - Push] Lỗi khi tạo Job Auto-Update: {}", e.getMessage(), e);
         }
@@ -397,6 +432,37 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
                 jobStatusMsg = " | Đã lên lịch quét sai lệch (Drift Scan Job)";
                 log.info("[Webhook - PR] Đã đẩy Job [{}] cho PR #{} (repo: {}) vào hàng đợi ngầm",
                         JOB_TYPE_PR_DRIFT_SCAN, prNumber, repo.getRepoFullName());
+
+                // Ghi nhận cảnh báo sai lệch (Drift Alert PENDING) cho Pull Request
+                if (alertRepository != null) {
+                    boolean duplicate = alertRepository.findByRepositoryId(repo.getRepositoryId()).stream()
+                            .anyMatch(a -> Long.valueOf(prNumber).equals(a.getSourcePrId())
+                                    && "PENDING".equalsIgnoreCase(a.getStatus()));
+                    if (!duplicate) {
+                        Long linkedDocId = null;
+                        if (documentRepository != null) {
+                            var docs = documentRepository.findByRepoIdOrderByUpdatedAtDesc(repo.getRepositoryId());
+                            if (docs != null && !docs.isEmpty()) {
+                                linkedDocId = docs.get(0).getDocId();
+                            }
+                        }
+                        com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentChangeAlertEntity prAlert =
+                                com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentChangeAlertEntity.builder()
+                                        .repositoryId(repo.getRepositoryId())
+                                        .documentId(linkedDocId)
+                                        .sourcePrId((long) prNumber)
+                                        .sourceCommit(headCommitHash)
+                                        .classification("SEMANTIC")
+                                        .severity("HIGH")
+                                        .status("PENDING")
+                                        .details(String.format("Pull Request #%d (%s) từ %s: %s",
+                                                prNumber, action, commitAuthor != null ? commitAuthor : "Developer", title))
+                                        .createdAt(Instant.now())
+                                        .build();
+                        alertRepository.save(prAlert);
+                        log.info("[Webhook - PR] Đã ghi nhận cảnh báo sai lệch (Drift Alert PENDING) cho PR #{}", prNumber);
+                    }
+                }
             } catch (Exception e) {
                 log.error("[Webhook - PR] Lỗi khi tạo Job quét Drift cho PR #{}: {}", prNumber, e.getMessage(), e);
             }

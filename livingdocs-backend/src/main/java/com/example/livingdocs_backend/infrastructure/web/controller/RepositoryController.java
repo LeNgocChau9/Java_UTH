@@ -19,7 +19,9 @@ import org.springframework.web.bind.annotation.RestController;
 import com.example.livingdocs_backend.application.dto.github.CreateRepoRequest;
 import com.example.livingdocs_backend.application.dto.github.RepoResponse;
 import com.example.livingdocs_backend.application.dto.github.SyncRepoResponse;
+import com.example.livingdocs_backend.application.port.CodeIndexServicePort;
 import com.example.livingdocs_backend.application.port.RepositoryServicePort;
+import com.example.livingdocs_backend.domain.model.CodeEntity;
 import com.example.livingdocs_backend.infrastructure.github.GitHubOAuthClient;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
@@ -47,6 +49,7 @@ public class RepositoryController {
     private final SpringDataGitHubConnectionRepository gitHubConnectionRepository;
     private final SpringDataRepositoryRepository repositoryRepository;
     private final SpringDataCommitRepository commitRepository;
+    private final CodeIndexServicePort codeIndexService;
 
     @PostMapping
     @Operation(summary = "Thêm kho lưu trữ GitHub vào Workspace")
@@ -129,6 +132,15 @@ public class RepositoryController {
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.ok(java.util.Map.of("filePath", path, "content", content));
+    }
+
+    @GetMapping("/{id}/code-entities")
+    @Operation(summary = "Lấy danh sách các phần tử mã nguồn (Code Entities) theo Repo ID")
+    public ResponseEntity<List<CodeEntity>> getCodeEntitiesByRepo(@PathVariable("id") Long id) {
+        if (codeIndexService == null) {
+            return ResponseEntity.ok(List.of());
+        }
+        return ResponseEntity.ok(codeIndexService.getEntitiesByRepository(id));
     }
 
     @PostMapping("/connections/{connectionId}/verify")

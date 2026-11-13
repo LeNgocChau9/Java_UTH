@@ -8,17 +8,51 @@ class AstExtractRequest(BaseModel):
     commit_hash: Optional[str] = Field(default="mock-commit-hash-001", description="Mã băm commit của mã nguồn")
 
 class CodeEntityItem(BaseModel):
-    entity_type: str = Field(..., description="Loại phần tử mã: CLASS, INTERFACE, ENUM, METHOD, CONSTRUCTOR")
-    class_name: Optional[str] = Field(None, description="Tên lớp cha hoặc chính lớp này")
-    method_name: Optional[str] = Field(None, description="Tên hàm/phương thức nếu là METHOD")
-    signature: str = Field(..., description="Chữ ký đầy đủ của class/method")
-    return_type: Optional[str] = Field(None, description="Kiểu dữ liệu trả về nếu là method")
-    parameters: Optional[str] = Field(None, description="Danh sách tham số (vd: String email, String password)")
-    start_line: int = Field(..., description="Dòng bắt đầu trong file mã nguồn")
-    end_line: int = Field(..., description="Dòng kết thúc trong file mã nguồn")
-    doc_status: str = Field(default="UNDOCUMENTED", description="Trạng thái tài liệu: DOCUMENTED, UNDOCUMENTED, DRIFTED")
+    model_config = {"extra": "ignore"}
+
+    entity_type: Optional[str] = Field(default="METHOD", description="Loại phần tử mã: CLASS, INTERFACE, ENUM, METHOD, CONSTRUCTOR")
+    class_name: Optional[str] = Field(default=None, description="Tên lớp cha hoặc chính lớp này")
+    method_name: Optional[str] = Field(default=None, description="Tên hàm/phương thức nếu là METHOD")
+    signature: Optional[str] = Field(default="", description="Chữ ký đầy đủ của class/method")
+    return_type: Optional[str] = Field(default=None, description="Kiểu dữ liệu trả về nếu là method")
+    parameters: Optional[str] = Field(default=None, description="Danh sách tham số (vd: String email, String password)")
+    start_line: Optional[int] = Field(default=1, description="Dòng bắt đầu trong file mã nguồn")
+    end_line: Optional[int] = Field(default=1, description="Dòng kết thúc trong file mã nguồn")
+    doc_status: Optional[str] = Field(default="UNDOCUMENTED", description="Trạng thái tài liệu: DOCUMENTED, UNDOCUMENTED, DRIFTED")
     javadoc: Optional[str] = Field(default=None, description="Tài liệu Javadoc bóc tách từ mã nguồn nếu có")
     annotations: Optional[List[str]] = Field(default=[], description="Danh sách các annotation của class hoặc method (vd: @RestController, @GetMapping)")
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_entity(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if not data.get("entity_type"):
+                data["entity_type"] = data.get("entityType") or "METHOD"
+            if not data.get("class_name"):
+                data["class_name"] = data.get("className")
+            if not data.get("method_name"):
+                data["method_name"] = data.get("methodName")
+            if not data.get("signature"):
+                data["signature"] = data.get("sig") or f"{data.get('entity_type', 'METHOD')} {data.get('method_name') or 'element'}()"
+            if not data.get("return_type"):
+                data["return_type"] = data.get("returnType")
+            if data.get("start_line") is None:
+                val = data.get("startLine")
+                try:
+                    data["start_line"] = int(val) if val is not None else 1
+                except (ValueError, TypeError):
+                    data["start_line"] = 1
+            if data.get("end_line") is None:
+                val = data.get("endLine")
+                try:
+                    data["end_line"] = int(val) if val is not None else max(1, int(data.get("start_line") or 1))
+                except (ValueError, TypeError):
+                    data["end_line"] = max(1, int(data.get("start_line") or 1))
+            if not data.get("doc_status"):
+                data["doc_status"] = data.get("docStatus") or "UNDOCUMENTED"
+            if data.get("annotations") is None:
+                data["annotations"] = []
+        return data
 
 
 class AstExtractResponse(BaseModel):
@@ -30,13 +64,33 @@ class AstExtractResponse(BaseModel):
     entities: List[CodeEntityItem]
 
 class DocGenerateRequest(BaseModel):
-    template_type: str = Field(default="API_REFERENCE", description="Loại mẫu tài liệu: API_REFERENCE, README, MODULE_GUIDE, ADR")
-    file_path: str = Field(..., description="Đường dẫn file nguồn tương ứng")
-    class_name: Optional[str] = Field(None, description="Tên lớp chính cần sinh tài liệu")
-    entities: Optional[List[CodeEntityItem]] = Field(default=None, description="Danh sách các entity bóc tách từ AST")
+    model_config = {"extra": "ignore"}
+
+    template_type: Optional[str] = Field(default="API_REFERENCE", description="Loại mẫu tài liệu: API_REFERENCE, README, MODULE_GUIDE, ADR")
+    file_path: Optional[str] = Field(default="README.md", description="Đường dẫn file nguồn tương ứng")
+    class_name: Optional[str] = Field(default=None, description="Tên lớp chính cần sinh tài liệu")
+    entities: Optional[List[CodeEntityItem]] = Field(default=[], description="Danh sách các entity bóc tách từ AST")
     source_code: Optional[str] = Field(default=None, description="Mã nguồn tham chiếu nếu có")
     commit_hash: Optional[str] = Field(default=None, description="Mã băm commit của mã nguồn")
     provider: Optional[str] = Field(default=None, description="Nhà cung cấp AI: 'auto', 'gemini', hoặc 'ollama' (chạy offline GPU)")
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_request(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if not data.get("file_path"):
+                data["file_path"] = data.get("target_path") or data.get("filePath") or data.get("targetPath") or "README.md"
+            if not data.get("template_type"):
+                data["template_type"] = data.get("templateType") or "API_REFERENCE"
+            if not data.get("class_name"):
+                data["class_name"] = data.get("className")
+            if not data.get("source_code"):
+                data["source_code"] = data.get("sourceCode")
+            if not data.get("commit_hash"):
+                data["commit_hash"] = data.get("commitHash")
+            if data.get("entities") is None:
+                data["entities"] = []
+        return data
 
 class GroundingEvidence(BaseModel):
     file_path: str

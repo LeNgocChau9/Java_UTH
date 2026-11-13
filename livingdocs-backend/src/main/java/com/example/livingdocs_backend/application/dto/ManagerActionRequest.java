@@ -29,4 +29,13 @@ public class ManagerActionRequest {
 
     @Schema(description = "true thì gọi GitHub Contents API, đẩy file .md lên branch mặc định. false hoặc bỏ trống thì chỉ chuyển PUBLISHED.", example = "false")
     private Boolean commitToGithub;
+
+    @Schema(description = "Mã ủy quyền nếu phê duyệt thay cho Quản lý khác", example = "del-1")
+    private String delegationId;
+
+    @Schema(description = "Email của Quản lý ủy quyền (Quản lý A)", example = "managerA@livingdocs.internal")
+    private String delegatedFromEmail;
+
+    @Schema(description = "Họ tên của Quản lý ủy quyền (Quản lý A)", example = "Quản lý A")
+    private String delegatedFromName;
 }
