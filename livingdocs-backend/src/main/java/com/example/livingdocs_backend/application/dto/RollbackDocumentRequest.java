@@ -13,9 +13,11 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class RollbackDocumentRequest {
 
-    @NotNull(message = "Số thứ tự phiên bản mục tiêu (targetVersion) không được để trống")
     @Schema(description = "Số thứ tự phiên bản muốn khôi phục về (ví dụ: 1)", example = "1")
     private Integer targetVersion;
+
+    @Schema(description = "ID bản ghi phiên bản (versionId) muốn khôi phục về (tùy chọn nếu đã có targetVersion)", example = "10")
+    private Long versionId;
 
     @Schema(description = "Lý do khôi phục phiên bản", example = "Phát hiện lỗi sai ở phiên bản hiện tại, khôi phục về phiên bản ổn định trước đó.")
     private String reason;

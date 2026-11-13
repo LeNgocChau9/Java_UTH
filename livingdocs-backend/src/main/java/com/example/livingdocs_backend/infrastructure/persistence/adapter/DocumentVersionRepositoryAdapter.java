@@ -26,6 +26,12 @@ public class DocumentVersionRepositoryAdapter implements DocumentVersionReposito
     }
 
     @Override
+    public Optional<DocumentVersion> findById(Long versionId) {
+        return springDataDocumentVersionRepository.findById(versionId)
+                .map(this::toDomain);
+    }
+
+    @Override
     public Optional<DocumentVersion> findLatestByDocId(Long docId) {
         return springDataDocumentVersionRepository.findTopByDocIdOrderByVersionNumDesc(docId)
                 .map(this::toDomain);
