@@ -159,13 +159,19 @@ const NAV: NavItem[] = [
     href: "/trung-tam-phe-duyet",
     label: "Phê duyệt tài liệu",
     icon: <CheckCircle size={16} />,
-    roles: ["MANAGER"],
+    roles: ["MANAGER", "ADMIN"],
+  },
+  {
+    href: "/uy-quyen-phe-duyet",
+    label: "Ủy quyền phê duyệt",
+    icon: <Users size={16} />,
+    roles: ["MANAGER", "ADMIN"],
   },
   {
     href: "/chinh-sach-phe-duyet",
     label: "Chính sách phê duyệt",
     icon: <Scroll size={16} />,
-    roles: ["MANAGER"],
+    roles: ["MANAGER", "ADMIN"],
   },
   {
     href: "/dashboard-chat-luong",
