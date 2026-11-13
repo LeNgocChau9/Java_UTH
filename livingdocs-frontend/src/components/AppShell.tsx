@@ -26,6 +26,7 @@ import {
   EyeOff,
   Archive,
   FileText,
+  FileCode2,
   Sparkles,
   AlertTriangle,
   Inbox,
@@ -112,6 +113,12 @@ const NAV: NavItem[] = [
     href: "/cay-ma-nguon",
     label: "Cây thư mục",
     icon: <GitFork size={16} />,
+    roles: ["DEVELOPER", "TECH_LEAD"],
+  },
+  {
+    href: "/khoang-trong-tai-lieu",
+    label: "Khoảng trống tài liệu",
+    icon: <FileCode2 size={16} />,
     roles: ["DEVELOPER", "TECH_LEAD"],
   },
   {
@@ -227,8 +234,8 @@ function SidebarNavItem({
                 key={child.href}
                 href={child.href}
                 className={`block px-2.5 py-1.5 text-[13px] rounded-[6px] transition-colors ${currentPath === child.href
-                    ? "text-[#07543f] font-semibold bg-[#eaf6ef]"
-                    : "text-[#64748b] hover:text-[#17231c] hover:bg-[#edf5ef]"
+                  ? "text-[#07543f] font-semibold bg-[#eaf6ef]"
+                  : "text-[#64748b] hover:text-[#17231c] hover:bg-[#edf5ef]"
                   }`}
               >
                 {child.label}
@@ -726,7 +733,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <RefreshCw size={13} />
             </button>
           </div>
-          
+
         </div>
       )}
     </aside>
@@ -2218,8 +2225,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       const token =
                         typeof window !== "undefined"
                           ? localStorage.getItem("livingdocs_access_token") ||
-                            localStorage.getItem("ld_access_token") ||
-                            ""
+                          localStorage.getItem("ld_access_token") ||
+                          ""
                           : "";
                       const target = typeof window !== "undefined" ? window.location.pathname : "/dashboard";
                       window.location.assign(`/api/auth/github?mode=link&redirect=${encodeURIComponent(target)}&token=${encodeURIComponent(token)}`);
@@ -2265,8 +2272,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       const token =
                         typeof window !== "undefined"
                           ? localStorage.getItem("livingdocs_access_token") ||
-                            localStorage.getItem("ld_access_token") ||
-                            ""
+                          localStorage.getItem("ld_access_token") ||
+                          ""
                           : "";
                       const target = typeof window !== "undefined" ? window.location.pathname : "/dashboard";
                       window.location.assign(`/api/auth/github?mode=link&redirect=${encodeURIComponent(target)}&token=${encodeURIComponent(token)}`);

@@ -15,7 +15,8 @@ public interface CodeIndexServicePort {
      * Bóc tách AST của một file mã nguồn và lưu danh sách entities vào CSDL.
      *
      * @param repositoryId ID của kho lưu trữ trong hệ thống
-     * @param filePath     Đường dẫn file (vd: src/com/example/demo/OrderController.java)
+     * @param filePath     Đường dẫn file (vd:
+     *                     src/com/example/demo/OrderController.java)
      * @param sourceCode   Mã nguồn Java của file
      * @param commitHash   Commit hash hiện tại của file
      * @return Danh sách các CodeEntity đã được lưu vào database
@@ -33,7 +34,8 @@ public interface CodeIndexServicePort {
     List<CodeEntity> getEntitiesByFile(Long repositoryId, String filePath);
 
     /**
-     * Trực tiếp gọi AI Engine để bóc tách AST mà không bắt buộc lưu (dùng để preview).
+     * Trực tiếp gọi AI Engine để bóc tách AST mà không bắt buộc lưu (dùng để
+     * preview).
      */
     AstExtractResponseDto extractAstRaw(Long repositoryId, String filePath, String sourceCode, String commitHash);
 
@@ -43,7 +45,27 @@ public interface CodeIndexServicePort {
     DocCoverageResponseDto calculateRepositoryCoverage(Long repositoryId);
 
     /**
-     * Tính toán tỷ lệ bao phủ tài liệu (% Coverage) cho một file cụ thể trong repository.
+     * Tính toán tỷ lệ bao phủ tài liệu (% Coverage) cho một file cụ thể trong
+     * repository.
      */
     DocCoverageResponseDto calculateFileCoverage(Long repositoryId, String filePath);
+
+    /**
+     * Lấy danh sách các khoảng trống tài liệu (các phần tử mã nguồn chưa có tài
+     * liệu tương ứng)
+     * kèm bộ lọc và thông tin hỗ trợ nút sinh tài liệu AI một chạm.
+     *
+     * @param repositoryId ID của kho lưu trữ (tuỳ chọn, nếu null lấy tất cả)
+     * @param packagePath  Bộ lọc theo gói thư mục / package (tuỳ chọn)
+     * @param entityType   Bộ lọc theo loại phần tử: CLASS, INTERFACE, METHOD (tuỳ
+     *                     chọn)
+     * @param search       Từ khóa tìm kiếm theo tên lớp, phương thức, đường dẫn tệp
+     *                     (tuỳ chọn)
+     * @return Báo cáo tổng hợp và danh sách chi tiết các khoảng trống tài liệu
+     */
+    com.example.livingdocs_backend.application.dto.ai.DocGapSummaryDto getDocumentationGaps(
+            Long repositoryId,
+            String packagePath,
+            String entityType,
+            String search);
 }

@@ -20,4 +20,8 @@ public interface CodeEntityRepositoryPort {
     void deleteByRepositoryIdAndFilePath(Long repositoryId, String filePath);
 
     void deleteByRepositoryId(Long repositoryId);
+
+    List<CodeEntity> findAll();
+
+    List<CodeEntity> findByDocStatus(String docStatus);
 }

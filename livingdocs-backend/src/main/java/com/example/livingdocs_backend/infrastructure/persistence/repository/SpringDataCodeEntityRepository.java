@@ -18,6 +18,8 @@ public interface SpringDataCodeEntityRepository extends JpaRepository<CodeEntity
 
     List<CodeEntityJpaEntity> findByRepositoryIdAndDocStatus(Long repositoryId, String docStatus);
 
+    List<CodeEntityJpaEntity> findByDocStatus(String docStatus);
+
     @Modifying
     @Query("DELETE FROM CodeEntityJpaEntity c WHERE c.repositoryId = :repositoryId AND c.filePath = :filePath")
     void deleteByRepositoryIdAndFilePath(@Param("repositoryId") Long repositoryId, @Param("filePath") String filePath);

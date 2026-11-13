@@ -56,6 +56,18 @@ public class CodeEntityRepositoryAdapter implements CodeEntityRepositoryPort {
         repository.deleteByRepositoryId(repositoryId);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<CodeEntity> findAll() {
+        return repository.findAll().stream().map(this::toDomain).toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<CodeEntity> findByDocStatus(String docStatus) {
+        return repository.findByDocStatus(docStatus).stream().map(this::toDomain).toList();
+    }
+
     private CodeEntityJpaEntity toJpaEntity(CodeEntity d) {
         return CodeEntityJpaEntity.builder()
                 .entityId(d.getEntityId())

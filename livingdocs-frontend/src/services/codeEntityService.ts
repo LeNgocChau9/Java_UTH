@@ -58,6 +58,43 @@ export interface DocCoverageDto {
   documentedByEntityType: Record<string, number>;
 }
 
+export interface DocumentationGapDto {
+  entityId?: number;
+  repositoryId: number;
+  repoName?: string;
+  repoFullName?: string;
+  filePath: string;
+  packagePath?: string;
+  entityType: "CLASS" | "INTERFACE" | "METHOD" | "CONSTRUCTOR" | "ENUM" | "RECORD" | string;
+  className?: string;
+  methodName?: string;
+  signature: string;
+  returnType?: string;
+  parameters?: string;
+  startLine: number;
+  endLine: number;
+  commitHash?: string;
+  docStatus: string;
+  suggestedDocTitle?: string;
+  suggestedTemplateType?: string;
+  aiGenerateUrl?: string;
+  createdAt?: string;
+}
+
+export interface DocGapSummaryDto {
+  repositoryId?: number;
+  repoFullName?: string;
+  totalEntities: number;
+  totalGaps: number;
+  documentedEntities: number;
+  coveragePercentage: number;
+  totalClasses: number;
+  totalInterfaces: number;
+  totalMethods: number;
+  packages: string[];
+  items: DocumentationGapDto[];
+}
+
 export const codeEntityService = {
   /**
    * Lấy danh sách entities theo repository ID
@@ -124,6 +161,21 @@ export const codeEntityService = {
       "/api/v1/code-entities/extract-preview",
       payload
     );
+    return res.data;
+  },
+
+  /**
+   * Lấy danh sách khoảng trống tài liệu (Documentation Gaps) chưa có tài liệu kèm bộ lọc
+   */
+  async getDocumentationGaps(params?: {
+    repositoryId?: number;
+    packagePath?: string;
+    entityType?: string;
+    search?: string;
+  }): Promise<DocGapSummaryDto> {
+    const res = await apiClient.get<DocGapSummaryDto>("/api/v1/code-entities/gaps", {
+      params,
+    });
     return res.data;
   },
 };

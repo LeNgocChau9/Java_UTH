@@ -8,8 +8,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * Tự động đồng bộ schema bảng document_versions và khởi tạo 4 mẫu tài liệu chuẩn (doc_templates)
- * khi ứng dụng khởi chạy để mọi thành viên trong nhóm đều có thể test sinh tài liệu AI ngay lập tức.
  */
 @Slf4j
 @Component
@@ -25,7 +23,6 @@ public class DatabaseSchemaBootstrap implements ApplicationRunner {
             jdbcTemplate.execute("ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS commit_url VARCHAR(1024)");
             jdbcTemplate.execute("ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS published_at TIMESTAMP");
 
-            // Tự động bổ sung các cột còn thiếu trong bảng jobs nếu DB đã tạo từ phiên bản cũ
             jdbcTemplate.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS result_json TEXT");
             jdbcTemplate.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS payload_json TEXT NOT NULL DEFAULT '{}'");
             jdbcTemplate.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS last_error TEXT");
@@ -35,6 +32,10 @@ public class DatabaseSchemaBootstrap implements ApplicationRunner {
             jdbcTemplate.execute("""
                 INSERT INTO doc_templates (id, name, type, structure_json, is_default)
                 VALUES
+                  (1, 'API Reference', 'API_REFERENCE', '{}'::jsonb, false),
+                  (2, 'Project README', 'PROJECT_README', '{}'::jsonb, false),
+                  (3, 'Module Guide', 'MODULE_GUIDE', '{}'::jsonb, false),
+                  (4, 'Architecture ADR', 'ARCHITECTURE_ADR', '{}'::jsonb, false),
                   (6, 'Tài liệu Dự án Tiêu chuẩn (10 Phần)', 'PROJECT_DOCUMENTATION', '{"sections": [
                     {"key": "cover_history_toc", "title": "Phần đầu tài liệu", "hint": "Trang bìa, Lịch sử chỉnh sửa tài liệu và Mục lục.", "required": true},
                     {"key": "introduction", "title": "Giới thiệu", "hint": "Mục đích, đối tượng sử dụng, phạm vi, thuật ngữ viết tắt và tài liệu tham khảo.", "required": true},
@@ -70,8 +71,54 @@ public class DatabaseSchemaBootstrap implements ApplicationRunner {
             } catch (Exception ex) {
                 log.debug("[DatabaseSchemaBootstrap] Bỏ qua seed cảnh báo mẫu: {}", ex.getMessage());
             }
+
+            // Khởi tạo các phần tử mã nguồn mẫu (code_entities) cho Repository 1 nếu chưa có
+            jdbcTemplate.execute("""
+                        CREATE TABLE IF NOT EXISTS code_entities (
+                            entity_id BIGSERIAL PRIMARY KEY,
+                            repository_id BIGINT NOT NULL,
+                            file_path VARCHAR(500) NOT NULL,
+                            entity_type VARCHAR(50) NOT NULL,
+                            class_name VARCHAR(255),
+                            method_name VARCHAR(255),
+                            signature TEXT,
+                            return_type VARCHAR(150),
+                            parameters TEXT,
+                            start_line INTEGER,
+                            end_line INTEGER,
+                            commit_hash VARCHAR(64) NOT NULL,
+                            doc_status VARCHAR(50) NOT NULL DEFAULT 'UNDOCUMENTED',
+                            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """);
+
+            Integer entityCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM code_entities WHERE repository_id = 1", Integer.class);
+            if (entityCount == null || entityCount == 0) {
+                jdbcTemplate.execute(
+                        """
+                                    INSERT INTO code_entities (repository_id, file_path, entity_type, class_name, method_name, signature, return_type, parameters, start_line, end_line, commit_hash, doc_status)
+                                    VALUES
+                                      (1, 'src/main/java/com/example/demo/controller/OrderController.java', 'CLASS', 'OrderController', NULL, 'public class OrderController', NULL, NULL, 15, 120, 'c8914b1', 'UNDOCUMENTED'),
+                                      (1, 'src/main/java/com/example/demo/controller/OrderController.java', 'METHOD', 'OrderController', 'createOrder', 'public ResponseEntity<OrderDto> createOrder(@RequestBody CreateOrderRequest request)', 'ResponseEntity<OrderDto>', 'CreateOrderRequest request', 35, 55, 'c8914b1', 'UNDOCUMENTED'),
+                                      (1, 'src/main/java/com/example/demo/controller/OrderController.java', 'METHOD', 'OrderController', 'getOrderById', 'public ResponseEntity<OrderDto> getOrderById(@PathVariable Long orderId)', 'ResponseEntity<OrderDto>', 'Long orderId', 60, 75, 'c8914b1', 'DOCUMENTED'),
+                                      (1, 'src/main/java/com/example/demo/service/PaymentGateway.java', 'INTERFACE', 'PaymentGateway', NULL, 'public interface PaymentGateway', NULL, NULL, 10, 45, 'c8914b1', 'UNDOCUMENTED'),
+                                      (1, 'src/main/java/com/example/demo/service/PaymentGateway.java', 'METHOD', 'PaymentGateway', 'processPayment', 'boolean processPayment(PaymentRequest payment, BigDecimal amount)', 'boolean', 'PaymentRequest payment, BigDecimal amount', 22, 28, 'c8914b1', 'UNDOCUMENTED'),
+                                      (1, 'src/main/java/com/example/demo/service/PaymentGateway.java', 'METHOD', 'PaymentGateway', 'refundPayment', 'RefundResult refundPayment(String transactionId, String reason)', 'RefundResult', 'String transactionId, String reason', 30, 36, 'c8914b1', 'UNDOCUMENTED'),
+                                      (1, 'src/main/java/com/example/demo/service/UserService.java', 'CLASS', 'UserService', NULL, 'public class UserService implements UserDetailsService', NULL, NULL, 20, 160, 'c8914b1', 'UNDOCUMENTED'),
+                                      (1, 'src/main/java/com/example/demo/service/UserService.java', 'METHOD', 'UserService', 'authenticateUser', 'public AuthResponse authenticateUser(LoginRequest request)', 'AuthResponse', 'LoginRequest request', 45, 80, 'c8914b1', 'UNDOCUMENTED'),
+                                      (1, 'src/main/java/com/example/demo/service/UserService.java', 'METHOD', 'UserService', 'updateUserProfile', 'public UserDto updateUserProfile(Long userId, UpdateProfileRequest request)', 'UserDto', 'Long userId, UpdateProfileRequest request', 85, 115, 'c8914b1', 'UNDOCUMENTED'),
+                                      (1, 'src/main/java/com/example/demo/repository/NotificationRepository.java', 'INTERFACE', 'NotificationRepository', NULL, 'public interface NotificationRepository extends JpaRepository<Notification, Long>', NULL, NULL, 12, 35, 'c8914b1', 'UNDOCUMENTED'),
+                                      (1, 'src/main/java/com/example/demo/repository/NotificationRepository.java', 'METHOD', 'NotificationRepository', 'findByUserIdAndIsReadFalse', 'List<Notification> findByUserIdAndIsReadFalse(Long userId)', 'List<Notification>', 'Long userId', 20, 25, 'c8914b1', 'UNDOCUMENTED')
+                                """);
+            }
+            log.info(
+                    "[DatabaseSchemaBootstrap] Đã kiểm tra và đồng bộ doc_templates, document_versions, jobs, code_entities thành công.");
         } catch (Exception ex) {
-            log.debug("[DatabaseSchemaBootstrap] Bỏ qua đồng bộ schema tự động (có thể đang chạy môi trường H2/Test): {}", ex.getMessage());
+            log.debug(
+                    "[DatabaseSchemaBootstrap] Bỏ qua đồng bộ schema tự động (có thể đang chạy môi trường H2/Test): {}",
+                    ex.getMessage());
         }
     }
 }

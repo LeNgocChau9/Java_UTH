@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { isAxiosError } from "axios";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -173,13 +174,29 @@ const STANDARD_TEMPLATES: {
   },
 ];
 
-export default function YeuCauSinhPage() {
-  const [repo, setRepo] = useState("");
+function YeuCauSinhContent() {
+  const searchParams = useSearchParams();
+  const paramRepo = searchParams.get("repo");
+  const paramScope = searchParams.get("scope");
+  const paramClassName = searchParams.get("className");
+  const paramMethodName = searchParams.get("methodName");
+  const paramEntityType = searchParams.get("entityType");
+  const paramTemplateId = searchParams.get("templateId");
+  const paramNote = searchParams.get("note");
+
+  const [repo, setRepo] = useState(paramRepo || "");
   const [branch, setBranch] = useState("main");
-  const [templateId, setTemplateId] = useState<string>("6");
-  const [scopeType, setScopeType] = useState<ScopeType>("FILE");
-  const [scope, setScope] = useState("");
-  const [note, setNote] = useState("");
+  const [templateId, setTemplateId] = useState<string>(paramTemplateId || "6");
+  const [scopeType, setScopeType] = useState<ScopeType>(
+    paramEntityType === "PACKAGE" ? "PACKAGE" : paramEntityType === "REPOSITORY" ? "REPOSITORY" : "FILE"
+  );
+  const [scope, setScope] = useState(paramScope || "");
+  const [note, setNote] = useState(
+    paramNote ||
+    (paramClassName
+      ? `Tự động sinh tài liệu kỹ thuật cho ${paramEntityType || "phần tử"} ${paramClassName}${paramMethodName ? "." + paramMethodName : ""}`
+      : "")
+  );
   const [aiProvider, setAiProvider] = useState<"auto" | "ollama" | "gemini">("ollama");
   const [step, setStep] = useState<Step>("idle");
   const [repositories, setRepositories] = useState<RepoItem[]>([]);
@@ -198,6 +215,23 @@ export default function YeuCauSinhPage() {
   const [reviewComment, setReviewComment] = useState("");
   const [previewTab, setPreviewTab] = useState<"rendered" | "raw">("rendered");
 
+  // Đồng bộ lại khi query params thay đổi
+  useEffect(() => {
+    if (paramRepo) setRepo(paramRepo);
+    if (paramScope) setScope(paramScope);
+    if (paramTemplateId) setTemplateId(paramTemplateId);
+    if (paramEntityType === "PACKAGE") setScopeType("PACKAGE");
+    else if (paramEntityType === "REPOSITORY") setScopeType("REPOSITORY");
+    else if (paramEntityType) setScopeType("FILE");
+    if (paramNote) {
+      setNote(paramNote);
+    } else if (paramClassName) {
+      setNote(
+        `Tự động sinh tài liệu kỹ thuật cho ${paramEntityType || "phần tử"} ${paramClassName}${paramMethodName ? "." + paramMethodName : ""}`
+      );
+    }
+  }, [paramRepo, paramScope, paramClassName, paramMethodName, paramEntityType, paramTemplateId, paramNote]);
+
   // Load repositories from DB & templates from doc_templates
   useEffect(() => {
     Promise.all([
@@ -209,16 +243,15 @@ export default function YeuCauSinhPage() {
     ])
       .then(([items, tpls]) => {
         setRepositories(items);
-        const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
-        const paramRepo = params?.get("repositoryId") || params?.get("repoId");
-        const paramFile = params?.get("filePath") || params?.get("file");
-        const paramScopeType = params?.get("scopeType") as ScopeType;
-        const paramClass = params?.get("className");
-        const paramMethod = params?.get("methodName");
+        const effectiveRepo = paramRepo || (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("repositoryId") || new URLSearchParams(window.location.search).get("repoId") : null);
+        const effectiveFile = paramScope || (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("filePath") || new URLSearchParams(window.location.search).get("file") : null);
+        const effectiveScopeType = paramEntityType === "PACKAGE" ? "PACKAGE" : paramEntityType === "REPOSITORY" ? "REPOSITORY" : (typeof window !== "undefined" ? (new URLSearchParams(window.location.search).get("scopeType") as ScopeType) : "FILE");
+        const effectiveClass = paramClassName || (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("className") : null);
+        const effectiveMethod = paramMethodName || (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("methodName") : null);
 
-        if (paramRepo) {
-          setRepo(paramRepo);
-          const matched = items.find((r) => String(r.repositoryId) === paramRepo);
+        if (effectiveRepo) {
+          setRepo(effectiveRepo);
+          const matched = items.find((r) => String(r.repositoryId) === effectiveRepo);
           if (matched?.defaultBranch) {
             setBranch(matched.defaultBranch);
           }
@@ -227,14 +260,14 @@ export default function YeuCauSinhPage() {
           setBranch(items[0].defaultBranch || "main");
         }
 
-        if (paramFile) {
-          setScope(paramFile);
+        if (effectiveFile) {
+          setScope(effectiveFile);
         }
-        if (paramScopeType && ["FILE", "PACKAGE", "REPOSITORY"].includes(paramScopeType)) {
-          setScopeType(paramScopeType);
+        if (effectiveScopeType && ["FILE", "PACKAGE", "REPOSITORY"].includes(effectiveScopeType)) {
+          setScopeType(effectiveScopeType);
         }
-        if (paramClass || paramMethod) {
-          const entityDesc = [paramClass ? `Lớp: ${paramClass}` : null, paramMethod ? `Phương thức: ${paramMethod}` : null]
+        if (effectiveClass || effectiveMethod) {
+          const entityDesc = [effectiveClass ? `Lớp: ${effectiveClass}` : null, effectiveMethod ? `Phương thức: ${effectiveMethod}` : null]
             .filter(Boolean)
             .join(" | ");
           setNote(`Yêu cầu AI sinh tài liệu đặc tả cho ${entityDesc}`);
@@ -266,7 +299,6 @@ export default function YeuCauSinhPage() {
         setError("Không thể tải thông tin khởi tạo từ cơ sở dữ liệu. Vui lòng thử lại.");
       })
       .finally(() => setLoadingRepositories(false));
-
     // Nạp cấu hình AI đã lưu từ Settings
     apiClient
       .get<{ provider?: string }>("/api/v1/settings/ai")
@@ -276,7 +308,7 @@ export default function YeuCauSinhPage() {
         }
       })
       .catch(() => {});
-  }, []);
+  }, [paramRepo, paramScope, paramClassName, paramMethodName, paramEntityType]);
 
   // When repo changes, fetch its scanned code entities (.java files)
   useEffect(() => {
@@ -290,7 +322,9 @@ export default function YeuCauSinhPage() {
       .then((res) => {
         const list = res.data || [];
         setCodeEntities(list);
-        if (list.length > 0 && !scope) {
+        if (paramScope) {
+          setScope(paramScope);
+        } else if (list.length > 0 && !scope) {
           setScope(list[0].filePath);
         }
       })
@@ -300,7 +334,9 @@ export default function YeuCauSinhPage() {
           .then((res) => {
             const list = res.data || [];
             setCodeEntities(list);
-            if (list.length > 0 && !scope) {
+            if (paramScope) {
+              setScope(paramScope);
+            } else if (list.length > 0 && !scope) {
               setScope(list[0].filePath);
             }
           })
@@ -308,7 +344,7 @@ export default function YeuCauSinhPage() {
       })
       .finally(() => setLoadingEntities(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repo]);
+  }, [repo, paramScope]);
 
   // Unique file paths from code entities
   const availableFiles = Array.from(new Set(codeEntities.map((e) => e.filePath)));
@@ -393,13 +429,14 @@ export default function YeuCauSinhPage() {
       templates.find((t) => String(t.id) === String(templateId)) || STANDARD_TEMPLATES[0];
 
     const className =
-      scopeType === "REPOSITORY"
+      (paramClassName && scopeType === "FILE" ? paramClassName : null) ||
+      (scopeType === "REPOSITORY"
         ? selectedRepoItem?.repoName || "RepositorySystem"
         : scopeType === "PACKAGE"
           ? selectedTarget.split("/").pop() || "ModulePackage"
           : selectedFileEntities.find((ent) => ent.className)?.className ||
-            selectedTarget.split("/").pop()?.replace(".java", "") ||
-            "AppService";
+          selectedTarget.split("/").pop()?.replace(".java", "") ||
+          "AppService");
 
     try {
       let generatedMarkdown = "";
@@ -440,19 +477,36 @@ export default function YeuCauSinhPage() {
           note: note.trim() || undefined,
           save_document: true,
           provider: aiProvider,
-          entities: selectedFileEntities.map((ent) => ({
-            entity_type: ent.entityType || "METHOD",
-            class_name: ent.className || className,
-            method_name: ent.methodName,
-            signature: ent.signature,
-            return_type: "void",
-            parameters: ent.parameters,
-            start_line: ent.startLine,
-            end_line: ent.endLine,
-            doc_status: ent.docStatus,
-            javadoc: ent.javadoc,
-            annotations: ent.annotations || [],
-          })),
+          entities:
+            selectedFileEntities.length > 0
+              ? selectedFileEntities.map((ent) => ({
+                entity_type: ent.entityType || "METHOD",
+                class_name: ent.className || className,
+                method_name: ent.methodName,
+                signature: ent.signature,
+                return_type: "void",
+                parameters: ent.parameters,
+                start_line: ent.startLine,
+                end_line: ent.endLine,
+                doc_status: ent.docStatus,
+                javadoc: ent.javadoc,
+                annotations: ent.annotations || [],
+              }))
+              : [
+                {
+                  entity_type: paramEntityType || "CLASS",
+                  class_name: className,
+                  method_name: paramMethodName || null,
+                  signature: paramMethodName ? `${paramMethodName}()` : className,
+                  return_type: "void",
+                  parameters: "",
+                  start_line: 1,
+                  end_line: 100,
+                  doc_status: "UNDOCUMENTED",
+                  javadoc: null,
+                  annotations: [],
+                },
+              ],
         });
 
         if (aiRes.data?.generated_content) {
@@ -521,17 +575,16 @@ Mô-đun \`${className}\` đóng vai trò thực thi các logic nghiệp vụ n�
 ## 2. Chi tiết các Phương thức & API
 | Tên phương thức | Kiểu trả về | Tham số | Vị trí dòng | Mô tả chức năng |
 | :--- | :--- | :--- | :--- | :--- |
-${
-  selectedFileEntities.length > 0
-    ? selectedFileEntities
-        .slice(0, 6)
-        .map(
-          (ent) =>
-            `| \`${ent.methodName || "init"}\` | \`void\` | \`${ent.parameters || "None"}\` | L${ent.startLine}-L${ent.endLine} | Xử lý nghiệp vụ cho ${ent.methodName || className} |`
-        )
-        .join("\n")
-    : `| \`executeProcess\` | \`boolean\` | \`String contextId\` | L15-L42 | Khởi tạo quy trình phân tích và đồng bộ tài liệu |`
-}
+${selectedFileEntities.length > 0
+            ? selectedFileEntities
+              .slice(0, 6)
+              .map(
+                (ent) =>
+                  `| \`${ent.methodName || "init"}\` | \`void\` | \`${ent.parameters || "None"}\` | L${ent.startLine}-L${ent.endLine} | Xử lý nghiệp vụ cho ${ent.methodName || className} |`
+              )
+              .join("\n")
+            : `| \`executeProcess\` | \`boolean\` | \`String contextId\` | L15-L42 | Khởi tạo quy trình phân tích và đồng bộ tài liệu |`
+          }
 
 ## 3. Hướng dẫn Tích hợp & Sử dụng
 \`\`\`java
@@ -670,6 +723,88 @@ service.initialize();
       >
         {/* Left Form & Results */}
         <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+          {/* Banner thông báo tự động điền từ Khoảng trống Tài liệu */}
+          {(paramClassName || paramScope) && (
+            <div
+              style={{
+                padding: "16px 20px",
+                borderRadius: 12,
+                background: "linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%)",
+                border: "1.5px solid #c7d2fe",
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 14,
+                boxShadow: "0 2px 6px rgba(99, 102, 241, 0.08)",
+              }}
+            >
+              <div
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 10,
+                  background: "#4f46e5",
+                  color: "#ffffff",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                  marginTop: 2,
+                }}
+              >
+                <Sparkles size={20} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: "#312e81" }}>
+                    ✨ Đã tự động điền từ Khoảng trống Tài liệu (Documentation Gap)
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: "#4338ca",
+                      background: "#ffffff",
+                      border: "1px solid #c7d2fe",
+                      padding: "2px 10px",
+                      borderRadius: 12,
+                      letterSpacing: "0.5px",
+                    }}
+                  >
+                    {paramEntityType || "MÃ NGUỒN"}
+                  </span>
+                </div>
+                <p style={{ fontSize: 13, color: "#3730a3", marginTop: 6, margin: "6px 0 0" }}>
+                  Phần tử đích:{" "}
+                  <strong style={{ fontFamily: "monospace", color: "#1e1b4b" }}>
+                    {paramClassName}
+                    {paramMethodName ? `.${paramMethodName}()` : ""}
+                  </strong>
+                  {paramScope && (
+                    <span style={{ marginLeft: 10, color: "#475569" }}>
+                      • Tệp nguồn:{" "}
+                      <code
+                        style={{
+                          fontFamily: "monospace",
+                          background: "#ffffff",
+                          padding: "2px 6px",
+                          borderRadius: 4,
+                          border: "1px solid #e2e8f0",
+                          color: "#0f766e",
+                        }}
+                      >
+                        {paramScope}
+                      </code>
+                    </span>
+                  )}
+                </p>
+                <p style={{ fontSize: 12, color: "#4f46e5", marginTop: 4, margin: "4px 0 0" }}>
+                  Các thông tin kho lưu trữ, tệp nguồn và mẫu tài liệu đã được chọn sẵn tự động. Bạn chỉ cần nhấn nút{" "}
+                  <strong>&quot;Tạo tài liệu bằng AI&quot;</strong> để tiến hành sinh tài liệu kỹ thuật!
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Form cấu hình */}
           <form onSubmit={handleGenerate}>
             <div className="ld-card" style={{ padding: 0, overflow: "hidden", border: "1px solid #dfe7e4" }}>
@@ -1680,5 +1815,21 @@ service.initialize();
         .markdown-viewer blockquote { border-left: 3px solid #0f766e; padding-left: 12px; color: #64748b; font-style: italic; margin-bottom: 0.75rem; }
       `}</style>
     </AppShell>
+  );
+}
+
+export default function YeuCauSinhPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell>
+          <div style={{ padding: 48, textAlign: "center", color: "#64748b" }}>
+            Đang tải trang yêu cầu sinh tài liệu AI...
+          </div>
+        </AppShell>
+      }
+    >
+      <YeuCauSinhContent />
+    </Suspense>
   );
 }
