@@ -13,6 +13,7 @@ import {
   Send,
   Columns,
   Maximize2,
+  Minimize2,
   CheckCircle2,
   AlertCircle,
   Clock,
@@ -193,6 +194,8 @@ function WorkspaceContent() {
   const [showOptionModal, setShowOptionModal] = useState(false);
 
   // Layout & UI
+  const [isMaximized, setIsMaximized] = useState(false);
+  const [docsSectionCollapsed, setDocsSectionCollapsed] = useState(false);
   const [previewMode, setPreviewMode] = useState<"split" | "edit" | "preview">("split");
   const [isSaving, setIsSaving] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -648,19 +651,43 @@ function WorkspaceContent() {
         </div>
       )}
 
-      {/* TOP WORKSPACE TOOLBAR */}
+      {/* WRAPPER FOR WORKSPACE (SUPPORTS FULLSCREEN / ZEN MODE) */}
       <div
-        style={{
-          height: 52,
-          borderBottom: "1px solid #e2e8f0",
-          backgroundColor: "#ffffff",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "0 16px",
-          gap: 12,
-        }}
+        style={
+          isMaximized
+            ? {
+                position: "fixed",
+                inset: 0,
+                zIndex: 60,
+                width: "100vw",
+                height: "100vh",
+                backgroundColor: "#ffffff",
+                display: "flex",
+                flexDirection: "column",
+                overflow: "hidden",
+              }
+            : {
+                display: "flex",
+                flexDirection: "column",
+                height: "100%",
+                overflow: "hidden",
+              }
+        }
       >
+        {/* TOP WORKSPACE TOOLBAR */}
+        <div
+          style={{
+            height: 52,
+            borderBottom: "1px solid #e2e8f0",
+            backgroundColor: "#ffffff",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "0 16px",
+            gap: 12,
+            flexShrink: 0,
+          }}
+        >
         {/* Left: Branding & Repo / Scope Selector */}
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#2563eb", fontWeight: 700, fontSize: 15 }}>
@@ -875,11 +902,45 @@ function WorkspaceContent() {
             <Send size={14} />
             <span>Gửi duyệt</span>
           </button>
+
+          <div style={{ height: 20, width: 1, backgroundColor: "#cbd5e1" }} />
+
+          {/* Mở rộng / Thu nhỏ toàn màn hình */}
+          <button
+            type="button"
+            onClick={() => setIsMaximized((v) => !v)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              padding: "6px 11px",
+              fontSize: 12,
+              fontWeight: 600,
+              borderRadius: 6,
+              border: "1px solid #cbd5e1",
+              backgroundColor: isMaximized ? "#eff6ff" : "#ffffff",
+              color: isMaximized ? "#2563eb" : "#475569",
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+            }}
+            title={isMaximized ? "Thu nhỏ không gian làm việc về bình thường" : "Mở rộng toàn màn hình không gian làm việc"}
+          >
+            {isMaximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            <span>{isMaximized ? "Thu nhỏ" : "Mở rộng"}</span>
+          </button>
         </div>
       </div>
 
       {/* MAIN WORKSPACE BODY */}
-      <div style={{ display: "flex", height: "calc(100vh - 110px)", overflow: "hidden", backgroundColor: "#f8fafc" }}>
+      <div
+        style={{
+          display: "flex",
+          height: isMaximized ? "calc(100vh - 52px)" : "calc(100vh - 110px)",
+          overflow: "hidden",
+          backgroundColor: "#f8fafc",
+          flex: 1,
+        }}
+      >
         {/* LEFT EXPLORER (VS CODE STYLE) */}
         {showExplorer && (
           <div
@@ -953,34 +1014,120 @@ function WorkspaceContent() {
               )}
             </div>
 
-            {/* Workspace Documents List */}
-            <div style={{ borderTop: "1px solid #e2e8f0", maxHeight: 180, overflowY: "auto", background: "#f8fafc" }}>
-              <div style={{ padding: "6px 10px", fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>
-                Tài liệu trong Workspace ({workspaceDocs.length})
-              </div>
-              {workspaceDocs.slice(0, 8).map((d) => (
+            {/* Workspace Documents List (raised up, clean header, full list) */}
+            <div
+              style={{
+                borderTop: "2px solid #e2e8f0",
+                height: docsSectionCollapsed ? 36 : 290,
+                minHeight: docsSectionCollapsed ? 36 : 260,
+                display: "flex",
+                flexDirection: "column",
+                background: "#f8fafc",
+                flexShrink: 0,
+                transition: "height 0.2s ease",
+              }}
+            >
+              <div
+                style={{
+                  padding: "7px 10px",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: "#1e293b",
+                  textTransform: "uppercase",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  background: "#f1f5f9",
+                  borderBottom: "1px solid #e2e8f0",
+                  userSelect: "none",
+                }}
+              >
                 <div
-                  key={d.docId}
-                  onClick={() => router.push(`/workspace?docId=${d.docId}`)}
+                  onClick={() => setDocsSectionCollapsed((c) => !c)}
+                  style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                  title="Nhấn để thu gọn hoặc mở rộng danh sách tài liệu"
+                >
+                  <FileText size={13} style={{ color: "#2563eb" }} />
+                  <span>Tài liệu trong Workspace ({workspaceDocs.length})</span>
+                  {docsSectionCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => router.push("/workspace")}
                   style={{
-                    padding: "4px 10px",
-                    fontSize: 11,
-                    color: d.docId === docId ? "#2563eb" : "#334155",
-                    fontWeight: d.docId === docId ? 600 : 400,
-                    backgroundColor: d.docId === docId ? "#eff6ff" : "transparent",
+                    border: "none",
+                    background: "#2563eb",
+                    color: "#ffffff",
+                    fontSize: 10,
+                    fontWeight: 600,
+                    padding: "2px 6px",
+                    borderRadius: 4,
                     cursor: "pointer",
                     display: "flex",
                     alignItems: "center",
-                    gap: 6,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
+                    gap: 3,
                   }}
+                  title="Tạo tài liệu mới trong Workspace"
                 >
-                  <FileText size={12} style={{ color: "#2563eb", flexShrink: 0 }} />
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{d.title}</span>
+                  <Plus size={11} />
+                  <span>Tạo mới</span>
+                </button>
+              </div>
+
+              {!docsSectionCollapsed && (
+                <div style={{ flex: 1, overflowY: "auto", padding: "6px 4px" }}>
+                  {workspaceDocs.length === 0 ? (
+                    <div style={{ padding: 12, textAlign: "center", fontSize: 11, color: "#94a3b8" }}>
+                      Chưa có tài liệu nào trong Workspace
+                    </div>
+                  ) : (
+                    workspaceDocs.map((d) => (
+                      <div
+                        key={d.docId}
+                        onClick={() => router.push(`/workspace?docId=${d.docId}`)}
+                        style={{
+                          padding: "6px 8px",
+                          marginBottom: 3,
+                          borderRadius: 6,
+                          fontSize: 11,
+                          color: d.docId === docId ? "#1d4ed8" : "#334155",
+                          fontWeight: d.docId === docId ? 600 : 400,
+                          backgroundColor: d.docId === docId ? "#dbeafe" : "#ffffff",
+                          border: "1px solid",
+                          borderColor: d.docId === docId ? "#bfdbfe" : "#f1f5f9",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 6,
+                          boxShadow: d.docId === docId ? "0 1px 2px rgba(37,99,235,0.1)" : "none",
+                        }}
+                        title={d.title}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>
+                          <FileText size={13} style={{ color: "#2563eb", flexShrink: 0 }} />
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {d.title}
+                          </span>
+                        </div>
+                        <span
+                          style={{
+                            fontSize: 9,
+                            padding: "1px 4px",
+                            borderRadius: 3,
+                            background: d.status === "PUBLISHED" ? "#ecfdf5" : "#f1f5f9",
+                            color: d.status === "PUBLISHED" ? "#059669" : "#64748b",
+                            fontWeight: 600,
+                            flexShrink: 0,
+                          }}
+                        >
+                          v{d.currentVersion || 1}
+                        </span>
+                      </div>
+                    ))
+                  )}
                 </div>
-              ))}
+              )}
             </div>
           </div>
         )}
@@ -1451,6 +1598,8 @@ function WorkspaceContent() {
             </div>
           )}
         </div>
+      </div>
+      {/* END WRAPPER FOR WORKSPACE */}
       </div>
 
       {/* MODAL XEM MÃ NGUỒN TỪ EXPLORER */}

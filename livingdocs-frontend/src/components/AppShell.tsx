@@ -55,6 +55,8 @@ import {
   ExternalLink,
   Sun,
   Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 import { useSession } from "@/hooks/useSession";
 import { useRouter } from "next/navigation";
@@ -287,6 +289,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Desktop sidebar collapse state
+  const [desktopSidebarHidden, setDesktopSidebarHidden] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedCollapse = localStorage.getItem("livingdocs_sidebar_collapsed");
+      if (savedCollapse === "true") {
+        setDesktopSidebarHidden(true);
+      }
+    }
+  }, []);
+
+  const toggleDesktopSidebar = () => {
+    setDesktopSidebarHidden((prev) => {
+      const next = !prev;
+      if (typeof window !== "undefined") {
+        localStorage.setItem("livingdocs_sidebar_collapsed", String(next));
+      }
+      return next;
+    });
+  };
+
   // Dark Mode Theme State
   const [isDark, setIsDark] = useState(false);
 
@@ -598,34 +622,62 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       }}
     >
       {/* Brand Header */}
-      <Link
-        href="/"
+      <div
         style={{
           height: 56,
           boxSizing: "border-box",
           display: "flex",
           alignItems: "center",
-          gap: 10,
-          padding: "0 18px",
+          justifyContent: "space-between",
+          padding: "0 10px 0 16px",
           borderBottom: "1px solid #e2e8f0",
           background: "#f8fafc",
           flexShrink: 0,
         }}
       >
-        <Image
-          src="/logo.png"
-          alt="LivingDoc Logo"
-          width={28}
-          height={28}
-          className="rounded-lg object-contain shadow-xs"
-        />
-        <div className="flex flex-col">
-          <span style={{ fontWeight: 800, fontSize: 15, color: "#0f172a", lineHeight: 1.1 }}>
-            Living<span style={{ color: "#087f5b" }}>Docs</span>
-          </span>
-          <span style={{ fontSize: 10.5, color: "#64748b", fontWeight: 500 }}>AI Documentation</span>
-        </div>
-      </Link>
+        <Link
+          href="/"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            textDecoration: "none",
+          }}
+        >
+          <Image
+            src="/logo.png"
+            alt="LivingDoc Logo"
+            width={28}
+            height={28}
+            className="rounded-lg object-contain shadow-xs"
+          />
+          <div className="flex flex-col">
+            <span style={{ fontWeight: 800, fontSize: 15, color: "#0f172a", lineHeight: 1.1 }}>
+              Living<span style={{ color: "#087f5b" }}>Docs</span>
+            </span>
+            <span style={{ fontSize: 10.5, color: "#64748b", fontWeight: 500 }}>AI Documentation</span>
+          </div>
+        </Link>
+        <button
+          type="button"
+          onClick={toggleDesktopSidebar}
+          style={{
+            border: "none",
+            background: "transparent",
+            color: "#64748b",
+            cursor: "pointer",
+            padding: "6px",
+            borderRadius: "6px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+          className="hover:bg-slate-200 transition-colors"
+          title="Thu gọn menu chính bên trái để mở rộng không gian làm việc"
+        >
+          <PanelLeftClose size={16} />
+        </button>
+      </div>
 
       {/* Nav items */}
       <nav style={{ flex: 1, padding: "12px 10px", overflowY: "auto" }}>
@@ -768,9 +820,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="ld-app-shell" style={{ display: "flex", height: "100dvh", overflow: "hidden" }}>
       {/* Desktop sidebar */}
-      <div className="hidden lg:flex" style={{ height: "100%" }}>
-        {Sidebar}
-      </div>
+      {!desktopSidebarHidden && (
+        <div className="hidden lg:flex" style={{ height: "100%" }}>
+          {Sidebar}
+        </div>
+      )}
 
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
@@ -846,6 +900,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           >
             <Menu size={18} />
           </button>
+
+          {/* Desktop Toggle Sidebar Button when hidden */}
+          {desktopSidebarHidden && (
+            <button
+              type="button"
+              onClick={toggleDesktopSidebar}
+              className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-200 transition-colors text-xs font-semibold"
+              title="Hiện lại thanh menu chính bên trái để xem đầy đủ tính năng"
+            >
+              <PanelLeftOpen size={16} style={{ color: "#2563eb" }} />
+              <span>Hiện Menu</span>
+            </button>
+          )}
 
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-2">
