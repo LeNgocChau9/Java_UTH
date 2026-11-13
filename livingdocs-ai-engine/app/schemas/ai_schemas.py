@@ -364,3 +364,22 @@ class DocRewriteResponse(BaseModel):
         default="gemini-3.5-flash-lite",
         description="Model Gemini hoặc thuật toán phân tích đã thực hiện viết lại"
     )
+
+
+class ChatMessageItem(BaseModel):
+    role: str = Field(default="user", description="Vai trò: user, assistant, system")
+    content: str = Field(..., description="Nội dung tin nhắn")
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., description="Câu hỏi hoặc yêu cầu của người dùng")
+    history: Optional[List[ChatMessageItem]] = Field(default=[], description="Lịch sử các tin nhắn trước")
+    system_prompt: Optional[str] = Field(default=None, description="System prompt tùy chỉnh nếu có")
+
+
+class ChatResponse(BaseModel):
+    status: str = Field(default="success")
+    reply: str = Field(..., description="Nội dung câu trả lời của trợ lý AI")
+    provider: str = Field(default="gemini", description="Mô hình / dịch vụ AI xử lý: gemini, ollama, fallback")
+    model: str = Field(default="gemini-2.5-flash", description="Tên mô hình cụ thể")
+

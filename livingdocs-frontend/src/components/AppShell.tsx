@@ -70,6 +70,7 @@ import {
   removeSavedAccount,
   type SavedAccountEntry,
 } from "@/services/authService";
+import { FloatingChatBot } from "@/components/chat/FloatingChatBot";
 
 type AppRole = "DEVELOPER" | "STAFF" | "MANAGER" | "TECH_LEAD" | "ADMIN";
 
@@ -2708,6 +2709,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       )}
+
+      {/* FIXED FLOATING AI CHATBOT (AVAILABLE ON DASHBOARD & ALL INNER PAGES) */}
+      <FloatingChatBot />
     </div>
   );
 }

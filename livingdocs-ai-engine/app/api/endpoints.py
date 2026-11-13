@@ -17,7 +17,10 @@ from app.schemas.ai_schemas import (
     DocRewriteRequest,
     DocRewriteResponse,
     DocSectionDiffItem,
+    ChatRequest,
+    ChatResponse,
 )
+from app.services.chat_service import ChatService
 from app.services.tree_sitter_ast_parser import parse_multilingual_ast, parse_java_with_treesitter
 from app.services.gemini_doc_service import GeminiDocService
 from app.services.ollama_doc_service import OllamaDocService
@@ -374,6 +377,20 @@ async def rewrite_document_suggestion(request: DocRewriteRequest):
             status_code=500,
             detail=f"Lỗi nội bộ khi AI viết lại tài liệu: {str(ex)}"
         )
+
+
+@router.post(
+    "/chat",
+    response_model=ChatResponse,
+    summary="Hỏi đáp với Trợ lý AI (Ưu tiên Gemini Key -> Failover sang Ollama AI Local)",
+    description="Endpoint chatbot hỗ trợ người dùng toàn hệ thống, tự động điều phối giữa Gemini Cloud và AI Local."
+)
+async def chat_with_ai(request: ChatRequest):
+    """
+    Hỏi đáp tương tác với Trợ lý AI LivingDocs:
+    Ưu tiên sử dụng Gemini API Key -> nếu cạn hạn mức hoặc lỗi thì tự động chuyển sang AI Local (Ollama).
+    """
+    return await ChatService.chat(request)
 
 
 @router.get(
