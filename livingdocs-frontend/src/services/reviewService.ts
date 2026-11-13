@@ -36,6 +36,8 @@ export interface ReviewQueueItem {
   structureWarning?: boolean;
   missingHeadings?: string[];
   aiGenerated?: boolean;
+  docType?: string;
+  approvalTiers?: number;
 }
 
 export interface ReviewActionResponse {

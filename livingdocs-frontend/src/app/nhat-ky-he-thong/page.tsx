@@ -12,6 +12,7 @@ const ACTIONS = [
   { value: "AI_DOCUMENT_GENERATED", label: "Sinh tài liệu AI" },
   { value: "DOCUMENT_STAFF_REVIEWED", label: "Nhân viên duyệt" },
   { value: "DOCUMENT_PUBLISHED", label: "Quản lý xuất bản" },
+  { value: "DOCUMENT_APPROVED", label: "Phê duyệt thay (ủy quyền)" },
   { value: "DOCUMENT_ROLLBACK", label: "Hoàn tác rollback" },
   { value: "DOCUMENT_REJECTED", label: "Từ chối" },
 ];
