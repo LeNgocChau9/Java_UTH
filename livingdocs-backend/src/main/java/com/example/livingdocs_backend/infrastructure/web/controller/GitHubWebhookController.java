@@ -10,9 +10,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Controller tiếp nhận và xác thực sự kiện Webhook từ GitHub (push,
@@ -29,20 +31,23 @@ import java.util.Map;
 public class GitHubWebhookController {
 
     private final GitHubWebhookServicePort webhookService;
+    private final ConcurrentHashMap<String, Long> processedDeliveries = new ConcurrentHashMap<>();
+    private static final long DELIVERY_TTL_MS = 10 * 60 * 1000L; // 10 phút
 
     @PostMapping
     @Operation(summary = "Tiếp nhận và xử lý sự kiện Webhook từ GitHub", description = "Bắt các sự kiện thay đổi mã nguồn (push, pull_request), xác thực chữ ký X-Hub-Signature-256 và đẩy vào luồng phân tích")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Tiếp nhận thành công và đã đẩy vào hàng đợi phân tích"),
-            @ApiResponse(responseCode = "401", description = "Chữ ký X-Hub-Signature-256 không hợp lệ"),
+            @ApiResponse(responseCode = "401", description = "Chữ ký X-Hub-Signature-256 không hợp lệ hoặc phát hiện tấn công phát lại"),
             @ApiResponse(responseCode = "400", description = "Payload JSON không hợp lệ hoặc thiếu dữ liệu")
     })
     public ResponseEntity<?> handleGitHubWebhook(
             @RequestHeader(value = "X-GitHub-Event", defaultValue = "ping") String eventType,
             @RequestHeader(value = "X-Hub-Signature-256", required = false) String signatureHeader,
+            @RequestHeader(value = "X-GitHub-Delivery", required = false) String deliveryId,
             @RequestBody String rawPayload) {
         long startTime = System.currentTimeMillis();
-        log.info("[Webhook] Nhận Webhook từ GitHub - Event: {}", eventType);
+        log.info("[Webhook] Nhận Webhook từ GitHub - Event: {}, Delivery: {}", eventType, deliveryId);
 
         // 1. Xác thực chữ ký bí mật HMAC-SHA256 (X-Hub-Signature-256)
         boolean isValid = webhookService.verifySignature(rawPayload, signatureHeader);
@@ -54,6 +59,23 @@ public class GitHubWebhookController {
                             "status", 401,
                             "error", "Unauthorized",
                             "message", "Chữ ký X-Hub-Signature-256 không hợp lệ hoặc không khớp secret key"));
+        }
+
+        // 2. Chống tấn công phát lại (Replay Attack) bằng X-GitHub-Delivery
+        if (StringUtils.hasText(deliveryId)) {
+            long now = System.currentTimeMillis();
+            if (processedDeliveries.size() > 5000) {
+                processedDeliveries.entrySet().removeIf(e -> now - e.getValue() > DELIVERY_TTL_MS);
+            }
+            Long existingTimestamp = processedDeliveries.putIfAbsent(deliveryId.trim(), now);
+            if (existingTimestamp != null && (now - existingTimestamp) <= DELIVERY_TTL_MS) {
+                log.warn("[Webhook] Phát hiện yêu cầu trùng lặp / Replay Attack với Delivery ID: {}", deliveryId);
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(Map.of(
+                                "status", 401,
+                                "error", "Unauthorized",
+                                "message", "Sự kiện Webhook đã được xử lý trước đó (Duplicate Delivery / Replay Attack)"));
+            }
         }
 
         // 2. Phân tích payload, trích xuất metadata và đẩy vào luồng phân tích ngầm
