@@ -217,6 +217,8 @@ CREATE TABLE IF NOT EXISTS public.documents
     updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
     template_id bigint,
     source_commit character varying(64) COLLATE pg_catalog."default",
+    source_type character varying(50) COLLATE pg_catalog."default" DEFAULT 'MANUAL'::character varying,
+    source_url character varying(1024) COLLATE pg_catalog."default",
     CONSTRAINT documents_pkey PRIMARY KEY (doc_id)
 );
 

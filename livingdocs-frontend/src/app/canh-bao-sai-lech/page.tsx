@@ -365,6 +365,27 @@ function CanhBaoSaiLechContent() {
     );
   }, [selectedAlert?.codeDiff]);
 
+  // Thống kê chênh lệch số dòng cho tài liệu và mã nguồn
+  const docDiffStats = useMemo(() => {
+    let added = 0;
+    let deleted = 0;
+    for (const pair of docDiffPairs) {
+      if (pair.left.type === "delete") deleted++;
+      if (pair.right.type === "insert") added++;
+    }
+    return { added, deleted, total: docDiffPairs.length };
+  }, [docDiffPairs]);
+
+  const codeDiffStats = useMemo(() => {
+    let added = 0;
+    let deleted = 0;
+    for (const pair of codeDiffPairs) {
+      if (pair.left.type === "delete") deleted++;
+      if (pair.right.type === "insert") added++;
+    }
+    return { added, deleted, total: codeDiffPairs.length };
+  }, [codeDiffPairs]);
+
   // Quét & Đồng bộ dữ liệu thật từ hệ thống backend CSDL (Tuyệt đối không dùng dữ liệu mock)
   const handleScan = async () => {
     setIsScanning(true);
@@ -1343,16 +1364,17 @@ function CanhBaoSaiLechContent() {
                         gap: 5,
                         fontSize: 12,
                         padding: "7px 12px",
-                        fontWeight: 500,
-                        color: "#64748b",
-                        border: "1px solid #e2e8f0",
+                        fontWeight: 600,
+                        color: "#dc2626",
+                        background: "#ffffff",
+                        border: "1px solid #fca5a5",
                         cursor: ignoringId === selectedAlert.id ? "not-allowed" : "pointer",
                       }}
                     >
                       {ignoringId === selectedAlert.id ? (
                         <RefreshCw size={13} className="animate-spin" />
                       ) : (
-                        <EyeOff size={13} />
+                        <XCircle size={13} />
                       )}
                       Bỏ qua
                     </button>
@@ -1422,13 +1444,142 @@ function CanhBaoSaiLechContent() {
                     boxShadow: "0 1px 3px rgba(0,0,0,0.02)",
                   }}
                 >
-                  {/* Header 2 cột trung tính */}
+                  {/* THANH THAO TÁC NHANH (QUICK ACTIONS TOOLBAR) VÀ THỐNG KÊ DIFF */}
+                  <div
+                    style={{
+                      padding: "8px 14px",
+                      borderBottom: "1px solid #e2e8f0",
+                      background: "#f8fafc",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                      gap: 10,
+                    }}
+                  >
+                    {/* Thống kê chênh lệch số dòng */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: "#047857",
+                          background: "#ecfdf5",
+                          border: "1px solid #a7f3d0",
+                          padding: "2px 8px",
+                          borderRadius: 4,
+                        }}
+                      >
+                        +{docDiffStats.added} thêm mới
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: "#b91c1c",
+                          background: "#fef2f2",
+                          border: "1px solid #fecaca",
+                          padding: "2px 8px",
+                          borderRadius: 4,
+                        }}
+                      >
+                        -{docDiffStats.deleted} lược bỏ
+                      </span>
+                      <span style={{ fontSize: 11, color: "#64748b" }}>
+                        ({docDiffStats.total} dòng đối chiếu)
+                      </span>
+                    </div>
+
+                    {/* 3 Nút thao tác nhanh ngay trên khung Diff: Chấp nhận đề xuất, Chỉnh sửa thêm, Loại bỏ phiên bản cập nhật */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      {/* Nút 1: Chấp nhận đề xuất */}
+                      <button
+                        type="button"
+                        disabled={acceptingId === selectedAlert.id}
+                        onClick={() => handleAcceptFix(selectedAlert)}
+                        className="ld-btn ld-btn-primary ld-btn-sm"
+                        title="Tự động áp dụng đề xuất của AI và tạo bản nháp DRAFT v2.1"
+                        style={{
+                          background: "#087f5b",
+                          color: "#ffffff",
+                          gap: 6,
+                          fontSize: 12,
+                          padding: "6px 14px",
+                          fontWeight: 600,
+                          boxShadow: "0 2px 6px rgba(8, 127, 91, 0.2)",
+                          cursor: acceptingId === selectedAlert.id ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        {acceptingId === selectedAlert.id ? (
+                          <>
+                            <RefreshCw size={13} className="animate-spin" />
+                            Đang xử lý...
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 size={13} />
+                            Chấp nhận đề xuất
+                          </>
+                        )}
+                      </button>
+
+                      {/* Nút 2: Chỉnh sửa thêm */}
+                      <button
+                        type="button"
+                        onClick={() => handleEdit(selectedAlert)}
+                        className="ld-btn ld-btn-secondary ld-btn-sm"
+                        title="Mở trình soạn thảo Markdown với nội dung tài liệu để chỉnh sửa thủ công"
+                        style={{
+                          gap: 6,
+                          fontSize: 12,
+                          padding: "6px 12px",
+                          fontWeight: 600,
+                          background: "#ffffff",
+                          border: "1px solid #cbd5e1",
+                          color: "#334155",
+                        }}
+                      >
+                        <Edit3 size={13} style={{ color: "#0284c7" }} />
+                        Chỉnh sửa thêm
+                      </button>
+
+                      {/* Nút 3: Loại bỏ phiên bản cập nhật */}
+                      {selectedAlert.status !== "IGNORED" && (
+                        <button
+                          type="button"
+                          disabled={ignoringId === selectedAlert.id}
+                          onClick={() => handleIgnore(selectedAlert)}
+                          className="ld-btn ld-btn-ghost ld-btn-sm"
+                          title="Loại bỏ phiên bản đề xuất cập nhật này và đánh dấu bỏ qua cảnh báo"
+                          style={{
+                            gap: 6,
+                            fontSize: 12,
+                            padding: "6px 12px",
+                            fontWeight: 600,
+                            color: "#dc2626",
+                            background: "#ffffff",
+                            border: "1px solid #fca5a5",
+                            cursor: ignoringId === selectedAlert.id ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          {ignoringId === selectedAlert.id ? (
+                            <RefreshCw size={13} className="animate-spin" />
+                          ) : (
+                            <XCircle size={13} />
+                          )}
+                          Loại bỏ phiên bản cập nhật
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Header 2 cột song song */}
                   <div
                     style={{
                       display: "grid",
                       gridTemplateColumns: "1fr 1fr",
                       borderBottom: "1px solid #e2e8f0",
-                      background: "#f8fafc",
+                      background: "#f1f5f9",
                     }}
                   >
                     <div
@@ -1659,6 +1810,32 @@ function CanhBaoSaiLechContent() {
                     <h3 style={{ fontSize: 13, fontWeight: 700, color: "#334155", margin: 0 }}>
                       Mã nguồn Git thay đổi tương ứng ({selectedAlert.codeDiff.fileName})
                     </h3>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color: "#047857",
+                        background: "#ecfdf5",
+                        border: "1px solid #a7f3d0",
+                        padding: "1px 6px",
+                        borderRadius: 4,
+                      }}
+                    >
+                      +{codeDiffStats.added}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color: "#b91c1c",
+                        background: "#fef2f2",
+                        border: "1px solid #fecaca",
+                        padding: "1px 6px",
+                        borderRadius: 4,
+                      }}
+                    >
+                      -{codeDiffStats.deleted}
+                    </span>
                   </div>
                   <div style={{ display: "flex", gap: 6 }}>
                     <button

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { diffLines, type Change } from "diff";
 import { AppShell } from "@/components/AppShell";
 import { documentService } from "@/services/documentService";
 import { reviewService, type ReviewQueueItem } from "@/services/reviewService";
@@ -49,6 +50,10 @@ import {
   Sparkles,
   ChevronLeft,
   X,
+  FileDiff,
+  CheckCircle2,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 
 export default function HangDoiXemXetStaffPage() {
@@ -71,9 +76,12 @@ export default function HangDoiXemXetStaffPage() {
 
   // State chỉnh sửa trực tiếp nội dung Markdown
   const [editingContent, setEditingContent] = useState<string>("");
-  const [isEditing, setIsEditing] = useState<boolean>(false);
   const [savingEdit, setSavingEdit] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<"preview" | "edit">("preview");
+  const [activeTab, setActiveTab] = useState<"diff" | "preview" | "edit">("diff");
+  const [compareVersionNum, setCompareVersionNum] = useState<number | null>(null);
+  const [isWideDiff, setIsWideDiff] = useState<boolean>(false);
+  const [showRejectModal, setShowRejectModal] = useState<boolean>(false);
+  const [rejectReason, setRejectReason] = useState<string>("");
 
   // State Review comment và quyết định
   const [reviewComment, setReviewComment] = useState<string>("");
@@ -121,8 +129,10 @@ export default function HangDoiXemXetStaffPage() {
     setLoadingEntities(true);
     setError(null);
     setActionSuccessMessage(null);
-    setIsEditing(false);
-    setActiveTab("preview");
+    setActiveTab("diff");
+    setCompareVersionNum(null);
+    setIsWideDiff(false);
+    setShowRejectModal(false);
     setReviewComment("");
     setSectionComments({});
 
@@ -172,8 +182,7 @@ export default function HangDoiXemXetStaffPage() {
       const refreshed = await documentService.getDocumentById(selectedDocDetail.docId);
       setSelectedDocDetail(refreshed);
       setEditingContent(refreshed.latestVersion?.content || "");
-      setIsEditing(false);
-      setActiveTab("preview");
+      setActiveTab("diff");
       setActionSuccessMessage("Đã lưu các chỉnh sửa nhỏ của Staff thành công (tạo phiên bản v" + refreshed.currentVersion + ").");
     } catch (err) {
       console.error("Lỗi khi lưu chỉnh sửa:", err);
@@ -184,7 +193,7 @@ export default function HangDoiXemXetStaffPage() {
   };
 
   // 4. Hai nút hành động: Phê duyệt (chuyển sang UNDER_REVIEW_MANAGER) hoặc Từ chối (kèm lý do)
-  const handleDecision = async (decision: "APPROVE" | "REJECT") => {
+  const handleDecision = async (decision: "APPROVE" | "REJECT", customComment?: string) => {
     if (!selectedDocDetail) return;
 
     const filledSections = Object.entries(sectionComments)
@@ -194,7 +203,9 @@ export default function HangDoiXemXetStaffPage() {
         detailedComment: detailedComment.trim(),
       }));
 
-    if (decision === "REJECT" && !reviewComment.trim() && filledSections.length === 0) {
+    const finalComment = customComment !== undefined ? customComment : reviewComment.trim();
+
+    if (decision === "REJECT" && !finalComment && filledSections.length === 0) {
       setError("Vui lòng nhập lý do từ chối để trả tài liệu về nhà phát triển.");
       return;
     }
@@ -206,7 +217,6 @@ export default function HangDoiXemXetStaffPage() {
     try {
       await reviewService.processStaffAction(selectedDocDetail.docId, {
         decision,
-        comment: reviewComment.trim() || (decision === "APPROVE" ? "Staff đã đối chiếu AST và phê duyệt chuyển Manager." : "Yêu cầu nhà phát triển chỉnh sửa lại."),
         sectionComments: filledSections,
       });
 
@@ -225,6 +235,158 @@ export default function HangDoiXemXetStaffPage() {
       setProcessingAction(null);
     }
   };
+
+  // 3 Nút thao tác nhanh của bảng So sánh Diff hai cột:
+  // Nút 1: Chấp nhận đề xuất cập nhật tài liệu
+  const handleQuickApprove = () => {
+    const comment = reviewComment.trim() || "Staff đã đối chiếu trực quan diff hai cột và chấp nhận đề xuất cập nhật tự động của AI.";
+    handleDecision("APPROVE", comment);
+  };
+
+  // Nút 2: Chỉnh sửa thêm
+  const handleQuickEdit = () => {
+    setActiveTab("edit");
+  };
+
+  // Nút 3: Loại bỏ phiên bản cập nhật (mở modal xác nhận)
+  const handleQuickRejectOpen = () => {
+    setRejectReason(reviewComment.trim() || "Từ chối đề xuất cập nhật tự động của AI do sai lệch nội dung so với mã nguồn thực tế.");
+    setShowRejectModal(true);
+  };
+
+  const handleConfirmRejectModal = () => {
+    setShowRejectModal(false);
+    handleDecision("REJECT", rejectReason.trim() || "Loại bỏ đề xuất cập nhật của AI do không đạt yêu cầu đối chiếu.");
+  };
+
+  // Lịch sử phiên bản trước để so sánh đối chiếu hai cột
+  const earlierVersions = useMemo(() => {
+    if (!selectedDocDetail?.versionHistory) return [];
+    return selectedDocDetail.versionHistory
+      .filter((v) => v.versionNum < selectedDocDetail.currentVersion)
+      .sort((a, b) => b.versionNum - a.versionNum);
+  }, [selectedDocDetail]);
+
+  const previousVersion = useMemo(() => {
+    if (earlierVersions.length === 0) return null;
+    if (compareVersionNum !== null) {
+      const matched = earlierVersions.find((v) => v.versionNum === compareVersionNum);
+      if (matched) return matched;
+    }
+    return earlierVersions[0];
+  }, [earlierVersions, compareVersionNum]);
+
+  const publishedContent = previousVersion ? previousVersion.content || "" : "";
+  const aiContent = editingContent || selectedDocDetail?.latestVersion?.content || "";
+
+  interface DiffRowItem {
+    leftLineNo: number | null;
+    leftText: string;
+    leftType: "delete" | "equal" | "empty";
+    rightLineNo: number | null;
+    rightText: string;
+    rightType: "insert" | "equal" | "empty";
+  }
+
+  const diffAnalysis = useMemo(() => {
+    if (!selectedDocDetail) {
+      return { rows: [] as DiffRowItem[], addedCount: 0, removedCount: 0, unchangedCount: 0 };
+    }
+
+    // Nếu là tài liệu v1 hoàn toàn mới, chưa có phiên bản xuất bản trước đó
+    if (!previousVersion) {
+      const lines = (aiContent || "").split(/\r?\n/);
+      if (lines.length > 0 && lines[lines.length - 1] === "" && aiContent.endsWith("\n")) {
+        lines.pop();
+      }
+      const rows: DiffRowItem[] = lines.map((line, idx) => ({
+        leftLineNo: null,
+        leftText: "",
+        leftType: "empty",
+        rightLineNo: idx + 1,
+        rightText: line,
+        rightType: "insert",
+      }));
+      return {
+        rows,
+        addedCount: lines.length,
+        removedCount: 0,
+        unchangedCount: 0,
+      };
+    }
+
+    const changes: Change[] = diffLines(publishedContent, aiContent);
+    const rows: DiffRowItem[] = [];
+    let leftLine = 1;
+    let rightLine = 1;
+    let addedCount = 0;
+    let removedCount = 0;
+    let unchangedCount = 0;
+
+    for (let i = 0; i < changes.length; i++) {
+      const change = changes[i];
+
+      if (!change.added && !change.removed) {
+        const lines = change.value.split(/\r?\n/);
+        if (lines.length > 0 && lines[lines.length - 1] === "" && change.value.endsWith("\n")) {
+          lines.pop();
+        }
+        for (const line of lines) {
+          rows.push({
+            leftLineNo: leftLine++,
+            leftText: line,
+            leftType: "equal",
+            rightLineNo: rightLine++,
+            rightText: line,
+            rightType: "equal",
+          });
+          unchangedCount++;
+        }
+      } else {
+        let removedLines: string[] = [];
+        let addedLines: string[] = [];
+
+        if (change.removed) {
+          removedLines = change.value.split(/\r?\n/);
+          if (removedLines.length > 0 && removedLines[removedLines.length - 1] === "" && change.value.endsWith("\n")) {
+            removedLines.pop();
+          }
+          if (i + 1 < changes.length && changes[i + 1].added) {
+            addedLines = changes[i + 1].value.split(/\r?\n/);
+            if (addedLines.length > 0 && addedLines[addedLines.length - 1] === "" && changes[i + 1].value.endsWith("\n")) {
+              addedLines.pop();
+            }
+            i++;
+          }
+        } else if (change.added) {
+          addedLines = change.value.split(/\r?\n/);
+          if (addedLines.length > 0 && addedLines[addedLines.length - 1] === "" && change.value.endsWith("\n")) {
+            addedLines.pop();
+          }
+        }
+
+        removedCount += removedLines.length;
+        addedCount += addedLines.length;
+
+        const maxLen = Math.max(removedLines.length, addedLines.length);
+        for (let k = 0; k < maxLen; k++) {
+          const hasLeft = k < removedLines.length;
+          const hasRight = k < addedLines.length;
+
+          rows.push({
+            leftLineNo: hasLeft ? leftLine++ : null,
+            leftText: hasLeft ? removedLines[k] : "",
+            leftType: hasLeft ? "delete" : "empty",
+            rightLineNo: hasRight ? rightLine++ : null,
+            rightText: hasRight ? addedLines[k] : "",
+            rightType: hasRight ? "insert" : "empty",
+          });
+        }
+      }
+    }
+
+    return { rows, addedCount, removedCount, unchangedCount };
+  }, [selectedDocDetail, previousVersion, publishedContent, aiContent]);
 
   // Lọc theo từ khóa tìm kiếm
   const filteredDocs = useMemo(() => {
@@ -587,18 +749,22 @@ export default function HangDoiXemXetStaffPage() {
                 <div className="ld-card" style={{ padding: 0, overflow: "hidden", border: "1px solid #dfe7e4" }}>
                   <div
                     style={{
-                      padding: "12px 16px",
+                      padding: "10px 14px",
                       borderBottom: "1px solid #dfe7e4",
                       background: "#f8faf9",
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center",
+                      flexWrap: "wrap",
+                      gap: 8,
                     }}
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <Sparkles size={15} style={{ color: "#0f766e" }} />
                       <p style={{ fontSize: 13, fontWeight: 600, color: "#0f766e", margin: 0 }}>
-                        Nội dung tài liệu do AI sinh ra (Phiên bản v{selectedDocDetail?.currentVersion})
+                        {activeTab === "diff"
+                          ? `So sánh phiên bản: Đang xuất bản vs AI đề xuất (v${selectedDocDetail?.currentVersion})`
+                          : `Nội dung tài liệu do AI sinh ra (v${selectedDocDetail?.currentVersion})`}
                       </p>
                     </div>
 
@@ -607,32 +773,56 @@ export default function HangDoiXemXetStaffPage() {
                       <button
                         type="button"
                         onClick={() => {
-                          setActiveTab("preview");
-                          setIsEditing(false);
+                          setActiveTab("diff");
                         }}
                         style={{
                           fontSize: 11,
                           fontWeight: 600,
-                          padding: "4px 8px",
+                          padding: "5px 10px",
+                          borderRadius: 4,
+                          border: "none",
+                          background: activeTab === "diff" ? "#0f766e" : "#e2e8f0",
+                          color: activeTab === "diff" ? "#ffffff" : "#475569",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 5,
+                        }}
+                      >
+                        <FileDiff size={12} />
+                        So sánh Diff hai cột
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab("preview");
+                        }}
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: "5px 10px",
                           borderRadius: 4,
                           border: "none",
                           background: activeTab === "preview" ? "#0f766e" : "#e2e8f0",
                           color: activeTab === "preview" ? "#ffffff" : "#475569",
                           cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 5,
                         }}
                       >
+                        <Eye size={12} />
                         Xem trước Markdown
                       </button>
                       <button
                         type="button"
                         onClick={() => {
                           setActiveTab("edit");
-                          setIsEditing(true);
                         }}
                         style={{
                           fontSize: 11,
                           fontWeight: 600,
-                          padding: "4px 8px",
+                          padding: "5px 10px",
                           borderRadius: 4,
                           border: "none",
                           background: activeTab === "edit" ? "#0f766e" : "#e2e8f0",
@@ -640,18 +830,420 @@ export default function HangDoiXemXetStaffPage() {
                           cursor: "pointer",
                           display: "flex",
                           alignItems: "center",
+                          gap: 5,
+                        }}
+                      >
+                        <Edit3 size={12} />
+                        Sửa trực tiếp lỗi nhỏ
+                      </button>
+
+                      {/* Nút mở rộng toàn màn hình cho khung so sánh Diff */}
+                      <button
+                        type="button"
+                        onClick={() => setIsWideDiff((prev) => !prev)}
+                        title={isWideDiff ? "Thu gọn về chế độ chia cột" : "Mở rộng toàn màn hình để xem diff thoải mái hơn"}
+                        style={{
+                          fontSize: 11,
+                          padding: "5px 8px",
+                          borderRadius: 4,
+                          border: "1px solid #cbd5e1",
+                          background: "#ffffff",
+                          color: "#475569",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
                           gap: 4,
                         }}
                       >
-                        <Edit3 size={11} />
-                        Sửa trực tiếp lỗi nhỏ
+                        {isWideDiff ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+                        <span className="hidden sm:inline">{isWideDiff ? "Thu gọn" : "Mở rộng"}</span>
                       </button>
                     </div>
                   </div>
 
-                  {/* Vùng hiển thị nội dung tài liệu */}
-                  <div style={{ padding: 18, maxHeight: "560px", overflowY: "auto" }}>
-                    {activeTab === "preview" ? (
+                  {/* VÙNG NỘI DUNG: TAB DIFF HAI CỘT HOẶC PREVIEW HOẶC EDIT */}
+                  {activeTab === "diff" ? (
+                    <div>
+                      {/* THANH THAO TÁC NHANH (QUICK ACTIONS TOOLBAR) VÀ THỐNG KÊ DIFF */}
+                      <div
+                        style={{
+                          padding: "8px 14px",
+                          borderBottom: "1px solid #e2e8f0",
+                          background: "#f8fafc",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                          gap: 10,
+                        }}
+                      >
+                        {/* Thống kê chênh lệch số dòng và bộ chọn phiên bản đối chiếu */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 700,
+                              color: "#047857",
+                              background: "#ecfdf5",
+                              border: "1px solid #a7f3d0",
+                              padding: "2px 8px",
+                              borderRadius: 4,
+                            }}
+                          >
+                            +{diffAnalysis.addedCount} thêm mới
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 700,
+                              color: "#b91c1c",
+                              background: "#fef2f2",
+                              border: "1px solid #fecaca",
+                              padding: "2px 8px",
+                              borderRadius: 4,
+                            }}
+                          >
+                            -{diffAnalysis.removedCount} lược bỏ
+                          </span>
+                          <span style={{ fontSize: 11, color: "#64748b" }}>
+                            ({diffAnalysis.unchangedCount} dòng giữ nguyên)
+                          </span>
+
+                          {earlierVersions.length > 1 && (
+                            <div style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: 6 }}>
+                              <span style={{ fontSize: 11, color: "#64748b" }}>So sánh với:</span>
+                              <select
+                                className="ld-input"
+                                style={{ fontSize: 11, padding: "2px 6px", height: 26, background: "#ffffff" }}
+                                value={compareVersionNum || previousVersion?.versionNum || ""}
+                                onChange={(e) => setCompareVersionNum(Number(e.target.value))}
+                              >
+                                {earlierVersions.map((v) => (
+                                  <option key={v.versionId} value={v.versionNum}>
+                                    v{v.versionNum} ({v.actorRole || "DEV"})
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 3 NÚT THAO TÁC NHANH: Chấp nhận đề xuất, Chỉnh sửa thêm, Loại bỏ phiên bản cập nhật */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          {/* Nút 1: Chấp nhận đề xuất */}
+                          <button
+                            type="button"
+                            onClick={handleQuickApprove}
+                            disabled={processingAction !== null}
+                            className="ld-btn ld-btn-primary ld-btn-sm"
+                            title="Chấp nhận đề xuất cập nhật tài liệu do AI tạo và phê duyệt"
+                            style={{
+                              background: "#087f5b",
+                              color: "#ffffff",
+                              gap: 6,
+                              fontSize: 12,
+                              padding: "6px 14px",
+                              fontWeight: 600,
+                              boxShadow: "0 2px 6px rgba(8, 127, 91, 0.2)",
+                              cursor: processingAction !== null ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            {processingAction === "APPROVE" ? (
+                              <>
+                                <RefreshCw size={13} className="animate-spin" />
+                                Đang duyệt...
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle2 size={14} />
+                                Chấp nhận đề xuất
+                              </>
+                            )}
+                          </button>
+
+                          {/* Nút 2: Chỉnh sửa thêm */}
+                          <button
+                            type="button"
+                            onClick={handleQuickEdit}
+                            className="ld-btn ld-btn-secondary ld-btn-sm"
+                            title="Mở trình soạn thảo Markdown để chỉnh sửa thêm nội dung"
+                            style={{
+                              gap: 6,
+                              fontSize: 12,
+                              padding: "6px 12px",
+                              fontWeight: 600,
+                              background: "#ffffff",
+                              border: "1px solid #cbd5e1",
+                              color: "#334155",
+                            }}
+                          >
+                            <Edit3 size={13} style={{ color: "#0284c7" }} />
+                            Chỉnh sửa thêm
+                          </button>
+
+                          {/* Nút 3: Loại bỏ phiên bản cập nhật */}
+                          <button
+                            type="button"
+                            onClick={handleQuickRejectOpen}
+                            disabled={processingAction !== null}
+                            className="ld-btn ld-btn-ghost ld-btn-sm"
+                            title="Loại bỏ phiên bản đề xuất cập nhật này và trả về nhà phát triển"
+                            style={{
+                              gap: 6,
+                              fontSize: 12,
+                              padding: "6px 12px",
+                              fontWeight: 600,
+                              color: "#dc2626",
+                              background: "#ffffff",
+                              border: "1px solid #fca5a5",
+                              cursor: processingAction !== null ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            {processingAction === "REJECT" ? (
+                              <RefreshCw size={13} className="animate-spin" />
+                            ) : (
+                              <XCircle size={13} />
+                            )}
+                            Loại bỏ phiên bản cập nhật
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* HEADER HAI CỘT SONG SONG */}
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr 1fr",
+                          borderBottom: "1px solid #e2e8f0",
+                          background: "#f1f5f9",
+                        }}
+                      >
+                        {/* Cột trái: Bản đang xuất bản / Phiên bản trước */}
+                        <div
+                          style={{
+                            padding: "8px 12px",
+                            fontSize: 12,
+                            fontWeight: 600,
+                            color: "#334155",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            borderRight: "1px solid #e2e8f0",
+                          }}
+                        >
+                          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#ef4444" }}></span>
+                            Phiên bản đang xuất bản {previousVersion ? `(v${previousVersion.versionNum})` : "(Gốc)"}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 10,
+                              fontWeight: 700,
+                              color: "#b91c1c",
+                              background: "#fef2f2",
+                              border: "1px solid #fecaca",
+                              padding: "1px 6px",
+                              borderRadius: 4,
+                            }}
+                          >
+                            HIỆN TẠI / GỐC
+                          </span>
+                        </div>
+
+                        {/* Cột phải: Bản do AI đề xuất cập nhật */}
+                        <div
+                          style={{
+                            padding: "8px 12px",
+                            fontSize: 12,
+                            fontWeight: 600,
+                            color: "#334155",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                          }}
+                        >
+                          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#10b981" }}></span>
+                            Phiên bản do AI đề xuất cập nhật tự động (v{selectedDocDetail?.currentVersion})
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 10,
+                              fontWeight: 700,
+                              color: "#047857",
+                              background: "#ecfdf5",
+                              border: "1px solid #a7f3d0",
+                              padding: "1px 6px",
+                              borderRadius: 4,
+                            }}
+                          >
+                            AI ĐỀ XUẤT CẬP NHẬT
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* BẢNG SO SÁNH DIFF HAI CỘT SONG SONG VỚI CUỘN ĐỒNG BỘ */}
+                      <div
+                        style={{
+                          maxHeight: "540px",
+                          overflowY: "auto",
+                          overflowX: "auto",
+                          background: "#ffffff",
+                        }}
+                      >
+                        {diffAnalysis.rows.length === 0 ? (
+                          <div style={{ padding: "40px 16px", textAlign: "center", color: "#64748b", fontSize: 13 }}>
+                            Không có nội dung để hiển thị đối chiếu.
+                          </div>
+                        ) : (
+                          <>
+                            {diffAnalysis.addedCount === 0 && diffAnalysis.removedCount === 0 && (
+                              <div
+                                style={{
+                                  padding: "8px 14px",
+                                  background: "#f0fdf4",
+                                  color: "#166534",
+                                  fontSize: 12,
+                                  borderBottom: "1px solid #bbf7d0",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 6,
+                                }}
+                              >
+                                <CheckCircle size={14} style={{ color: "#16a34a" }} />
+                                Hai phiên bản hoàn toàn giống nhau, không có sự sai lệch nội dung.
+                              </div>
+                            )}
+
+                            {diffAnalysis.rows.map((row, idx) => {
+                              const isDel = row.leftType === "delete";
+                              const isIns = row.rightType === "insert";
+                              const isLeftEmpty = row.leftType === "empty";
+                              const isRightEmpty = row.rightType === "empty";
+
+                              return (
+                                <div
+                                  key={`diff-row-${idx}`}
+                                  style={{
+                                    display: "grid",
+                                    gridTemplateColumns: "1fr 1fr",
+                                    minHeight: 24,
+                                    borderBottom: "1px solid #f1f5f9",
+                                    fontFamily: "var(--font-mono, 'Consolas', monospace)",
+                                    fontSize: 12,
+                                  }}
+                                >
+                                  {/* CỘT TRÁI: Dòng của phiên bản trước/đang xuất bản */}
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "stretch",
+                                      borderRight: "1px solid #e2e8f0",
+                                      background: isDel ? "#fef2f2" : isLeftEmpty ? "#f8fafc" : "#ffffff",
+                                      borderLeft: isDel ? "3px solid #ef4444" : "3px solid transparent",
+                                      color: isDel ? "#991b1b" : "#334155",
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        width: 38,
+                                        flexShrink: 0,
+                                        textAlign: "right",
+                                        paddingRight: 6,
+                                        userSelect: "none",
+                                        color: isDel ? "#dc2626" : "#94a3b8",
+                                        background: isDel ? "#fee2e2" : "#f8fafc",
+                                        borderRight: "1px solid #e2e8f0",
+                                        lineHeight: "24px",
+                                      }}
+                                    >
+                                      {row.leftLineNo ?? ""}
+                                    </div>
+                                    <div
+                                      style={{
+                                        width: 18,
+                                        flexShrink: 0,
+                                        textAlign: "center",
+                                        userSelect: "none",
+                                        fontWeight: 700,
+                                        lineHeight: "24px",
+                                        color: isDel ? "#dc2626" : "transparent",
+                                      }}
+                                    >
+                                      {isDel ? "-" : " "}
+                                    </div>
+                                    <div
+                                      style={{
+                                        flex: 1,
+                                        padding: "0 8px",
+                                        whiteSpace: "pre-wrap",
+                                        wordBreak: "break-all",
+                                        lineHeight: "24px",
+                                      }}
+                                    >
+                                      {row.leftText}
+                                    </div>
+                                  </div>
+
+                                  {/* CỘT PHẢI: Dòng của phiên bản AI đề xuất cập nhật */}
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "stretch",
+                                      background: isIns ? "#f0fdf4" : isRightEmpty ? "#f8fafc" : "#ffffff",
+                                      borderLeft: isIns ? "3px solid #10b981" : "3px solid transparent",
+                                      color: isIns ? "#166534" : "#334155",
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        width: 38,
+                                        flexShrink: 0,
+                                        textAlign: "right",
+                                        paddingRight: 6,
+                                        userSelect: "none",
+                                        color: isIns ? "#16a34a" : "#94a3b8",
+                                        background: isIns ? "#dcfce7" : "#f8fafc",
+                                        borderRight: "1px solid #e2e8f0",
+                                        lineHeight: "24px",
+                                      }}
+                                    >
+                                      {row.rightLineNo ?? ""}
+                                    </div>
+                                    <div
+                                      style={{
+                                        width: 18,
+                                        flexShrink: 0,
+                                        textAlign: "center",
+                                        userSelect: "none",
+                                        fontWeight: 700,
+                                        lineHeight: "24px",
+                                        color: isIns ? "#16a34a" : "transparent",
+                                      }}
+                                    >
+                                      {isIns ? "+" : " "}
+                                    </div>
+                                    <div
+                                      style={{
+                                        flex: 1,
+                                        padding: "0 8px",
+                                        whiteSpace: "pre-wrap",
+                                        wordBreak: "break-all",
+                                        lineHeight: "24px",
+                                      }}
+                                    >
+                                      {row.rightText}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ) : activeTab === "preview" ? (
+                    <div style={{ padding: 18, maxHeight: "560px", overflowY: "auto" }}>
                       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                         {splitMarkdownSections(editingContent || selectedDocDetail?.latestVersion?.content || "").map((section) => (
                           <div key={section.heading} style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: 12 }}>
@@ -678,7 +1270,9 @@ export default function HangDoiXemXetStaffPage() {
                           </div>
                         ))}
                       </div>
-                    ) : (
+                    </div>
+                  ) : (
+                    <div style={{ padding: 18, maxHeight: "560px", overflowY: "auto" }}>
                       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                         <p style={{ fontSize: 11, color: "#64748b", margin: 0 }}>
                           Staff có thể trực tiếp sửa lỗi chính tả, câu từ hoặc format Markdown trước khi bấm phê duyệt:
@@ -701,8 +1295,7 @@ export default function HangDoiXemXetStaffPage() {
                             className="ld-btn ld-btn-secondary ld-btn-sm"
                             onClick={() => {
                               setEditingContent(selectedDocDetail?.latestVersion?.content || "");
-                              setIsEditing(false);
-                              setActiveTab("preview");
+                              setActiveTab("diff");
                             }}
                           >
                             Hủy sửa
@@ -723,8 +1316,8 @@ export default function HangDoiXemXetStaffPage() {
                           </button>
                         </div>
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* CỘT PHẢI: Thông tin code tham chiếu (file_path, signature, AST entities) */}
@@ -900,6 +1493,88 @@ export default function HangDoiXemXetStaffPage() {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* MODAL XÁC NHẬN LOẠI BỎ PHIÊN BẢN CẬP NHẬT */}
+      {showRejectModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(15, 23, 42, 0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            backdropFilter: "blur(2px)",
+          }}
+          onClick={() => setShowRejectModal(false)}
+        >
+          <div
+            style={{
+              background: "#ffffff",
+              borderRadius: 8,
+              padding: 24,
+              width: "90%",
+              maxWidth: 520,
+              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: "#dc2626", margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
+                <XCircle size={18} />
+                Loại bỏ phiên bản đề xuất cập nhật
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowRejectModal(false)}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "#64748b" }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <p style={{ fontSize: 13, color: "#475569", marginBottom: 12, lineHeight: 1.5 }}>
+              Bạn đang chọn từ chối phiên bản cập nhật tự động do AI đề xuất cho tài liệu <strong>&quot;{selectedDocDetail?.title}&quot;</strong>. Vui lòng xác nhận lý do loại bỏ để gửi lại nhà phát triển / tác giả:
+            </p>
+            <textarea
+              className="ld-input"
+              style={{ minHeight: 90, fontSize: 12, width: "100%", marginBottom: 16, background: "#ffffff" }}
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Nhập lý do loại bỏ phiên bản cập nhật..."
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button
+                type="button"
+                className="ld-btn ld-btn-secondary ld-btn-sm"
+                onClick={() => setShowRejectModal(false)}
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                className="ld-btn ld-btn-sm"
+                onClick={handleConfirmRejectModal}
+                disabled={processingAction !== null}
+                style={{
+                  background: "#dc2626",
+                  color: "#ffffff",
+                  fontWeight: 600,
+                  gap: 6,
+                  display: "flex",
+                  alignItems: "center",
+                }}
+              >
+                <XCircle size={14} />
+                Xác nhận loại bỏ
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
