@@ -7,6 +7,7 @@ import java.util.Optional;
 
 public interface DocumentVersionRepositoryPort {
     DocumentVersion save(DocumentVersion version);
+    Optional<DocumentVersion> findById(Long versionId);
     Optional<DocumentVersion> findLatestByDocId(Long docId);
     Optional<DocumentVersion> findByDocIdAndVersionNum(Long docId, Integer versionNum);
     List<DocumentVersion> findAllByDocIdOrderByVersionNumDesc(Long docId);

@@ -214,18 +214,57 @@ public class DocumentController {
 
     @PostMapping("/{docId}/rollback")
     @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
-    @Operation(summary = "Khôi phục tài liệu về phiên bản chỉ định (qua Request Body)", description = "Khôi phục nội dung tài liệu với tham số chi tiết trong Request Body bao gồm số phiên bản mục tiêu, lý do khôi phục và vai trò thực hiện.")
+    @Operation(summary = "Khôi phục tài liệu về phiên bản chỉ định (qua Request Body)", description = "Khôi phục nội dung tài liệu với tham số chi tiết trong Request Body bao gồm số phiên bản mục tiêu (targetVersion) hoặc ID phiên bản (versionId), lý do khôi phục và vai trò thực hiện.")
     public ResponseEntity<RollbackResponse> rollbackWithBody(
             @PathVariable Long docId,
             @Valid @RequestBody RollbackDocumentRequest request,
             @AuthenticationPrincipal UserPrincipal userPrincipal) {
 
         Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
-        String actorRole = (request.getActorRole() != null && !request.getActorRole().isBlank())
+        String actorRole = (request != null && request.getActorRole() != null && !request.getActorRole().isBlank())
                 ? request.getActorRole() : extractRole(userPrincipal);
 
-        RollbackResponse response = documentServicePort.rollbackToVersion(
-                docId, request.getTargetVersion(), request.getReason(), actorId, actorRole);
+        RollbackResponse response;
+        if (request != null && request.getVersionId() != null && request.getVersionId() > 0) {
+            response = documentServicePort.rollbackByVersionId(
+                    docId, request.getVersionId(), request.getReason(), actorId, actorRole);
+        } else {
+            Integer targetVer = request != null ? request.getTargetVersion() : null;
+            response = documentServicePort.rollbackToVersion(
+                    docId, targetVer, request != null ? request.getReason() : null, actorId, actorRole);
+        }
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/{docId}/rollback/version/{versionId}")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
+    @Operation(summary = "Khôi phục tài liệu theo ID bản ghi phiên bản (versionId)", description = "Hoàn tác nội dung tài liệu về bất kỳ bản ghi phiên bản nào được lưu trong bảng lịch sử thay đổi theo versionId.")
+    public ResponseEntity<RollbackResponse> rollbackByVersionId(
+            @PathVariable Long docId,
+            @PathVariable Long versionId,
+            @RequestParam(required = false) String reason,
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+
+        Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
+        String actorRole = extractRole(userPrincipal);
+
+        RollbackResponse response = documentServicePort.rollbackByVersionId(
+                docId, versionId, reason, actorId, actorRole);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/collection/{collectionId}/rollback")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
+    @Operation(summary = "Khôi phục hàng loạt toàn bộ Bộ sưu tập về phiên bản trước", description = "Khôi phục hàng loạt toàn bộ các tài liệu thuộc cùng một bộ sưu tập nhằm phục hồi nhanh chóng trạng thái an toàn trước khi xảy ra một đợt cập nhật tự động bị lỗi.")
+    public ResponseEntity<com.example.livingdocs_backend.application.dto.CollectionRollbackResponse> rollbackCollectionFromDocs(
+            @PathVariable Long collectionId,
+            @RequestBody(required = false) com.example.livingdocs_backend.application.dto.CollectionRollbackRequest request,
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+
+        Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
+        String actorRole = extractRole(userPrincipal);
+
+        var response = documentServicePort.rollbackCollection(collectionId, request, actorId, actorRole);
         return ResponseEntity.ok(response);
     }
 
