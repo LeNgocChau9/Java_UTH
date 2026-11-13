@@ -11,7 +11,6 @@ import {
   ChevronRight,
   ArrowUp,
   MessageCircle,
-  Headphones,
   X,
   Send,
   Bot,
@@ -19,6 +18,7 @@ import {
   Sparkles,
   CheckCircle2,
 } from "lucide-react";
+import { aiChatService } from "@/services/aiChatService";
 
 /* ─── Metric Counter Hook ─── */
 function useCounterOnView(target: number, duration: number = 1800, decimals: number = 0, from: number = 0) {
@@ -288,15 +288,23 @@ export default function AstroshipLivingDocsHomePage() {
 
   const handleSendChatMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!chatInput.trim()) return;
+    if (!chatInput.trim() || isTyping) return;
 
     const userText = chatInput.trim();
     setChatMessages((prev) => [...prev, { sender: "user", text: userText }]);
     setChatInput("");
     setIsTyping(true);
 
-    // Xử lý câu trả lời thông minh của Chatbot LivingDocs
-    setTimeout(() => {
+    try {
+      const history = chatMessages.map((m) => ({
+        id: "",
+        role: m.sender === "bot" ? ("assistant" as const) : ("user" as const),
+        content: m.text,
+        timestamp: "",
+      }));
+      const res = await aiChatService.sendMessage(userText, history);
+      setChatMessages((prev) => [...prev, { sender: "bot", text: res.reply }]);
+    } catch {
       let botReply =
         "Cảm ơn câu hỏi của bạn. LivingDocs tự động hóa biên soạn tài liệu kiến trúc phần mềm từ Git Diff, kiểm duyệt sai lệch AST và bảo chứng chất lượng với chuỗi băm SHA-256.";
 
@@ -316,8 +324,9 @@ export default function AstroshipLivingDocsHomePage() {
       }
 
       setChatMessages((prev) => [...prev, { sender: "bot", text: botReply }]);
+    } finally {
       setIsTyping(false);
-    }, 600);
+    }
   };
 
   const handleFeedbackSubmit = (e: React.FormEvent) => {
@@ -811,20 +820,20 @@ export default function AstroshipLivingDocsHomePage() {
           </span>
         </button>
 
-        {/* Nút Hỗ trợ (Mở Chatbot) - Không khung bao */}
+        {/* Nút BOT (Mở Chatbot) - Không khung bao */}
         <button
           onClick={() => {
             setIsChatOpen((prev) => !prev);
             setIsFeedbackOpen(false);
           }}
           className="no-rainbow flex flex-col items-center justify-center gap-1 group cursor-pointer transition-transform hover:scale-110 active:scale-95"
-          title="Chat với Trợ lý Hỗ trợ AI"
+          title="Chat với BOT Trợ lý AI"
         >
           <div className="rainbow-orbit w-11 h-11 rounded-full bg-amber-400 text-black flex items-center justify-center shadow-lg group-hover:bg-amber-300 transition-colors">
-            <Headphones className="w-5 h-5 stroke-[2.4]" />
+            <Bot className="w-5 h-5 stroke-[2.4]" />
           </div>
           <span className="text-[10px] font-bold text-amber-400 tracking-tight leading-none group-hover:text-amber-300 drop-shadow">
-            Hỗ trợ
+            BOT
           </span>
         </button>
       </aside>
@@ -931,7 +940,7 @@ export default function AstroshipLivingDocsHomePage() {
               </div>
               <div>
                 <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
-                  Trợ lý LivingDocs <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                  BOT Trợ lý AI <Sparkles className="w-3.5 h-3.5 text-amber-300" />
                 </h4>
                 <span className="text-[10px] text-amber-400 font-medium flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" /> Sẵn sàng hỗ trợ
