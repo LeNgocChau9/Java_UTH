@@ -6,7 +6,6 @@ import {
   Send,
   RefreshCw,
   Minus,
-  Bot,
   Zap,
 } from "lucide-react";
 import { aiChatService, type ChatMessage } from "@/services/aiChatService";
@@ -16,12 +15,12 @@ const INITIAL_MESSAGE: ChatMessage = {
   id: "init-1",
   role: "assistant",
   content:
-    "Xin chào! Tôi là **BOT hỗ trợ** của LivingDocs.\n\n" +
+    "Xin chào! Tôi là **ZAZA AI** của LivingDocs.\n\n" +
     "Tôi có thể hỗ trợ giải đáp mọi thắc mắc về:\n" +
-    "- 📝 **Workspace:** Soạn thảo, nạp & xuất Word (`.docx`), đối chiếu Template chuẩn.\n" +
-    "- ⚠️ **Khoảng trống tài liệu:** Tìm Class/Method chưa có tài liệu và tự động bổ sung.\n" +
-    "- 🌲 **Cây mã nguồn:** Bóc tách AST các thực thể mã nguồn.\n" +
-    "- 🚨 **Cảnh báo sai lệch (Drift):** Kiểm tra code thay đổi so với tài liệu hiện hành.\n\n" +
+    "- **Workspace:** Soạn thảo, nạp & xuất Word (`.docx`), đối chiếu Template chuẩn.\n" +
+    "- **Khoảng trống tài liệu:** Tìm Class/Method chưa có tài liệu và tự động bổ sung.\n" +
+    "- **Cây mã nguồn:** Bóc tách AST các thực thể mã nguồn.\n" +
+    "- **Cảnh báo sai lệch (Drift):** Kiểm tra code thay đổi so với tài liệu hiện hành.\n\n" +
     "Bạn cần hỗ trợ điều gì hôm nay?",
   timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
 };
@@ -161,23 +160,39 @@ export function FloatingChatBot() {
               e.currentTarget.style.transform = "scale(1)";
               e.currentTarget.style.boxShadow = "0 10px 25px -3px rgba(220, 38, 38, 0.5)";
             }}
-            title="Mở BOT hỗ trợ"
+            title="Mở ZAZA AI"
           >
-            <div style={{ position: "relative", display: "grid", placeItems: "center" }}>
-              <Bot size={24} />
-              <span
-                style={{
-                  position: "absolute",
-                  top: -2,
-                  right: -3,
-                  width: 9,
-                  height: 9,
-                  borderRadius: "50%",
-                  backgroundColor: "#22c55e",
-                  border: "2px solid #ffffff",
-                }}
+            <div
+              style={{
+                position: "relative",
+                width: 44,
+                height: 44,
+                borderRadius: "50%",
+                overflow: "hidden",
+                display: "grid",
+                placeItems: "center",
+                backgroundColor: "#0b0f19",
+              }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/logo-ai.png"
+                alt="ZAZA AI"
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
               />
             </div>
+            <span
+              style={{
+                position: "absolute",
+                top: 0,
+                right: 0,
+                width: 10,
+                height: 10,
+                borderRadius: "50%",
+                backgroundColor: "#22c55e",
+                border: "2px solid #ffffff",
+              }}
+            />
             {unreadCount > 0 && (
               <span
                 style={{
@@ -232,39 +247,25 @@ export function FloatingChatBot() {
                   style={{
                     width: 34,
                     height: 34,
-                    borderRadius: 10,
-                    background: "rgba(255, 255, 255, 0.2)",
+                    borderRadius: "50%",
+                    overflow: "hidden",
+                    border: "1.5px solid rgba(255, 255, 255, 0.6)",
+                    backgroundColor: "#0b0f19",
                     display: "grid",
                     placeItems: "center",
                     flexShrink: 0,
                   }}
                 >
-                  <Bot size={18} />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src="/logo-ai.png"
+                    alt="ZAZA AI"
+                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                  />
                 </div>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.2 }}>
-                    BOT hỗ trợ
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 10,
-                      color: "#fecaca",
-                      marginTop: 2,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: 6,
-                        height: 6,
-                        borderRadius: "50%",
-                        backgroundColor: "#4ade80",
-                      }}
-                    />
-                    <span>Ưu tiên Gemini • Auto Failover Local</span>
+                  <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.2 }}>
+                    ZAZA AI
                   </div>
                 </div>
               </div>
@@ -392,22 +393,27 @@ export function FloatingChatBot() {
 
               {/* Typing indicator */}
               {loading && (
-                <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 8px" }}>
                   <div
                     style={{
-                      width: 26,
-                      height: 26,
+                      width: 24,
+                      height: 24,
                       borderRadius: "50%",
-                      backgroundColor: "#e2e8f0",
-                      display: "grid",
-                      placeItems: "center",
-                      color: "#2563eb",
+                      overflow: "hidden",
+                      border: "1px solid #cbd5e1",
+                      backgroundColor: "#0b0f19",
+                      flexShrink: 0,
                     }}
                   >
-                    <Bot size={14} className="animate-spin" />
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src="/logo-ai.png"
+                      alt="ZAZA AI"
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    />
                   </div>
                   <span style={{ fontSize: 11, color: "#64748b", fontStyle: "italic" }}>
-                    Trợ lý AI đang suy nghĩ...
+                    ZAZA AI đang suy nghĩ...
                   </span>
                 </div>
               )}
@@ -482,7 +488,7 @@ export function FloatingChatBot() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Hỏi trợ lý AI (Enter để gửi)..."
+                  placeholder="Hỏi ZAZA AI (Enter để gửi)..."
                   rows={1}
                   disabled={loading}
                   style={{
@@ -518,20 +524,6 @@ export function FloatingChatBot() {
                 >
                   <Send size={13} />
                 </button>
-              </div>
-
-              <div
-                style={{
-                  fontSize: 9.5,
-                  color: "#94a3b8",
-                  textAlign: "center",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 4,
-                }}
-              >
-                <span>Hỗ trợ đa chế độ: Google Gemini Key & AI Local GPU</span>
               </div>
             </div>
           </div>
