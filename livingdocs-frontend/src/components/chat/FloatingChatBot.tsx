@@ -16,7 +16,7 @@ const INITIAL_MESSAGE: ChatMessage = {
   id: "init-1",
   role: "assistant",
   content:
-    "Xin chào! Tôi là **Trợ lý AI LivingDocs** đồng hành cùng bạn.\n\n" +
+    "Xin chào! Tôi là **BOT hỗ trợ** của LivingDocs.\n\n" +
     "Tôi có thể hỗ trợ giải đáp mọi thắc mắc về:\n" +
     "- 📝 **Workspace:** Soạn thảo, nạp & xuất Word (`.docx`), đối chiếu Template chuẩn.\n" +
     "- ⚠️ **Khoảng trống tài liệu:** Tìm Class/Method chưa có tài liệu và tự động bổ sung.\n" +
@@ -139,56 +139,58 @@ export function FloatingChatBot() {
             type="button"
             onClick={() => setIsOpen(true)}
             style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "10px 18px",
-              borderRadius: 30,
-              background: "linear-gradient(135deg, #2563eb 0%, #7c3aed 100%)",
+              width: 52,
+              height: 52,
+              borderRadius: "50%",
+              background: "linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #b91c1c 100%)",
               color: "#ffffff",
               border: "none",
               cursor: "pointer",
-              boxShadow: "0 10px 25px -3px rgba(37, 99, 235, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.05)",
+              boxShadow: "0 10px 25px -3px rgba(220, 38, 38, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.05)",
               transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
               transform: "scale(1)",
+              display: "grid",
+              placeItems: "center",
+              position: "relative",
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.transform = "scale(1.05)";
-              e.currentTarget.style.boxShadow = "0 14px 28px -3px rgba(37, 99, 235, 0.5)";
+              e.currentTarget.style.transform = "scale(1.08)";
+              e.currentTarget.style.boxShadow = "0 14px 28px -3px rgba(220, 38, 38, 0.65)";
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = "scale(1)";
-              e.currentTarget.style.boxShadow = "0 10px 25px -3px rgba(37, 99, 235, 0.4)";
+              e.currentTarget.style.boxShadow = "0 10px 25px -3px rgba(220, 38, 38, 0.5)";
             }}
-            title="Mở Trợ lý AI LivingDocs (Ưu tiên Gemini & AI Local)"
+            title="Mở BOT hỗ trợ"
           >
-            <div style={{ position: "relative" }}>
-              <Bot size={20} />
+            <div style={{ position: "relative", display: "grid", placeItems: "center" }}>
+              <Bot size={24} />
               <span
                 style={{
                   position: "absolute",
                   top: -2,
-                  right: -2,
-                  width: 8,
-                  height: 8,
+                  right: -3,
+                  width: 9,
+                  height: 9,
                   borderRadius: "50%",
                   backgroundColor: "#22c55e",
                   border: "2px solid #ffffff",
                 }}
               />
             </div>
-            <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: "0.01em" }}>
-              Trợ lý AI
-            </span>
             {unreadCount > 0 && (
               <span
                 style={{
+                  position: "absolute",
+                  top: -3,
+                  right: -3,
                   fontSize: 10,
                   fontWeight: 700,
-                  background: "#ef4444",
+                  background: "#111827",
                   color: "#ffffff",
                   padding: "1px 6px",
                   borderRadius: 10,
+                  border: "2px solid #ffffff",
                 }}
               >
                 {unreadCount}
@@ -217,7 +219,7 @@ export function FloatingChatBot() {
             <div
               style={{
                 padding: "12px 16px",
-                background: "linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%)",
+                background: "linear-gradient(135deg, #991b1b 0%, #dc2626 100%)",
                 color: "#ffffff",
                 display: "flex",
                 alignItems: "center",
@@ -237,16 +239,16 @@ export function FloatingChatBot() {
                     flexShrink: 0,
                   }}
                 >
-                  <Sparkles size={18} />
+                  <Bot size={18} />
                 </div>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.2 }}>
-                    Trợ lý AI LivingDocs
+                    BOT hỗ trợ
                   </div>
                   <div
                     style={{
                       fontSize: 10,
-                      color: "#bfdbfe",
+                      color: "#fecaca",
                       marginTop: 2,
                       display: "flex",
                       alignItems: "center",
@@ -334,10 +336,10 @@ export function FloatingChatBot() {
                         maxWidth: "88%",
                         padding: isUser ? "8px 12px" : "10px 14px",
                         borderRadius: isUser ? "14px 14px 2px 14px" : "14px 14px 14px 2px",
-                        backgroundColor: isUser ? "#2563eb" : "#ffffff",
+                        backgroundColor: isUser ? "#dc2626" : "#ffffff",
                         color: isUser ? "#ffffff" : "#0f172a",
                         boxShadow: isUser
-                          ? "0 2px 6px rgba(37, 99, 235, 0.25)"
+                          ? "0 2px 6px rgba(220, 38, 38, 0.25)"
                           : "0 1px 3px rgba(0, 0, 0, 0.08)",
                         border: isUser ? "none" : "1px solid #e2e8f0",
                         fontSize: 12.5,
@@ -501,7 +503,7 @@ export function FloatingChatBot() {
                   disabled={!input.trim() || loading}
                   style={{
                     border: "none",
-                    backgroundColor: input.trim() && !loading ? "#2563eb" : "#cbd5e1",
+                    backgroundColor: input.trim() && !loading ? "#dc2626" : "#cbd5e1",
                     color: "#ffffff",
                     borderRadius: 8,
                     width: 28,
