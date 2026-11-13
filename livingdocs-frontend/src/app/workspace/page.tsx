@@ -12,8 +12,6 @@ import {
   Save,
   Send,
   Columns,
-  Maximize2,
-  Minimize2,
   CheckCircle2,
   AlertCircle,
   Clock,
@@ -243,7 +241,7 @@ function WorkspaceContent() {
   const [showOptionModal, setShowOptionModal] = useState(false);
 
   // Layout & UI
-  const [isMaximized, setIsMaximized] = useState(false);
+  const [showTemplateHoverMenu, setShowTemplateHoverMenu] = useState(false);
   const [docsSectionCollapsed, setDocsSectionCollapsed] = useState(false);
   const [previewMode, setPreviewMode] = useState<"split" | "edit" | "preview">("split");
   const [isSaving, setIsSaving] = useState(false);
@@ -490,14 +488,17 @@ function WorkspaceContent() {
   const handleExportDocx = async () => {
     try {
       setExportingDocx(true);
+      const headingMatch = content.match(/^#\s+(.+)$/m);
+      const derivedTitle = headingMatch ? headingMatch[1].trim() : "Tai_lieu_LivingDocs";
+      const effectiveTitle = (title && title.trim() && title !== "Tài liệu Workspace" ? title.trim() : derivedTitle) || "Tai_lieu_LivingDocs";
       const blob = await documentService.exportRawDocx({
-        title: title || "Tai_lieu_LivingDocs",
+        title: effectiveTitle,
         markdown: content,
       });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${(title || "Tai_lieu_LivingDocs").replace(/[^a-zA-Z0-9_-]/g, "_")}.docx`;
+      a.download = `${effectiveTitle.replace(/[^a-zA-Z0-9_-]/g, "_")}.docx`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -563,15 +564,14 @@ function WorkspaceContent() {
 
   // Lưu tài liệu
   const handleSave = async () => {
-    if (!title.trim()) {
-      notify("error", "Tiêu đề không được để trống!");
-      return;
-    }
+    const headingMatch = content.match(/^#\s+(.+)$/m);
+    const derivedTitle = headingMatch ? headingMatch[1].trim() : "Tài liệu Workspace";
+    const effectiveTitle = (title && title.trim() && title !== "Tài liệu Workspace" ? title.trim() : derivedTitle) || "Tài liệu Workspace";
     setIsSaving(true);
     try {
       if (docId) {
         const updated = await documentService.updateDocument(docId, {
-          title,
+          title: effectiveTitle,
           content,
           targetPath: scopedFolder || targetPath,
           triggerType: "MANUAL_UPDATE",
@@ -582,7 +582,7 @@ function WorkspaceContent() {
         notify("success", `Đã lưu phiên bản v${updated.currentVersion} thành công!`);
       } else {
         const created = await documentService.createDocument({
-          title,
+          title: effectiveTitle,
           content,
           targetPath: scopedFolder || targetPath,
           repoId,
@@ -590,6 +590,7 @@ function WorkspaceContent() {
           triggerType: "MANUAL_CREATE",
         });
         setDocId(created.docId);
+        setTitle(created.title);
         setCurrentVersion(created.currentVersion);
         setStatus(created.status);
         setIsDirty(false);
@@ -751,28 +752,14 @@ function WorkspaceContent() {
         </div>
       )}
 
-      {/* WRAPPER FOR WORKSPACE (SUPPORTS FULLSCREEN / ZEN MODE) */}
+      {/* WRAPPER FOR WORKSPACE */}
       <div
-        style={
-          isMaximized
-            ? {
-                position: "fixed",
-                inset: 0,
-                zIndex: 60,
-                width: "100vw",
-                height: "100vh",
-                backgroundColor: "#ffffff",
-                display: "flex",
-                flexDirection: "column",
-                overflow: "hidden",
-              }
-            : {
-                display: "flex",
-                flexDirection: "column",
-                height: "100%",
-                overflow: "hidden",
-              }
-        }
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          height: "100%",
+          overflow: "hidden",
+        }}
       >
         {/* TOP WORKSPACE TOOLBAR */}
         <div
@@ -788,296 +775,307 @@ function WorkspaceContent() {
             flexShrink: 0,
           }}
         >
-        {/* Left: Branding & Repo / Scope Selector */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#2563eb", fontWeight: 700, fontSize: 15 }}>
-            <FolderGit2 size={20} />
-            <span>Workspace</span>
-          </div>
-
-          <div style={{ height: 20, width: 1, backgroundColor: "#cbd5e1" }} />
-
-          {/* Repo Selector */}
-          <select
-            value={repoId}
-            onChange={(e) => {
-              setRepoId(Number(e.target.value));
-              setScopedFolder(null);
-            }}
-            style={{
-              padding: "4px 8px",
-              fontSize: 12,
-              fontWeight: 600,
-              borderRadius: 6,
-              border: "1px solid #cbd5e1",
-              backgroundColor: "#f8fafc",
-              color: "#1e293b",
-              cursor: "pointer",
-            }}
-          >
-            {repos.map((r) => (
-              <option key={r.repositoryId} value={r.repositoryId}>
-                {r.repoFullName || r.repoName}
-              </option>
-            ))}
-          </select>
-
-          {/* Scoped Folder Badge */}
-          {scopedFolder ? (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "3px 8px",
-                background: "#ecfdf5",
-                border: "1px solid #a7f3d0",
-                borderRadius: 6,
-                fontSize: 11,
-                color: "#065f46",
-                fontWeight: 600,
-              }}
-            >
-              <span>📁 Scope: <strong>{scopedFolder}</strong></span>
-              <button
-                type="button"
-                onClick={() => setScopedFolder(null)}
-                style={{ border: "none", background: "none", color: "#065f46", cursor: "pointer", padding: 0 }}
-                title="Quay lại toàn bộ Repository"
-              >
-                <X size={12} />
-              </button>
+          {/* Left: Branding & Repo / Scope Selector */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#2563eb", fontWeight: 700, fontSize: 14 }}>
+              <FolderGit2 size={19} />
+              <span>Workspace</span>
             </div>
-          ) : (
-            <span style={{ fontSize: 11, color: "#64748b" }}>Phạm vi: Toàn bộ Repository</span>
-          )}
-        </div>
 
-        {/* Center: Title input */}
-        <input
-          type="text"
-          value={title}
-          onChange={(e) => {
-            setTitle(e.target.value);
-            setIsDirty(true);
-          }}
-          placeholder="Nhập tiêu đề tài liệu..."
-          style={{
-            flex: 1,
-            maxWidth: 360,
-            padding: "5px 10px",
-            fontSize: 13,
-            fontWeight: 600,
-            borderRadius: 6,
-            border: "1px solid #e2e8f0",
-            color: "#0f172a",
-          }}
-        />
+            <div style={{ height: 18, width: 1, backgroundColor: "#e2e8f0" }} />
 
-        {/* Right Action Buttons */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {/* Nạp Word (.docx) */}
-          <input
-            type="file"
-            accept=".docx"
-            ref={docxFileInputRef}
-            style={{ display: "none" }}
-            onChange={handleDirectDocxImport}
-          />
-          <button
-            type="button"
-            onClick={() => docxFileInputRef.current?.click()}
-            disabled={importingDocx}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-              padding: "6px 10px",
-              fontSize: 12,
-              fontWeight: 600,
-              borderRadius: 6,
-              border: "1px solid #cbd5e1",
-              backgroundColor: "#ffffff",
-              color: "#2563eb",
-              cursor: "pointer",
-            }}
-            title="Tải lên tệp Word (.docx) và tự động đối chiếu"
-          >
-            <Upload size={14} className={importingDocx ? "animate-spin" : ""} />
-            <span>{importingDocx ? "Đang nạp..." : "Nạp Word"}</span>
-          </button>
-
-          {/* Xuất Word (.docx) */}
-          <button
-            type="button"
-            onClick={handleExportDocx}
-            disabled={exportingDocx}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-              padding: "6px 10px",
-              fontSize: 12,
-              fontWeight: 600,
-              borderRadius: 6,
-              border: "1px solid #cbd5e1",
-              backgroundColor: "#ffffff",
-              color: "#087f5b",
-              cursor: "pointer",
-            }}
-            title="Xuất nội dung hiện tại ra tệp Word (.docx)"
-          >
-            <FileDown size={14} className={exportingDocx ? "animate-spin" : ""} />
-            <span>{exportingDocx ? "Đang xuất..." : "Xuất Word"}</span>
-          </button>
-
-          {/* Chọn Template đối chiếu */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 4,
-              padding: "3px 8px",
-              borderRadius: 6,
-              border: "1px solid #cbd5e1",
-              backgroundColor: "#f8fafc",
-            }}
-            title="Đổi Template mẫu tài liệu để đối chiếu"
-          >
-            <LayoutTemplate size={13} style={{ color: "#d97706", flexShrink: 0 }} />
+            {/* Repo Selector */}
             <select
-              value={selectedTemplateId || ""}
+              value={repoId}
               onChange={(e) => {
-                const newTid = Number(e.target.value);
-                setSelectedTemplateId(newTid);
-                handleRunCrossCheck(content, repoId, scopedFolder, false, newTid);
+                setRepoId(Number(e.target.value));
+                setScopedFolder(null);
               }}
               style={{
-                border: "none",
-                background: "transparent",
-                fontSize: 11,
+                padding: "4px 8px",
+                fontSize: 12,
                 fontWeight: 600,
+                borderRadius: 6,
+                border: "1px solid #cbd5e1",
+                backgroundColor: "#f8fafc",
                 color: "#1e293b",
                 cursor: "pointer",
                 outline: "none",
-                maxWidth: 150,
               }}
             >
-              {availableTemplates.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
+              {repos.map((r) => (
+                <option key={r.repositoryId} value={r.repositoryId}>
+                  {r.repoFullName || r.repoName}
                 </option>
               ))}
             </select>
+
+            {/* Scoped Folder Badge */}
+            {scopedFolder && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "3px 8px",
+                  background: "#ecfdf5",
+                  border: "1px solid #a7f3d0",
+                  borderRadius: 6,
+                  fontSize: 11,
+                  color: "#065f46",
+                  fontWeight: 600,
+                }}
+              >
+                <span>📁 Scope: <strong>{scopedFolder}</strong></span>
+                <button
+                  type="button"
+                  onClick={() => setScopedFolder(null)}
+                  style={{ border: "none", background: "none", color: "#065f46", cursor: "pointer", padding: 0 }}
+                  title="Quay lại toàn bộ Repository"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* Quét đối chiếu với Template đã chọn */}
-          <button
-            type="button"
-            onClick={() => handleRunCrossCheck(content, repoId, scopedFolder, true)}
-            disabled={runningCrossCheck}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-              padding: "6px 11px",
-              fontSize: 12,
-              fontWeight: 600,
-              borderRadius: 6,
-              border: "1px solid #cbd5e1",
-              backgroundColor: "#ffffff",
-              color: "#b45309",
-              cursor: "pointer",
-            }}
-            title="Quét đối chiếu tài liệu với Template đã chọn và thực thể mã nguồn"
-          >
-            <Sparkles size={14} className={runningCrossCheck ? "animate-spin" : ""} style={{ color: "#d97706" }} />
-            <span>{runningCrossCheck ? "Đang đối chiếu..." : "Đối chiếu Template"}</span>
-          </button>
+          {/* Right Action Buttons */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {/* Nạp Word (.docx) */}
+            <input
+              type="file"
+              accept=".docx"
+              ref={docxFileInputRef}
+              style={{ display: "none" }}
+              onChange={handleDirectDocxImport}
+            />
+            <button
+              type="button"
+              onClick={() => docxFileInputRef.current?.click()}
+              disabled={importingDocx}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "6px 11px",
+                fontSize: 12,
+                fontWeight: 600,
+                borderRadius: 6,
+                border: "1px solid #cbd5e1",
+                backgroundColor: "#ffffff",
+                color: "#2563eb",
+                cursor: "pointer",
+              }}
+              title="Tải lên tệp Word (.docx) và tự động đối chiếu"
+            >
+              <Upload size={14} className={importingDocx ? "animate-spin" : ""} />
+              <span>{importingDocx ? "Đang nạp..." : "Nạp Word"}</span>
+            </button>
 
-          {/* Lưu bản nháp */}
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={isSaving}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-              padding: "6px 12px",
-              fontSize: 12,
-              fontWeight: 600,
-              borderRadius: 6,
-              border: "none",
-              backgroundColor: "#2563eb",
-              color: "#ffffff",
-              cursor: "pointer",
-              boxShadow: "0 2px 4px rgba(37, 99, 235, 0.25)",
-            }}
-          >
-            <Save size={14} />
-            <span>{isSaving ? "Đang lưu..." : "Lưu"}</span>
-          </button>
+            {/* Xuất Word (.docx) */}
+            <button
+              type="button"
+              onClick={handleExportDocx}
+              disabled={exportingDocx}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "6px 11px",
+                fontSize: 12,
+                fontWeight: 600,
+                borderRadius: 6,
+                border: "1px solid #cbd5e1",
+                backgroundColor: "#ffffff",
+                color: "#087f5b",
+                cursor: "pointer",
+              }}
+              title="Xuất nội dung hiện tại ra tệp Word (.docx)"
+            >
+              <FileDown size={14} className={exportingDocx ? "animate-spin" : ""} />
+              <span>{exportingDocx ? "Đang xuất..." : "Xuất Word"}</span>
+            </button>
 
-          {/* Gửi duyệt */}
-          <button
-            type="button"
-            onClick={handleSubmitReview}
-            disabled={isSubmitting || !docId}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-              padding: "6px 12px",
-              fontSize: 12,
-              fontWeight: 600,
-              borderRadius: 6,
-              border: "none",
-              backgroundColor: "#059669",
-              color: "#ffffff",
-              cursor: !docId ? "not-allowed" : "pointer",
-              opacity: !docId ? 0.6 : 1,
-            }}
-          >
-            <Send size={14} />
-            <span>Gửi duyệt</span>
-          </button>
+            {/* Nút Đối chiếu kèm Hover Menu chọn Template */}
+            <div
+              style={{ position: "relative" }}
+              onMouseEnter={() => setShowTemplateHoverMenu(true)}
+              onMouseLeave={() => setShowTemplateHoverMenu(false)}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setShowTemplateHoverMenu(false);
+                  handleRunCrossCheck(content, repoId, scopedFolder, true);
+                }}
+                disabled={runningCrossCheck}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  padding: "6px 12px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  borderRadius: 6,
+                  border: "1px solid #f59e0b",
+                  backgroundColor: "#fffbeb",
+                  color: "#b45309",
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                }}
+                title="Bấm để đối chiếu tài liệu với Template đã chọn và thực thể mã nguồn (Rê chuột để đổi Template)"
+              >
+                <Sparkles size={14} className={runningCrossCheck ? "animate-spin" : ""} style={{ color: "#d97706" }} />
+                <span>{runningCrossCheck ? "Đang đối chiếu..." : "Đối chiếu"}</span>
+                <ChevronDown
+                  size={12}
+                  style={{
+                    color: "#d97706",
+                    marginLeft: 1,
+                    transition: "transform 0.15s ease",
+                    transform: showTemplateHoverMenu ? "rotate(180deg)" : "none",
+                  }}
+                />
+              </button>
 
-          <div style={{ height: 20, width: 1, backgroundColor: "#cbd5e1" }} />
+              {/* Dropdown Menu nổi lên khi hover */}
+              {showTemplateHoverMenu && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "100%",
+                    right: 0,
+                    marginTop: 4,
+                    minWidth: 260,
+                    backgroundColor: "#ffffff",
+                    borderRadius: 8,
+                    border: "1px solid #e2e8f0",
+                    boxShadow: "0 10px 25px -5px rgba(0,0,0,0.12), 0 8px 10px -6px rgba(0,0,0,0.06)",
+                    zIndex: 1000,
+                    padding: "6px 0",
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: "6px 12px",
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: "#64748b",
+                      borderBottom: "1px solid #f1f5f9",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <LayoutTemplate size={12} style={{ color: "#d97706" }} />
+                    <span>Chọn Template đối chiếu</span>
+                  </div>
+                  <div style={{ maxHeight: 240, overflowY: "auto", padding: "4px 0" }}>
+                    {availableTemplates.map((t) => {
+                      const isSelected = t.id === selectedTemplateId;
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedTemplateId(t.id);
+                            setShowTemplateHoverMenu(false);
+                            handleRunCrossCheck(content, repoId, scopedFolder, true, t.id);
+                          }}
+                          style={{
+                            width: "100%",
+                            textAlign: "left",
+                            padding: "8px 12px",
+                            fontSize: 12,
+                            fontWeight: isSelected ? 600 : 400,
+                            color: isSelected ? "#b45309" : "#334155",
+                            backgroundColor: isSelected ? "#fef3c7" : "transparent",
+                            border: "none",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 8,
+                            cursor: "pointer",
+                            transition: "background-color 0.1s ease",
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isSelected) e.currentTarget.style.backgroundColor = "#f8fafc";
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isSelected) e.currentTarget.style.backgroundColor = "transparent";
+                          }}
+                        >
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {t.name}
+                          </span>
+                          {isSelected && (
+                            <span style={{ fontSize: 12, color: "#d97706", fontWeight: 700 }}>✓</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
 
-          {/* Mở rộng / Thu nhỏ toàn màn hình */}
-          <button
-            type="button"
-            onClick={() => setIsMaximized((v) => !v)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-              padding: "6px 11px",
-              fontSize: 12,
-              fontWeight: 600,
-              borderRadius: 6,
-              border: "1px solid #cbd5e1",
-              backgroundColor: isMaximized ? "#eff6ff" : "#ffffff",
-              color: isMaximized ? "#2563eb" : "#475569",
-              cursor: "pointer",
-              transition: "all 0.15s ease",
-            }}
-            title={isMaximized ? "Thu nhỏ không gian làm việc về bình thường" : "Mở rộng toàn màn hình không gian làm việc"}
-          >
-            {isMaximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-            <span>{isMaximized ? "Thu nhỏ" : "Mở rộng"}</span>
-          </button>
+            {/* Lưu bản nháp */}
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={isSaving}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "6px 13px",
+                fontSize: 12,
+                fontWeight: 600,
+                borderRadius: 6,
+                border: "none",
+                backgroundColor: "#2563eb",
+                color: "#ffffff",
+                cursor: "pointer",
+                boxShadow: "0 2px 4px rgba(37, 99, 235, 0.25)",
+              }}
+            >
+              <Save size={14} />
+              <span>{isSaving ? "Đang lưu..." : "Lưu"}</span>
+            </button>
+
+            {/* Gửi duyệt */}
+            <button
+              type="button"
+              onClick={handleSubmitReview}
+              disabled={isSubmitting || !docId}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "6px 13px",
+                fontSize: 12,
+                fontWeight: 600,
+                borderRadius: 6,
+                border: "none",
+                backgroundColor: "#059669",
+                color: "#ffffff",
+                cursor: !docId ? "not-allowed" : "pointer",
+                opacity: !docId ? 0.6 : 1,
+              }}
+            >
+              <Send size={14} />
+              <span>Gửi duyệt</span>
+            </button>
+          </div>
         </div>
-      </div>
 
-      {/* MAIN WORKSPACE BODY */}
-      <div
-        style={{
-          display: "flex",
-          height: isMaximized ? "calc(100vh - 52px)" : "calc(100% - 52px)",
-          minHeight: 0,
-          overflow: "hidden",
+        {/* MAIN WORKSPACE BODY */}
+        <div
+          style={{
+            display: "flex",
+            height: "calc(100% - 52px)",
+            minHeight: 0,
+            overflow: "hidden",
           backgroundColor: "#f8fafc",
           flex: 1,
         }}
