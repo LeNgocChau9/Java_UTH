@@ -693,9 +693,6 @@ export default function SourceTreePage() {
                 Cây thư mục
               </h1>
             </div>
-            <p className="mt-1 text-sm text-[#475569]" style={{ color: "#475569" }}>
-              Khám phá cấu trúc mã nguồn dự án, trực quan hóa Class, Function, Method và tài liệu được bóc tách từ Tree-sitter AST.
-            </p>
           </div>
 
           {/* Chọn Kho lưu trữ & Nút gia hạn / Đồng bộ */}

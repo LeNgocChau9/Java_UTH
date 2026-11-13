@@ -93,26 +93,7 @@ public class DatabaseSchemaBootstrap implements ApplicationRunner {
                         )
                     """);
 
-            Integer entityCount = jdbcTemplate.queryForObject(
-                    "SELECT COUNT(*) FROM code_entities WHERE repository_id = 1", Integer.class);
-            if (entityCount == null || entityCount == 0) {
-                jdbcTemplate.execute(
-                        """
-                                    INSERT INTO code_entities (repository_id, file_path, entity_type, class_name, method_name, signature, return_type, parameters, start_line, end_line, commit_hash, doc_status)
-                                    VALUES
-                                      (1, 'src/main/java/com/example/demo/controller/OrderController.java', 'CLASS', 'OrderController', NULL, 'public class OrderController', NULL, NULL, 15, 120, 'c8914b1', 'UNDOCUMENTED'),
-                                      (1, 'src/main/java/com/example/demo/controller/OrderController.java', 'METHOD', 'OrderController', 'createOrder', 'public ResponseEntity<OrderDto> createOrder(@RequestBody CreateOrderRequest request)', 'ResponseEntity<OrderDto>', 'CreateOrderRequest request', 35, 55, 'c8914b1', 'UNDOCUMENTED'),
-                                      (1, 'src/main/java/com/example/demo/controller/OrderController.java', 'METHOD', 'OrderController', 'getOrderById', 'public ResponseEntity<OrderDto> getOrderById(@PathVariable Long orderId)', 'ResponseEntity<OrderDto>', 'Long orderId', 60, 75, 'c8914b1', 'DOCUMENTED'),
-                                      (1, 'src/main/java/com/example/demo/service/PaymentGateway.java', 'INTERFACE', 'PaymentGateway', NULL, 'public interface PaymentGateway', NULL, NULL, 10, 45, 'c8914b1', 'UNDOCUMENTED'),
-                                      (1, 'src/main/java/com/example/demo/service/PaymentGateway.java', 'METHOD', 'PaymentGateway', 'processPayment', 'boolean processPayment(PaymentRequest payment, BigDecimal amount)', 'boolean', 'PaymentRequest payment, BigDecimal amount', 22, 28, 'c8914b1', 'UNDOCUMENTED'),
-                                      (1, 'src/main/java/com/example/demo/service/PaymentGateway.java', 'METHOD', 'PaymentGateway', 'refundPayment', 'RefundResult refundPayment(String transactionId, String reason)', 'RefundResult', 'String transactionId, String reason', 30, 36, 'c8914b1', 'UNDOCUMENTED'),
-                                      (1, 'src/main/java/com/example/demo/service/UserService.java', 'CLASS', 'UserService', NULL, 'public class UserService implements UserDetailsService', NULL, NULL, 20, 160, 'c8914b1', 'UNDOCUMENTED'),
-                                      (1, 'src/main/java/com/example/demo/service/UserService.java', 'METHOD', 'UserService', 'authenticateUser', 'public AuthResponse authenticateUser(LoginRequest request)', 'AuthResponse', 'LoginRequest request', 45, 80, 'c8914b1', 'UNDOCUMENTED'),
-                                      (1, 'src/main/java/com/example/demo/service/UserService.java', 'METHOD', 'UserService', 'updateUserProfile', 'public UserDto updateUserProfile(Long userId, UpdateProfileRequest request)', 'UserDto', 'Long userId, UpdateProfileRequest request', 85, 115, 'c8914b1', 'UNDOCUMENTED'),
-                                      (1, 'src/main/java/com/example/demo/repository/NotificationRepository.java', 'INTERFACE', 'NotificationRepository', NULL, 'public interface NotificationRepository extends JpaRepository<Notification, Long>', NULL, NULL, 12, 35, 'c8914b1', 'UNDOCUMENTED'),
-                                      (1, 'src/main/java/com/example/demo/repository/NotificationRepository.java', 'METHOD', 'NotificationRepository', 'findByUserIdAndIsReadFalse', 'List<Notification> findByUserIdAndIsReadFalse(Long userId)', 'List<Notification>', 'Long userId', 20, 25, 'c8914b1', 'UNDOCUMENTED')
-                                """);
-            }
+            // Bảng code_entities phục vụ lưu trữ các thực thể mã nguồn bóc tách AST thực tế từ repository
             log.info(
                     "[DatabaseSchemaBootstrap] Đã kiểm tra và đồng bộ doc_templates, document_versions, jobs, code_entities thành công.");
         } catch (Exception ex) {

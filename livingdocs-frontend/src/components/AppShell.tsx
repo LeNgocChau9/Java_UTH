@@ -125,6 +125,12 @@ const NAV: NavItem[] = [
     roles: ["DEVELOPER", "TECH_LEAD"],
   },
   {
+    href: "/khoang-trong-tai-lieu",
+    label: "Khoảng trống tài liệu",
+    icon: <FileCode2 size={16} />,
+    roles: ["DEVELOPER", "TECH_LEAD"],
+  },
+  {
     href: "/yeu-cau-sinh-tai-lieu",
     label: "AI",
     icon: <Sparkles size={16} />,

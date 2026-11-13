@@ -34,7 +34,7 @@ export default function KhoangTrongTaiLieuPage() {
 
   // State kho lưu trữ
   const [repositories, setRepositories] = useState<RepoItem[]>([]);
-  const [selectedRepoId, setSelectedRepoId] = useState<string>("1");
+  const [selectedRepoId, setSelectedRepoId] = useState<string>("");
   const [loadingRepos, setLoadingRepos] = useState<boolean>(true);
 
   // State bộ lọc
@@ -151,10 +151,6 @@ export default function KhoangTrongTaiLieuPage() {
                 Documentation Gaps
               </span>
             </div>
-            <p className="mt-1 text-sm text-slate-500">
-              Danh sách chi tiết các Lớp, Giao diện và Phương thức trong mã nguồn chưa có tài liệu mô tả tương ứng.
-              Gắn nút bấm một chạm giúp tự động điền sẵn thông tin tệp và tên lớp để sinh tài liệu AI tức thì.
-            </p>
           </div>
 
           <div className="flex items-center gap-2">

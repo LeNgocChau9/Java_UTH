@@ -65,6 +65,54 @@ import {
   type InteractiveOptionChoice,
 } from "@/components/shared/InteractiveOptionModal";
 
+function ResizerHandle({
+  onMouseDown,
+  isDragging,
+  title = "Kéo để thay đổi kích thước",
+}: {
+  onMouseDown: () => void;
+  isDragging: boolean;
+  title?: string;
+}) {
+  const [hovered, setHovered] = useState(false);
+
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        onMouseDown();
+      }}
+      title={title}
+      style={{
+        width: 8,
+        margin: "0 -4px",
+        cursor: "col-resize",
+        zIndex: 20,
+        position: "relative",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        userSelect: "none",
+        backgroundColor: "transparent",
+      }}
+    >
+      <div
+        style={{
+          width: 3,
+          height: hovered || isDragging ? 36 : 24,
+          borderRadius: 2,
+          backgroundColor: isDragging ? "#2563eb" : hovered ? "#3b82f6" : "#cbd5e1",
+          boxShadow: hovered || isDragging ? "0 0 6px rgba(37,99,235,0.4)" : "none",
+          transition: "all 0.15s ease",
+        }}
+      />
+    </div>
+  );
+}
+
 interface FileTreeNode {
   id: string;
   name: string;
@@ -202,6 +250,52 @@ function WorkspaceContent() {
   const [toast, setToast] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Resizable Panels State
+  const [explorerWidth, setExplorerWidth] = useState(280);
+  const [editorSplitPercent, setEditorSplitPercent] = useState(50);
+  const [drawerWidth, setDrawerWidth] = useState(320);
+  const [activeDrag, setActiveDrag] = useState<"explorer" | "editor" | "drawer" | null>(null);
+
+  const editorBodyRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!activeDrag) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (activeDrag === "explorer") {
+        const newWidth = Math.max(160, Math.min(e.clientX, 550));
+        setExplorerWidth(newWidth);
+      } else if (activeDrag === "drawer") {
+        const newWidth = Math.max(220, Math.min(window.innerWidth - e.clientX, 650));
+        setDrawerWidth(newWidth);
+      } else if (activeDrag === "editor" && editorBodyRef.current) {
+        const rect = editorBodyRef.current.getBoundingClientRect();
+        const offsetX = e.clientX - rect.left;
+        const newPercent = Math.max(20, Math.min((offsetX / rect.width) * 100, 80));
+        setEditorSplitPercent(newPercent);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setActiveDrag(null);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, [activeDrag]);
 
   const notify = useCallback((type: "success" | "error" | "info", message: string) => {
     setToast({ type, message });
@@ -946,12 +1040,13 @@ function WorkspaceContent() {
         {showExplorer && (
           <div
             style={{
-              width: 280,
+              width: explorerWidth,
               borderRight: "1px solid #e2e8f0",
               backgroundColor: "#ffffff",
               display: "flex",
               flexDirection: "column",
               overflow: "hidden",
+              flexShrink: 0,
             }}
           >
             {/* Explorer Header */}
@@ -1133,6 +1228,14 @@ function WorkspaceContent() {
           </div>
         )}
 
+        {showExplorer && (
+          <ResizerHandle
+            isDragging={activeDrag === "explorer"}
+            onMouseDown={() => setActiveDrag("explorer")}
+            title="Kéo qua lại để thu nhỏ / phóng to Explorer"
+          />
+        )}
+
         {/* Toggle Explorer Button if collapsed */}
         {!showExplorer && (
           <button
@@ -1289,15 +1392,17 @@ function WorkspaceContent() {
           </div>
 
           {/* Editor Body */}
-          <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+          <div ref={editorBodyRef} style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
             {/* Left: Textarea Editor */}
             {(previewMode === "split" || previewMode === "edit") && (
               <div
                 style={{
-                  flex: 1,
+                  width: previewMode === "split" ? `${editorSplitPercent}%` : "100%",
                   borderRight: previewMode === "split" ? "1px solid #e2e8f0" : "none",
                   backgroundColor: "#ffffff",
                   display: "flex",
+                  flexShrink: 0,
+                  overflow: "hidden",
                 }}
               >
                 <textarea
@@ -1325,6 +1430,14 @@ function WorkspaceContent() {
               </div>
             )}
 
+            {previewMode === "split" && (
+              <ResizerHandle
+                isDragging={activeDrag === "editor"}
+                onMouseDown={() => setActiveDrag("editor")}
+                title="Kéo qua lại để điều chỉnh tỷ lệ Soạn thảo / Xem trước"
+              />
+            )}
+
             {/* Right: Live Preview */}
             {(previewMode === "split" || previewMode === "preview") && (
               <div
@@ -1333,6 +1446,7 @@ function WorkspaceContent() {
                   padding: 24,
                   overflowY: "auto",
                   backgroundColor: "#ffffff",
+                  minWidth: 0,
                 }}
               >
                 <MarkdownViewer content={content} />
@@ -1341,15 +1455,23 @@ function WorkspaceContent() {
           </div>
         </div>
 
+        {/* Resizer for Right Drawer */}
+        <ResizerHandle
+          isDragging={activeDrag === "drawer"}
+          onMouseDown={() => setActiveDrag("drawer")}
+          title="Kéo qua lại để thu nhỏ / phóng to ngăn Đối chiếu 2 Chiều"
+        />
+
         {/* RIGHT: TWO-WAY CROSS-CHECK DRAWER */}
         <div
           style={{
-            width: 320,
+            width: drawerWidth,
             borderLeft: "1px solid #e2e8f0",
             backgroundColor: "#ffffff",
             display: "flex",
             flexDirection: "column",
             overflow: "hidden",
+            flexShrink: 0,
           }}
         >
           {/* Header */}
