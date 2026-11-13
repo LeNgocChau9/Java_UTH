@@ -147,9 +147,6 @@ export default function KhoangTrongTaiLieuPage() {
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">
                 Khoảng trống Tài liệu
               </h1>
-              <span className="rounded-full bg-rose-50 px-2.5 py-0.5 text-xs font-semibold text-rose-700 ring-1 ring-rose-200">
-                Documentation Gaps
-              </span>
             </div>
           </div>
 

@@ -54,6 +54,7 @@ import {
   Eye,
   Filter,
   X,
+  LayoutTemplate,
 } from "lucide-react";
 import {
   templateService,
@@ -409,12 +410,13 @@ function WorkspaceContent() {
     fetchDoc();
   }, [docId, notify]);
 
-  // Quét đối chiếu 2 chiều (Cross-Check 10 Phần)
+  // Quét đối chiếu 2 chiều (Cross-Check với Template & Mã nguồn)
   const handleRunCrossCheck = async (
     markdownText?: string,
     overrideRepoId?: number,
     overrideTargetPath?: string | null,
-    autoOpenOptionModal?: boolean
+    autoOpenOptionModal?: boolean,
+    overrideTemplateId?: number | null
   ) => {
     const textToCheck = markdownText !== undefined ? markdownText : content;
     const effectiveRepoId = overrideRepoId || repoId;
@@ -422,10 +424,14 @@ function WorkspaceContent() {
       notify("error", "Vui lòng chọn kho lưu trữ liên kết!");
       return;
     }
+    const templateIdToUse = (overrideTemplateId !== undefined && overrideTemplateId !== null)
+      ? overrideTemplateId
+      : (selectedTemplateId || undefined);
+
     setRunningCrossCheck(true);
     try {
       const res = await templateService.crossCheck({
-        templateId: selectedTemplateId || undefined,
+        templateId: templateIdToUse,
         repositoryId: effectiveRepoId,
         markdown: textToCheck,
         targetPath: scopedFolder || overrideTargetPath || targetPath,
@@ -925,7 +931,47 @@ function WorkspaceContent() {
             <span>{exportingDocx ? "Đang xuất..." : "Xuất Word"}</span>
           </button>
 
-          {/* Quét đối chiếu 10 phần */}
+          {/* Chọn Template đối chiếu */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "3px 8px",
+              borderRadius: 6,
+              border: "1px solid #cbd5e1",
+              backgroundColor: "#f8fafc",
+            }}
+            title="Đổi Template mẫu tài liệu để đối chiếu"
+          >
+            <LayoutTemplate size={13} style={{ color: "#d97706", flexShrink: 0 }} />
+            <select
+              value={selectedTemplateId || ""}
+              onChange={(e) => {
+                const newTid = Number(e.target.value);
+                setSelectedTemplateId(newTid);
+                handleRunCrossCheck(content, repoId, scopedFolder, false, newTid);
+              }}
+              style={{
+                border: "none",
+                background: "transparent",
+                fontSize: 11,
+                fontWeight: 600,
+                color: "#1e293b",
+                cursor: "pointer",
+                outline: "none",
+                maxWidth: 150,
+              }}
+            >
+              {availableTemplates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Quét đối chiếu với Template đã chọn */}
           <button
             type="button"
             onClick={() => handleRunCrossCheck(content, repoId, scopedFolder, true)}
@@ -934,19 +980,19 @@ function WorkspaceContent() {
               display: "flex",
               alignItems: "center",
               gap: 5,
-              padding: "6px 10px",
+              padding: "6px 11px",
               fontSize: 12,
               fontWeight: 600,
               borderRadius: 6,
               border: "1px solid #cbd5e1",
-              backgroundColor: "#f8fafc",
-              color: "#475569",
+              backgroundColor: "#ffffff",
+              color: "#b45309",
               cursor: "pointer",
             }}
-            title="Quét đối chiếu với mẫu 10 phần và mã nguồn"
+            title="Quét đối chiếu tài liệu với Template đã chọn và thực thể mã nguồn"
           >
             <Sparkles size={14} className={runningCrossCheck ? "animate-spin" : ""} style={{ color: "#d97706" }} />
-            <span>{runningCrossCheck ? "Đang quét..." : "Đối chiếu 10 phần"}</span>
+            <span>{runningCrossCheck ? "Đang đối chiếu..." : "Đối chiếu Template"}</span>
           </button>
 
           {/* Lưu bản nháp */}
@@ -1510,12 +1556,57 @@ function WorkspaceContent() {
             </button>
           </div>
 
+          {/* Template Selector inside Drawer */}
+          <div
+            style={{
+              padding: "6px 12px",
+              borderBottom: "1px solid #f1f5f9",
+              background: "#ffffff",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 6,
+            }}
+          >
+            <span style={{ fontSize: 11, color: "#64748b", fontWeight: 600, whiteSpace: "nowrap" }}>
+              Template:
+            </span>
+            <select
+              value={selectedTemplateId || ""}
+              onChange={(e) => {
+                const newTid = Number(e.target.value);
+                setSelectedTemplateId(newTid);
+                handleRunCrossCheck(content, repoId, scopedFolder, false, newTid);
+              }}
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: "#0f172a",
+                padding: "2px 6px",
+                borderRadius: 4,
+                border: "1px solid #cbd5e1",
+                background: "#f8fafc",
+                flex: 1,
+                maxWidth: 210,
+                outline: "none",
+                cursor: "pointer",
+              }}
+              title="Đổi Template mẫu để đối chiếu"
+            >
+              {availableTemplates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Results Summary */}
           {crossCheckResult ? (
             <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
               <div style={{ padding: 12, borderBottom: "1px solid #f1f5f9", background: "#f8fafc" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 11 }}>
-                  <span style={{ color: "#64748b" }}>Chuẩn 10 phần:</span>
+                  <span style={{ color: "#64748b" }}>Chuẩn cấu trúc:</span>
                   <span
                     style={{
                       fontWeight: 700,
@@ -1525,7 +1616,7 @@ function WorkspaceContent() {
                       color: crossCheckResult.templateValid ? "#15803d" : "#b91c1c",
                     }}
                   >
-                    {crossCheckResult.templateValid ? "✓ Đạt 10/10 phần" : `Thiếu ${crossCheckResult.missingTemplateHeadings.length} mục`}
+                    {crossCheckResult.templateValid ? "✓ Đạt chuẩn Template" : `Thiếu ${crossCheckResult.missingTemplateHeadings.length} đề mục`}
                   </span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
@@ -1716,7 +1807,7 @@ function WorkspaceContent() {
                 Chưa đối chiếu
               </p>
               <p style={{ fontSize: 11, lineHeight: 1.4, margin: 0 }}>
-                Bấm nút &quot;Đối chiếu 10 phần&quot; ở thanh công cụ để so khớp tài liệu với Template chuẩn và AST code.
+                Chọn Template ở trên và bấm nút &quot;Đối chiếu Template&quot; để so khớp tài liệu với Template mẫu và AST code.
               </p>
             </div>
           )}
