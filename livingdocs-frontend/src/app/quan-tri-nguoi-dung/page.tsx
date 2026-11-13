@@ -6,13 +6,16 @@ import { Search, Users, UserCheck, UserX, Lock, Unlock, ShieldCheck, Loader2, Ch
 import { changeRole, changeStatus, createUser, listUsers, listPasswordResetRequests, approvePasswordReset, directResetPassword, type PasswordResetRequestItem } from "@/services/adminService";
 import type { AdminUser } from "@/types/auth";
 
-const ROLE_OPTIONS = [
-  { value: "DEVELOPER", label: "Developer" },
-  { value: "STAFF", label: "Staff" },
-  { value: "MANAGER", label: "Manager" },
-  { value: "TECH_LEAD", label: "Tech Lead" },
-  { value: "ADMIN", label: "Admin" },
+const BUSINESS_ROLES = [
+  { value: "DEVELOPER", label: "Lập trình viên" },
+  { value: "STAFF", label: "Nhân viên đánh giá cấp một" },
+  { value: "MANAGER", label: "Quản lý phê duyệt cuối cùng" },
 ];
+const SYSTEM_ROLES = [
+  { value: "TECH_LEAD", label: "Tech Lead" },
+  { value: "ADMIN", label: "Quản trị viên" },
+];
+const ROLE_OPTIONS = [...BUSINESS_ROLES, ...SYSTEM_ROLES];
 const ROLE_BADGE: Record<string, string> = {
   DEVELOPER: "border-blue-200 bg-blue-50 text-blue-700",
   STAFF: "border-emerald-200 bg-emerald-50 text-emerald-700",
@@ -90,7 +93,13 @@ export default function AdminUsersPage() {
 
   async function onRoleChange(user: AdminUser, role: string) {
     setBusyId(user.userId); setError(null);
-    try { const up = await changeRole(user.userId, role); setUsers((p) => p.map((u) => (u.userId === up.userId ? up : u))); }
+    try {
+      const up = await changeRole(user.userId, role);
+      setUsers((p) => p.map((u) => (u.userId === up.userId ? up : u)));
+      setSuccessMsg(role === "STAFF"
+        ? `Đã gán ${user.fullName} vào nhóm Nhân viên. Tài khoản này thấy hàng đợi xem xét ngay sau khi tải lại trang.`
+        : `Đã đổi vai trò của ${user.fullName} thành ${roleLabel(role)}.`);
+    }
     catch { setError("Đổi vai trò thất bại. Vui lòng thử lại."); }
     finally { setBusyId(null); }
   }
@@ -147,9 +156,9 @@ export default function AdminUsersPage() {
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Quản trị người dùng & Cấp lại mật khẩu</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Quản trị người dùng</h1>
             <p className="mt-1 text-sm text-slate-500">
-              Quản lý tài khoản thành viên, phân quyền vai trò và phê duyệt cấp lại mật khẩu từ người dùng.
+              Phân người dùng vào Lập trình viên, Nhân viên đánh giá cấp một hoặc Quản lý phê duyệt cuối cùng. Khóa tài khoản, đặt lại mật khẩu và mọi lần đổi quyền đều được ghi nhật ký kiểm toán.
             </p>
           </div>
           <button
@@ -353,9 +362,16 @@ export default function AdminUsersPage() {
                         onChange={(e) => onRoleChange(u, e.target.value)}
                         className={`rounded border px-2 py-1 text-xs font-semibold ${ROLE_BADGE[r] || "border-slate-200 bg-slate-50 text-slate-700"}`}
                       >
-                        {ROLE_OPTIONS.map((opt) => (
-                          <option key={opt.value} value={opt.value}>{opt.label}</option>
-                        ))}
+                        <optgroup label="Vai trò nghiệp vụ">
+                          {BUSINESS_ROLES.map((opt) => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </optgroup>
+                        <optgroup label="Vai trò hệ thống">
+                          {SYSTEM_ROLES.map((opt) => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </optgroup>
                       </select>
                     </td>
                     <td className="px-4 py-3">

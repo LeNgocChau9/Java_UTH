@@ -8,10 +8,14 @@ import { getAuditLogs, type AuditLogItem } from "@/services/auditService";
 const ACTIONS = [
   { value: "", label: "Mọi hành động" },
   { value: "LOGIN_SUCCESS", label: "Đăng nhập" },
+  { value: "ROLE_CHANGED", label: "Đổi vai trò" },
+  { value: "USER_UPDATED", label: "Khóa, mở hoặc đặt lại mật khẩu" },
+  { value: "USER_CREATED", label: "Tạo tài khoản" },
   { value: "GITHUB_LINKED", label: "Liên kết GitHub" },
   { value: "AI_DOCUMENT_GENERATED", label: "Sinh tài liệu AI" },
   { value: "DOCUMENT_STAFF_REVIEWED", label: "Nhân viên duyệt" },
   { value: "DOCUMENT_PUBLISHED", label: "Quản lý xuất bản" },
+  { value: "DOCUMENT_APPROVED", label: "Phê duyệt thay (ủy quyền)" },
   { value: "DOCUMENT_ROLLBACK", label: "Hoàn tác rollback" },
   { value: "DOCUMENT_REJECTED", label: "Từ chối" },
 ];

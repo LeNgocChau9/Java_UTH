@@ -76,6 +76,7 @@ export default function HangDoiXemXetStaffPage() {
 
   // State chỉnh sửa trực tiếp nội dung Markdown
   const [editingContent, setEditingContent] = useState<string>("");
+  const [activeHeading, setActiveHeading] = useState<string | null>(null);
   const [savingEdit, setSavingEdit] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<"diff" | "preview" | "edit">("diff");
   const [compareVersionNum, setCompareVersionNum] = useState<number | null>(null);
@@ -215,13 +216,31 @@ export default function HangDoiXemXetStaffPage() {
     setActionSuccessMessage(null);
 
     try {
-      await reviewService.processStaffAction(selectedDocDetail.docId, {
+      const savedContent = selectedDocDetail.latestVersion?.content ?? "";
+      const hasUnsavedEdit = decision === "APPROVE" && editingContent.trim() !== "" && editingContent !== savedContent;
+      if (hasUnsavedEdit) {
+        await documentService.updateDocument(selectedDocDetail.docId, {
+          content: editingContent,
+          actorRole: "STAFF",
+          triggerType: "STAFF_INLINE_EDIT",
+        });
+      }
+
+      const selectedQueue = documents.find((item) => item.docId === selectedDocDetail.docId);
+      const oneTier = selectedQueue?.approvalTiers === 1;
+      const result = await reviewService.processStaffAction(selectedDocDetail.docId, {
         decision,
+        comment: finalComment || (decision === "APPROVE"
+          ? (oneTier ? "Staff đã duyệt và xuất bản theo chính sách 1 cấp." : "Staff đã đối chiếu trực quan diff hai cột và phê duyệt chuyển Manager.")
+          : "Yêu cầu nhà phát triển chỉnh sửa lại."),
         sectionComments: filledSections,
       });
 
+      const publishedNow = result.status === "PUBLISHED";
       const successText = decision === "APPROVE"
-        ? `Tài liệu "${selectedDocDetail.title}" đã được duyệt và chuyển Manager (UNDER_REVIEW_MANAGER).`
+        ? (publishedNow
+          ? `Tài liệu "${selectedDocDetail.title}" đã xuất bản${hasUnsavedEdit ? ", kèm các sửa nhỏ vừa nhập" : ""}.`
+          : `Tài liệu "${selectedDocDetail.title}" đã chuyển quản lý${hasUnsavedEdit ? ", kèm các sửa nhỏ vừa nhập" : ""}.`)
         : `Tài liệu "${selectedDocDetail.title}" đã bị từ chối (REJECTED) và trả về nhà phát triển kèm lý do.`;
 
       setActionSuccessMessage(successText);
@@ -1246,7 +1265,18 @@ export default function HangDoiXemXetStaffPage() {
                     <div style={{ padding: 18, maxHeight: "560px", overflowY: "auto" }}>
                       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                         {splitMarkdownSections(editingContent || selectedDocDetail?.latestVersion?.content || "").map((section) => (
-                          <div key={section.heading} style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: 12 }}>
+                          <div
+                            key={section.heading}
+                            onClick={() => setActiveHeading(section.heading)}
+                            style={{
+                              borderBottom: "1px solid #e2e8f0",
+                              paddingBottom: 12,
+                              cursor: "pointer",
+                              outline: activeHeading === section.heading ? "2px solid #0f766e" : "none",
+                              borderRadius: 8,
+                              padding: 8,
+                            }}
+                          >
                             <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0f766e", margin: "0 0 8px" }}>
                               {section.heading}
                             </h3>
@@ -1261,7 +1291,7 @@ export default function HangDoiXemXetStaffPage() {
                             <textarea
                               className="ld-input"
                               style={{ minHeight: 52, fontSize: 12, marginTop: 4, background: "#ffffff" }}
-                              placeholder={`Nhận xét cho "${section.heading}"...`}
+                              placeholder={`Nhấp mục này rồi ghi nhận xét cho "${section.heading}"...`}
                               value={sectionComments[section.heading] || ""}
                               onChange={(e) =>
                                 setSectionComments((prev) => ({ ...prev, [section.heading]: e.target.value }))
@@ -1428,7 +1458,11 @@ export default function HangDoiXemXetStaffPage() {
                       onChange={(e) => setReviewComment(e.target.value)}
                     />
 
-                    {/* 2 nút hành động: Phê duyệt chuyển Manager & Từ chối */}
+                    {documents.find((item) => item.docId === selectedDocId)?.approvalTiers === 1 && (
+                      <p style={{ fontSize: 12, color: "#166534", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 6, padding: "8px 10px", margin: "0 0 10px" }}>
+                        Mẫu {documents.find((item) => item.docId === selectedDocId)?.docType} đang là duyệt một cấp. Phê duyệt sẽ xuất bản ngay, không chuyển quản lý.
+                      </p>
+                    )}
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                       <button
                         type="button"
@@ -1450,7 +1484,9 @@ export default function HangDoiXemXetStaffPage() {
                         ) : (
                           <>
                             <CheckCircle size={14} />
-                            Phê duyệt trình quản lý
+                            {documents.find((item) => item.docId === selectedDocId)?.approvalTiers === 1
+                              ? "Phê duyệt và xuất bản"
+                              : "Phê duyệt trình quản lý"}
                           </>
                         )}
                       </button>

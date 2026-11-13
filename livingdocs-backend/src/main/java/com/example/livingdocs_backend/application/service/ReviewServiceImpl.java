@@ -257,7 +257,8 @@ public class ReviewServiceImpl implements ReviewServicePort {
             if (documentServicePort == null) {
                 throw new IllegalArgumentException("Không đẩy được file .md lên GitHub.");
             }
-            commitSha = documentServicePort.commitMarkdownToDefaultBranch(savedDoc.getDocId());
+            String approver = (actorEmail != null && !actorEmail.isBlank()) ? actorEmail : effectiveRole;
+            commitSha = documentServicePort.commitMarkdownToDefaultBranch(savedDoc.getDocId(), actorId, approver);
         }
 
         // 4. Ghi nhận Audit Log nếu đã phê duyệt xuất bản
@@ -440,6 +441,7 @@ public class ReviewServiceImpl implements ReviewServicePort {
         TemplateValidationResult structure = templateStructureCheck == null
                 ? TemplateValidationResult.passed(doc.getTemplateId())
                 : templateStructureCheck.check(doc.getTemplateId(), latestContent);
+        String docType = resolveDocType(doc);
 
         return ReviewQueueItemResponse.builder()
                 .id(doc.getDocId())
@@ -467,6 +469,8 @@ public class ReviewServiceImpl implements ReviewServicePort {
                 .structureWarning(structure.isWarning())
                 .missingHeadings(structure.getMissingHeadings())
                 .aiGenerated(isAiGenerated(latestVersion))
+                .docType(docType)
+                .approvalTiers(getApprovalTiersForDocType(docType))
                 .build();
     }
 
@@ -673,7 +677,11 @@ public class ReviewServiceImpl implements ReviewServicePort {
         if (adminSettingRepository == null) {
             return defaultApprovalPolicies();
         }
-        return adminSettingRepository.findById(KEY_APPROVAL_POLICIES)
+        Optional<AdminSettingEntity> stored = adminSettingRepository.findById(KEY_APPROVAL_POLICIES);
+        if (stored == null || stored.isEmpty()) {
+            return defaultApprovalPolicies();
+        }
+        return stored
                 .map(entity -> {
                     try {
                         return objectMapper.readValue(entity.getSettingValue(), new TypeReference<List<ApprovalPolicyDto>>() {});
@@ -769,6 +777,10 @@ public class ReviewServiceImpl implements ReviewServicePort {
         }
         if (delegation.getDelegateeName() == null || delegation.getDelegateeName().isBlank()) {
             delegation.setDelegateeName("Quản lý B");
+        }
+        if (delegation.getFromDate() != null && delegation.getToDate() != null
+                && delegation.getFromDate().compareTo(delegation.getToDate()) > 0) {
+            throw new IllegalArgumentException("Ngày kết thúc phải sau ngày bắt đầu.");
         }
 
         List<ManagerDelegationDto> current = getManagerDelegations();
@@ -876,38 +888,19 @@ public class ReviewServiceImpl implements ReviewServicePort {
             if (!isWithinDateRange(d.getFromDate(), d.getToDate(), now)) {
                 continue;
             }
-            // Check request explicit match
-            if (request != null && request.getDelegationId() != null && request.getDelegationId().equalsIgnoreCase(d.getId())) {
-                return d;
-            }
-            if (request != null && request.getDelegatedFromEmail() != null && request.getDelegatedFromEmail().equalsIgnoreCase(d.getDelegatorEmail())) {
-                return d;
-            }
-            // Check actor match delegatee
-            if (actorEmail != null && d.getDelegateeEmail() != null && actorEmail.trim().equalsIgnoreCase(d.getDelegateeEmail().trim())) {
-                return d;
-            }
-            if (actorId != null && d.getDelegateeId() != null && actorId.equals(d.getDelegateeId())) {
-                return d;
-            }
-        }
-        // If request explicit params passed
-        if (request != null && (request.getDelegatedFromName() != null || request.getDelegatedFromEmail() != null)) {
-            return ManagerDelegationDto.builder()
-                    .delegatorName(request.getDelegatedFromName() != null ? request.getDelegatedFromName() : "Quản lý A")
-                    .delegatorEmail(request.getDelegatedFromEmail() != null ? request.getDelegatedFromEmail() : "managerA@livingdocs.internal")
-                    .delegateeName(actorEmail != null ? actorEmail : "Quản lý B")
-                    .delegateeEmail(actorEmail)
-                    .active(true)
-                    .build();
-        }
-        // If only 1 active delegation exists in total and actor is acting as manager, match it
-        for (ManagerDelegationDto d : delegations) {
-            if (Boolean.TRUE.equals(d.getActive()) && isWithinDateRange(d.getFromDate(), d.getToDate(), now)) {
+            if (isDelegatee(d, actorEmail, actorId)) {
                 return d;
             }
         }
         return null;
+    }
+
+    private boolean isDelegatee(ManagerDelegationDto delegation, String actorEmail, Long actorId) {
+        if (actorEmail != null && delegation.getDelegateeEmail() != null
+                && actorEmail.trim().equalsIgnoreCase(delegation.getDelegateeEmail().trim())) {
+            return true;
+        }
+        return actorId != null && delegation.getDelegateeId() != null && actorId.equals(delegation.getDelegateeId());
     }
 
     private List<ApprovalPolicyDto> defaultApprovalPolicies() {

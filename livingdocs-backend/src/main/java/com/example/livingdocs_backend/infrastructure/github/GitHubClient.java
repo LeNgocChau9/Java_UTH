@@ -879,6 +879,15 @@ public class GitHubClient implements GitHubClientPort {
         }
 
         log.error("Lỗi HTTP {} từ GitHub API khi thực hiện [{}]: {}", status.value(), operation, responseBody);
+        if (status.value() == 403 && responseBody != null) {
+            String lower = responseBody.toLowerCase();
+            if (lower.contains("resource not accessible") || lower.contains("must have")
+                    || lower.contains("permission") || lower.contains("write access")) {
+                throw new GitHubApiException(
+                        "Token GitHub chưa có quyền ghi file vào kho. Liên kết lại GitHub với quyền repo rồi phê duyệt và cam kết lại.",
+                        403, ex);
+            }
+        }
         if (status.value() == 401 || status.value() == 403) {
             throw new GitHubApiException("Phiên đăng nhập đã hết hạn", status.value(), ex);
         }

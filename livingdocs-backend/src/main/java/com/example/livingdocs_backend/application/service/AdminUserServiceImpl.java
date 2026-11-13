@@ -93,11 +93,22 @@ public class AdminUserServiceImpl implements AdminUserServicePort {
     }
 
     @Override
-    public AdminUserResponse changeStatus(Long userId, boolean active) {
+    @Transactional
+    public AdminUserResponse changeStatus(Long userId, boolean active, Long actorId, String actorEmail) {
         User user = userRepositoryPort.findById(userId)
                 .orElseThrow(() -> new AuthenticationException("Không tìm thấy người dùng"));
         String status = active ? "ACTIVE" : "LOCKED";
         User updated = userRepositoryPort.updateStatus(user.getUserId(), status);
+        if (auditServicePort != null) {
+            String verb = active ? "mở khóa" : "khóa";
+            auditServicePort.recordSecurityAction(
+                    actorId,
+                    AuditAction.USER_UPDATED,
+                    "USER",
+                    String.valueOf(userId),
+                    "Admin (" + actorEmail + ") " + verb + " tài khoản: " + user.getEmail()
+            );
+        }
         return toResponse(updated);
     }
 

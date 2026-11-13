@@ -60,8 +60,11 @@ public class AdminUserController {
     @SecurityRequirement(name = "BearerAuth")
     @Operation(summary = "Khóa / mở khóa tài khoản", description = "active=true -> mở khóa (ACTIVE); active=false -> khóa (LOCKED).")
     public ResponseEntity<AdminUserResponse> changeStatus(@PathVariable Long userId,
-                                                          @RequestParam boolean active) {
-        return ResponseEntity.ok(adminUserServicePort.changeStatus(userId, active));
+                                                          @RequestParam boolean active,
+                                                          @AuthenticationPrincipal UserPrincipal actor) {
+        Long actorId = actor != null ? actor.getUserId() : null;
+        String actorEmail = actor != null ? actor.getEmail() : "admin";
+        return ResponseEntity.ok(adminUserServicePort.changeStatus(userId, active, actorId, actorEmail));
     }
 
     @PostMapping("/forgot-password")

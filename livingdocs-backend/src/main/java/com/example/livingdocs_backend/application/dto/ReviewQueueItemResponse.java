@@ -94,6 +94,12 @@ public class ReviewQueueItemResponse {
     @Schema(description = "true khi phiên bản mới nhất do AI tạo hoặc cập nhật tự động")
     private Boolean aiGenerated;
 
+    @Schema(description = "Loại mẫu tài liệu dùng để chọn chính sách duyệt", example = "API")
+    private String docType;
+
+    @Schema(description = "Số cấp phê duyệt của mẫu: 1 xuất bản ngay, 2 chuyển quản lý", example = "1")
+    private Integer approvalTiers;
+
     @Data
     @Builder
     @NoArgsConstructor

@@ -125,6 +125,12 @@ public interface DocumentServicePort {
     String commitMarkdownToDefaultBranch(Long docId);
 
     /**
+     * Đẩy file .md lên branch mặc định. Thông điệp commit ghi người phê duyệt và mã phiên bản.
+     * Ưu tiên token GitHub của người duyệt (cần scope repo) rồi mới tới token của repository.
+     */
+    String commitMarkdownToDefaultBranch(Long docId, Long actorId, String approverLabel);
+
+    /**
      * Cập nhật lại / tạo lại tài liệu của một hàm hoặc lớp cụ thể (Regenerate Entity Doc).
      * Trích xuất mã nguồn hàm/lớp, gọi AI Engine (/v1/docs/rewrite-suggestion) viết lại mô tả của hàm đó
      * và cập nhật trực tiếp vào tài liệu tổng thể mà không cần sinh lại toàn bộ file.

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ACCESS_TOKEN_KEY } from "@/services/apiClient";
 import { logout, readProfile } from "@/services/auth";
+import { refreshSession } from "@/services/authService";
 import type { UserProfile } from "@/types/auth";
 import { rolesFromProfile } from "@/lib/navigation";
 import type { AppRole } from "@/types/navigation";
@@ -13,9 +14,29 @@ export function useSession() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    setToken(window.localStorage.getItem(ACCESS_TOKEN_KEY));
+    const storedToken = window.localStorage.getItem(ACCESS_TOKEN_KEY);
+    setToken(storedToken);
     setUser(readProfile());
-    setReady(true);
+    if (!storedToken) {
+      setReady(true);
+      return;
+    }
+    let cancelled = false;
+    refreshSession()
+      .then((data) => {
+        if (cancelled) return;
+        setToken(data.token);
+        setUser(data.user);
+      })
+      .catch(() => {
+        if (!cancelled) setUser(readProfile());
+      })
+      .finally(() => {
+        if (!cancelled) setReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const clearSession = useCallback(() => {
