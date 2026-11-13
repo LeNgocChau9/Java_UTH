@@ -13,11 +13,11 @@ import {
   MessageCircle,
   X,
   Send,
-  Bot,
   User,
   CheckCircle2,
 } from "lucide-react";
 import { aiChatService } from "@/services/aiChatService";
+import { AiCoreIcon } from "@/components/chat/FloatingChatBot";
 
 /* ─── Metric Counter Hook ─── */
 function useCounterOnView(target: number, duration: number = 1800, decimals: number = 0, from: number = 0) {
@@ -829,7 +829,7 @@ export default function AstroshipLivingDocsHomePage() {
           title="Chat với BOT hỗ trợ"
         >
           <div className="rainbow-orbit w-11 h-11 rounded-full bg-amber-400 text-black flex items-center justify-center shadow-lg group-hover:bg-amber-300 transition-colors">
-            <Bot className="w-5 h-5 stroke-[2.4]" />
+            <AiCoreIcon size={22} />
           </div>
           <span className="text-[10px] font-bold text-amber-400 tracking-tight leading-none group-hover:text-amber-300 drop-shadow">
             BOT
@@ -935,7 +935,7 @@ export default function AstroshipLivingDocsHomePage() {
           <div className="px-4 py-3 bg-gradient-to-r from-amber-950/40 via-[#0a1120] to-[#0a1120] border-b border-white/10 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-full bg-amber-400 text-black flex items-center justify-center font-bold">
-                <Bot className="w-5 h-5" />
+                <AiCoreIcon size={19} />
               </div>
               <div>
                 <h4 className="text-sm font-bold text-white">
@@ -963,7 +963,7 @@ export default function AstroshipLivingDocsHomePage() {
               >
                 {msg.sender === "bot" && (
                   <div className="w-6 h-6 rounded-full bg-amber-400 text-black flex items-center justify-center shrink-0 mt-0.5">
-                    <Bot className="w-3.5 h-3.5" />
+                    <AiCoreIcon size={14} />
                   </div>
                 )}
                 <div
@@ -986,7 +986,7 @@ export default function AstroshipLivingDocsHomePage() {
             {isTyping && (
               <div className="flex gap-2 items-center text-slate-400">
                 <div className="w-6 h-6 rounded-full bg-amber-400 text-black flex items-center justify-center shrink-0">
-                  <Bot className="w-3.5 h-3.5" />
+                  <AiCoreIcon size={14} />
                 </div>
                 <div className="bg-white/10 border border-white/10 rounded-2xl px-3 py-2 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce" />
