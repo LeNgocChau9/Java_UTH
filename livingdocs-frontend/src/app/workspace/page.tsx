@@ -935,7 +935,8 @@ function WorkspaceContent() {
       <div
         style={{
           display: "flex",
-          height: isMaximized ? "calc(100vh - 52px)" : "calc(100vh - 110px)",
+          height: isMaximized ? "calc(100vh - 52px)" : "calc(100% - 52px)",
+          minHeight: 0,
           overflow: "hidden",
           backgroundColor: "#f8fafc",
           flex: 1,

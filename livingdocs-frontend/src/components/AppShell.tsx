@@ -125,12 +125,6 @@ const NAV: NavItem[] = [
     roles: ["DEVELOPER", "TECH_LEAD"],
   },
   {
-    href: "/khoang-trong-tai-lieu",
-    label: "Khoảng trống tài liệu",
-    icon: <FileCode2 size={16} />,
-    roles: ["DEVELOPER", "TECH_LEAD"],
-  },
-  {
     href: "/yeu-cau-sinh-tai-lieu",
     label: "AI",
     icon: <Sparkles size={16} />,
@@ -1371,10 +1365,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* Page content */}
         <main
-          className="ld-app-content"
+          className={pathname === "/workspace" ? "" : "ld-app-content"}
           style={{
             flex: 1,
-            overflowY: "auto",
+            overflowY: pathname === "/workspace" ? "hidden" : "auto",
+            overflowX: pathname === "/workspace" ? "hidden" : undefined,
+            padding: pathname === "/workspace" ? 0 : undefined,
+            display: pathname === "/workspace" ? "flex" : undefined,
+            flexDirection: pathname === "/workspace" ? "column" : undefined,
+            height: pathname === "/workspace" ? "calc(100% - 56px)" : undefined,
+            minHeight: 0,
           }}
           onClick={() => { setNotifOpen(false); setUserMenuOpen(false); }}
         >
