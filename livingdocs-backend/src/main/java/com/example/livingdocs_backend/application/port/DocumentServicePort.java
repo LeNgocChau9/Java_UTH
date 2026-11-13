@@ -62,6 +62,24 @@ public interface DocumentServicePort {
     RollbackResponse rollbackToVersion(Long docId, Integer targetVersion, String reason, Long actorId, String actorRole);
 
     /**
+     * Khôi phục (Rollback) tài liệu về một bản ghi phiên bản theo versionId trong bảng lịch sử thay đổi.
+     */
+    default RollbackResponse rollbackByVersionId(Long docId, Long versionId, String reason, Long actorId, String actorRole) {
+        throw new UnsupportedOperationException("Chưa hỗ trợ rollbackByVersionId");
+    }
+
+    /**
+     * Khôi phục hàng loạt (Bulk Rollback) toàn bộ các tài liệu thuộc cùng một bộ sưu tập về phiên bản an toàn trước đó.
+     */
+    default com.example.livingdocs_backend.application.dto.CollectionRollbackResponse rollbackCollection(
+            Long collectionId,
+            com.example.livingdocs_backend.application.dto.CollectionRollbackRequest request,
+            Long actorId,
+            String actorRole) {
+        throw new UnsupportedOperationException("Chưa hỗ trợ rollbackCollection");
+    }
+
+    /**
      * Xử lý phê duyệt hoặc từ chối tài liệu bởi Staff (Duyệt cấp 1).
      * Chỉ người có vai trò STAFF hoặc MANAGER mới có quyền thực hiện.
      * - APPROVE: Chuyển sang UNDER_REVIEW_MANAGER

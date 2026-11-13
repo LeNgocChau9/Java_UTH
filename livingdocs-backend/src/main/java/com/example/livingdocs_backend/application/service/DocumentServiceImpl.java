@@ -79,6 +79,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
     private SpringDataDocCodeLinkRepository docCodeLinkRepository;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocCollectionRepository collectionRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
     private RestClient restClient;
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -744,6 +747,147 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 .message(message)
                 .version(toVersionResponse(savedVersion))
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public RollbackResponse rollbackByVersionId(Long docId, Long versionId, String reason, Long actorId, String actorRole) {
+        if (versionId == null || versionId <= 0) {
+            throw new IllegalArgumentException("ID phiên bản (versionId) cần khôi phục không hợp lệ: " + versionId);
+        }
+
+        DocumentVersion targetVersionEntity = documentVersionRepositoryPort.findById(versionId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy phiên bản với versionId: " + versionId));
+
+        if (docId != null && !docId.equals(targetVersionEntity.getDocId())) {
+            throw new IllegalArgumentException(
+                    "Phiên bản versionId=" + versionId + " không thuộc về tài liệu docId=" + docId);
+        }
+
+        Long resolvedDocId = docId != null ? docId : targetVersionEntity.getDocId();
+        return rollbackToVersion(resolvedDocId, targetVersionEntity.getVersionNum(), reason, actorId, actorRole);
+    }
+
+    @Override
+    @Transactional
+    public com.example.livingdocs_backend.application.dto.CollectionRollbackResponse rollbackCollection(
+            Long collectionId,
+            com.example.livingdocs_backend.application.dto.CollectionRollbackRequest request,
+            Long actorId,
+            String actorRole) {
+        if (collectionId == null || collectionId <= 0) {
+            throw new IllegalArgumentException("collectionId phải là số nguyên dương hợp lệ");
+        }
+
+        String collectionName = "Collection #" + collectionId;
+        if (collectionRepository != null) {
+            var collectionOpt = collectionRepository.findById(collectionId);
+            if (collectionOpt.isEmpty()) {
+                throw new IllegalArgumentException("Không tìm thấy bộ sưu tập với ID: " + collectionId);
+            }
+            collectionName = collectionOpt.get().getName();
+        }
+
+        List<Document> docsInCollection = documentRepositoryPort.findByCollectionId(collectionId);
+        List<RollbackResponse> rolledBackDocs = new ArrayList<>();
+        List<String> skippedDocs = new ArrayList<>();
+
+        String reason = (request != null && request.getReason() != null && !request.getReason().isBlank())
+                ? request.getReason().trim()
+                : "Khôi phục hàng loạt bộ sưu tập '" + collectionName + "' về phiên bản an toàn trước đó";
+
+        String roleToUse = (request != null && request.getActorRole() != null && !request.getActorRole().isBlank())
+                ? request.getActorRole()
+                : (actorRole != null ? actorRole : "MANAGER");
+
+        for (Document doc : docsInCollection) {
+            Long docId = doc.getDocId();
+            int currentVer = doc.getCurrentVersion() != null ? doc.getCurrentVersion() : 1;
+
+            Integer targetVer = resolveTargetVersionForCollectionDoc(doc, request);
+
+            if (targetVer == null || targetVer < 1 || targetVer >= currentVer) {
+                skippedDocs.add(String.format("Tài liệu #%d ('%s') đang ở v%d - không có phiên bản trước phù hợp để hoàn tác",
+                        docId, doc.getTitle(), currentVer));
+                continue;
+            }
+
+            try {
+                RollbackResponse rb = rollbackToVersion(docId, targetVer, reason, actorId, roleToUse);
+                rolledBackDocs.add(rb);
+            } catch (Exception ex) {
+                log.warn("Không thể khôi phục tài liệu #{} trong bộ sưu tập #{}: {}", docId, collectionId, ex.getMessage());
+                skippedDocs.add(String.format("Tài liệu #%d ('%s') bỏ qua: %s", docId, doc.getTitle(), ex.getMessage()));
+            }
+        }
+
+        // Ghi nhận một dòng nhật ký kiểm toán tổng hợp cho thao tác hoàn tác cả bộ sưu tập
+        if (auditServicePort != null) {
+            String auditDetail = String.format(
+                    "Khôi phục hàng loạt bộ sưu tập '%s' (ID: %d): Hoàn tác thành công %d/%d tài liệu (Bỏ qua: %d). Lý do: %s",
+                    collectionName, collectionId, rolledBackDocs.size(), docsInCollection.size(), skippedDocs.size(), reason);
+            auditServicePort.recordSecurityAction(
+                    actorId,
+                    AuditAction.COLLECTION_ROLLBACK,
+                    "COLLECTION",
+                    collectionId.toString(),
+                    auditDetail);
+        }
+
+        String summaryMsg = String.format(
+                "Đã hoàn tác hàng loạt bộ sưu tập '%s': Khôi phục thành công %d/%d tài liệu về phiên bản an toàn trước đó.",
+                collectionName, rolledBackDocs.size(), docsInCollection.size());
+
+        return com.example.livingdocs_backend.application.dto.CollectionRollbackResponse.builder()
+                .collectionId(collectionId)
+                .collectionName(collectionName)
+                .totalDocuments(docsInCollection.size())
+                .rolledBackCount(rolledBackDocs.size())
+                .skippedCount(skippedDocs.size())
+                .rolledBackAt(Instant.now())
+                .message(summaryMsg)
+                .rolledBackDocuments(rolledBackDocs)
+                .skippedDocuments(skippedDocs)
+                .build();
+    }
+
+    private Integer resolveTargetVersionForCollectionDoc(
+            Document doc,
+            com.example.livingdocs_backend.application.dto.CollectionRollbackRequest request) {
+        Long docId = doc.getDocId();
+        int currentVer = doc.getCurrentVersion() != null ? doc.getCurrentVersion() : 1;
+
+        if (request != null) {
+            // 1. Kiểm tra map tùy chỉnh từng tài liệu
+            if (request.getDocumentTargetVersions() != null && request.getDocumentTargetVersions().containsKey(docId)) {
+                return request.getDocumentTargetVersions().get(docId);
+            }
+
+            // 2. Kiểm tra mốc thời gian an toàn (beforeTimestamp)
+            if (request.getBeforeTimestamp() != null) {
+                Instant cutoff = request.getBeforeTimestamp();
+                List<DocumentVersion> versions = documentVersionRepositoryPort.findAllByDocIdOrderByVersionNumDesc(docId);
+                for (DocumentVersion v : versions) {
+                    if (v.getCreatedAt() != null && !v.getCreatedAt().isAfter(cutoff) && v.getVersionNum() < currentVer) {
+                        return v.getVersionNum();
+                    }
+                }
+                return null;
+            }
+
+            // 3. Kiểm tra targetVersion cố định
+            if (request.getTargetVersion() != null && request.getTargetVersion() > 0) {
+                return request.getTargetVersion();
+            }
+
+            // 4. Kiểm tra stepsBack (lùi N bước)
+            if (request.getStepsBack() != null && request.getStepsBack() > 0) {
+                return currentVer - request.getStepsBack();
+            }
+        }
+
+        // Mặc định: lùi 1 phiên bản về phiên bản liền kề trước đó (currentVersion - 1)
+        return currentVer - 1;
     }
 
     @Override
