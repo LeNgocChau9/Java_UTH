@@ -1,6 +1,7 @@
 package com.example.livingdocs_backend.infrastructure.web.controller;
 
 import com.example.livingdocs_backend.application.dto.*;
+import com.example.livingdocs_backend.infrastructure.export.MarkdownToDocxExporter;
 import com.example.livingdocs_backend.application.dto.RegenerateEntityDocRequest;
 import com.example.livingdocs_backend.application.dto.RegenerateEntityDocResponse;
 import com.example.livingdocs_backend.application.dto.ai.AiDocGenerateRequestDto;
@@ -151,6 +152,37 @@ public class DocumentController {
     public ResponseEntity<DocumentDetailResponse> getDocument(@PathVariable Long docId) {
         return ResponseEntity.ok(documentServicePort.getDocumentById(docId));
     }
+
+    @GetMapping(value = "/{docId}/export/docx", produces = "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    @Operation(summary = "Xuất tài liệu sang file Word (.docx)", description = "Chuyển đổi tài liệu hiện tại sang định dạng Microsoft Word (.docx).")
+    public ResponseEntity<byte[]> exportDocumentToDocx(@PathVariable Long docId) {
+        DocumentDetailResponse doc = documentServicePort.getDocumentById(docId);
+        String markdown = (doc != null && doc.getLatestVersion() != null && doc.getLatestVersion().getContent() != null)
+                ? doc.getLatestVersion().getContent() : "";
+        String title = (doc != null && doc.getTitle() != null) ? doc.getTitle() : "Document-" + docId;
+        byte[] docxBytes = MarkdownToDocxExporter.exportMarkdownToDocx(markdown, title);
+
+        return ResponseEntity.ok()
+                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + sanitizeFilename(title) + ".docx\"")
+                .body(docxBytes);
+    }
+
+    @PostMapping(value = "/export/docx", produces = "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    @Operation(summary = "Xuất nội dung Markdown sang file Word (.docx)", description = "Nhận nội dung Markdown và trả về file Word (.docx).")
+    public ResponseEntity<byte[]> exportRawMarkdownToDocx(@RequestBody ExportDocxRequest request) {
+        String markdown = request != null && request.markdown() != null ? request.markdown() : "";
+        String title = request != null && request.title() != null ? request.title() : "LivingDocs";
+        byte[] docxBytes = MarkdownToDocxExporter.exportMarkdownToDocx(markdown, title);
+
+        return ResponseEntity.ok()
+                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + sanitizeFilename(title) + ".docx\"")
+                .body(docxBytes);
+    }
+
+    private String sanitizeFilename(String name) {
+        return name.replaceAll("[^a-zA-Z0-9_.-]", "_");
+    }
+
 
     @GetMapping
     @Operation(summary = "Danh sách tài liệu", description = "Lấy danh sách toàn bộ tài liệu, hỗ trợ lọc theo repoId hoặc collectionId.")

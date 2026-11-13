@@ -3,6 +3,7 @@ package com.example.livingdocs_backend.infrastructure.web.controller;
 import com.example.livingdocs_backend.application.dto.DriftAlertActionRequest;
 import com.example.livingdocs_backend.application.dto.DriftAlertResponse;
 import com.example.livingdocs_backend.application.service.DriftAlertService;
+import com.example.livingdocs_backend.infrastructure.sse.SseNotificationService;
 import com.example.livingdocs_backend.infrastructure.security.UserPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -29,6 +30,13 @@ import java.util.List;
 public class DriftAlertController {
 
     private final DriftAlertService driftAlertService;
+    private final SseNotificationService sseNotificationService;
+
+    @GetMapping(value = "/stream", produces = org.springframework.http.MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "Mở kết nối Server-Sent Events (SSE) để nhận cảnh báo sai lệch thời gian thực")
+    public org.springframework.web.servlet.mvc.method.annotation.SseEmitter streamDriftAlerts() {
+        return sseNotificationService.createEmitter();
+    }
 
     @GetMapping
     @Operation(summary = "Lấy danh sách tất cả cảnh báo sai lệch tài liệu từ CSDL")

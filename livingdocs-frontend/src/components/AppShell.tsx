@@ -48,6 +48,7 @@ import {
   User,
   ShieldAlert,
   KeyRound,
+  FolderGit2,
   RefreshCw,
   UserCog,
   Check,
@@ -101,6 +102,12 @@ const NAV: NavItem[] = [
     href: "/kho-luu-tru",
     label: "Kho lưu trữ",
     icon: <Archive size={16} />,
+    roles: ["DEVELOPER", "TECH_LEAD", "ADMIN"],
+  },
+  {
+    href: "/workspace",
+    label: "Workspace",
+    icon: <FolderGit2 size={16} />,
     roles: ["DEVELOPER", "TECH_LEAD", "ADMIN"],
   },
   {
@@ -342,8 +349,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     fetchDriftAlerts();
-    const interval = setInterval(fetchDriftAlerts, 15000);
-    return () => clearInterval(interval);
+    const interval = setInterval(fetchDriftAlerts, 20000);
+
+    // Real-Time Server-Sent Events (SSE) cho chuông thông báo
+    let eventSource: EventSource | null = null;
+    try {
+      const sseUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080") + "/api/drift-alerts/stream";
+      eventSource = new EventSource(sseUrl);
+      eventSource.addEventListener("drift-alert", () => {
+        fetchDriftAlerts();
+      });
+      eventSource.onerror = () => {
+        eventSource?.close();
+      };
+    } catch {
+      // Fallback silently to polling
+    }
+
+    return () => {
+      clearInterval(interval);
+      if (eventSource) eventSource.close();
+    };
   }, [fetchDriftAlerts]);
 
   // Modal cảnh báo hết phiên & gia hạn quyền

@@ -15,6 +15,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,6 +51,9 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
     private final com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentRepository documentRepository;
     private final ObjectMapper objectMapper;
     private final JobQueue jobQueue;
+
+    @Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.sse.SseNotificationService sseNotificationService;
 
     public static final String JOB_TYPE_PR_DRIFT_SCAN = "PR_DRIFT_SCAN";
     public static final String JOB_TYPE_AUTO_DOC_UPDATE = "AUTO_DOC_UPDATE";
@@ -315,6 +319,15 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
                                     .build();
                     alertRepository.save(driftAlert);
                     log.info("[Webhook - Push] Đã ghi nhận cảnh báo sai lệch (Drift Alert PENDING) cho commit {}", finalHeadSha);
+                    if (sseNotificationService != null) {
+                        sseNotificationService.broadcastDriftAlert(java.util.Map.of(
+                                "type", "DRIFT_ALERT_CREATED",
+                                "source", "PUSH",
+                                "repositoryId", repo.getRepositoryId(),
+                                "sourceCommit", finalHeadSha != null ? finalHeadSha : "",
+                                "details", driftAlert.getDetails() != null ? driftAlert.getDetails() : ""
+                        ));
+                    }
                 }
             }
         } catch (Exception e) {
@@ -461,6 +474,15 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
                                         .build();
                         alertRepository.save(prAlert);
                         log.info("[Webhook - PR] Đã ghi nhận cảnh báo sai lệch (Drift Alert PENDING) cho PR #{}", prNumber);
+                        if (sseNotificationService != null) {
+                            sseNotificationService.broadcastDriftAlert(java.util.Map.of(
+                                    "type", "DRIFT_ALERT_CREATED",
+                                    "source", "PULL_REQUEST",
+                                    "repositoryId", repo.getRepositoryId(),
+                                    "sourcePrId", prNumber,
+                                    "details", prAlert.getDetails() != null ? prAlert.getDetails() : ""
+                            ));
+                        }
                     }
                 }
             } catch (Exception e) {

@@ -62,6 +62,27 @@ export const documentService = {
   },
 
   /**
+   * Xuất tài liệu hiện có sang file Word (.docx)
+   */
+  async exportDocx(docId: number): Promise<Blob> {
+    const res = await apiClient.get(`/api/documents/${docId}/export/docx`, {
+      responseType: "blob",
+    });
+    return res.data;
+  },
+
+  /**
+   * Xuất trực tiếp nội dung Markdown sang file Word (.docx)
+   */
+  async exportRawDocx(payload: { title: string; markdown: string }): Promise<Blob> {
+    const res = await apiClient.post("/api/documents/export/docx", payload, {
+      responseType: "blob",
+    });
+    return res.data;
+  },
+
+
+  /**
    * Nạp tài liệu từ nền tảng ngoài (Google Docs, Confluence, Jira, Markdown)
    */
   async importExternalDoc(payload: ImportExternalDocPayload): Promise<DocumentItem> {
