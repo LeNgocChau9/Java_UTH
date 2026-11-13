@@ -188,8 +188,11 @@ public class DocumentController {
     @Operation(summary = "Danh sách tài liệu", description = "Lấy danh sách toàn bộ tài liệu, hỗ trợ lọc theo repoId hoặc collectionId.")
     public ResponseEntity<List<DocumentResponse>> listDocuments(
             @RequestParam(required = false) Long repoId,
-            @RequestParam(required = false) Long collectionId) {
-        return ResponseEntity.ok(documentServicePort.listDocuments(repoId, collectionId));
+            @RequestParam(required = false) Long collectionId,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Long templateId) {
+        return ResponseEntity.ok(documentServicePort.searchDocuments(repoId, collectionId, keyword, status, templateId));
     }
 
     @DeleteMapping("/{docId}")

@@ -304,6 +304,12 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @Override
     @Transactional(readOnly = true)
     public List<DocumentResponse> listDocuments(Long repoId, Long collectionId) {
+        return searchDocuments(repoId, collectionId, null, null, null);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<DocumentResponse> searchDocuments(Long repoId, Long collectionId, String keyword, String status, Long templateId) {
         List<Document> docs;
         if (repoId != null && collectionId != null) {
             docs = documentRepositoryPort.findByRepoIdAndCollectionId(repoId, collectionId);
@@ -315,10 +321,49 @@ public class DocumentServiceImpl implements DocumentServicePort {
             docs = documentRepositoryPort.findAll();
         }
 
-        return docs.stream().map(doc -> {
-            DocumentVersion latest = documentVersionRepositoryPort.findLatestByDocId(doc.getDocId()).orElse(null);
-            return toDocumentResponse(doc, latest);
-        }).collect(Collectors.toList());
+        String kw = (keyword != null && !keyword.isBlank()) ? keyword.trim().toLowerCase() : null;
+        String st = (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status)) ? status.trim().toUpperCase() : null;
+
+        return docs.stream()
+                .filter(doc -> {
+                    // Lọc theo trạng thái phê duyệt
+                    if (st != null) {
+                        if ("UNDER_REVIEW".equals(st) || "REVIEW".equals(st)) {
+                            if (doc.getStatus() != DocumentStatus.UNDER_REVIEW_STAFF &&
+                                doc.getStatus() != DocumentStatus.UNDER_REVIEW_MANAGER) {
+                                return false;
+                            }
+                        } else {
+                            if (doc.getStatus() == null || !doc.getStatus().name().equalsIgnoreCase(st)) {
+                                return false;
+                            }
+                        }
+                    }
+                    // Lọc theo loại mẫu tài liệu (templateId)
+                    if (templateId != null) {
+                        if (templateId == 0L) {
+                            if (doc.getTemplateId() != null) return false;
+                        } else if (!templateId.equals(doc.getTemplateId())) {
+                            return false;
+                        }
+                    }
+                    return true;
+                })
+                .map(doc -> {
+                    DocumentVersion latest = documentVersionRepositoryPort.findLatestByDocId(doc.getDocId()).orElse(null);
+                    return toDocumentResponse(doc, latest);
+                })
+                .filter(resp -> {
+                    // Tìm kiếm toàn văn theo từ khóa: Tiêu đề, Đường dẫn tệp nguồn, Nội dung tóm tắt/toàn văn
+                    if (kw == null) return true;
+                    boolean titleMatch = resp.getTitle() != null && resp.getTitle().toLowerCase().contains(kw);
+                    boolean pathMatch = resp.getTargetPath() != null && resp.getTargetPath().toLowerCase().contains(kw);
+                    boolean contentMatch = resp.getLatestVersion() != null &&
+                            resp.getLatestVersion().getContent() != null &&
+                            resp.getLatestVersion().getContent().toLowerCase().contains(kw);
+                    return titleMatch || pathMatch || contentMatch;
+                })
+                .collect(Collectors.toList());
     }
 
     @Override

@@ -28,6 +28,11 @@ public interface DocumentServicePort {
     List<DocumentResponse> listDocuments(Long repoId, Long collectionId);
 
     /**
+     * Tìm kiếm toàn văn và lọc đa tiêu chí trên cơ sở tri thức (tài liệu).
+     */
+    List<DocumentResponse> searchDocuments(Long repoId, Long collectionId, String keyword, String status, Long templateId);
+
+    /**
      * Xóa tài liệu và toàn bộ các phiên bản lịch sử.
      */
     void deleteDocument(Long docId, Long actorId);

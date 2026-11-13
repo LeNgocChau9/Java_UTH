@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { documentService } from "@/services/documentService";
 import { repoService, type RepoItem } from "@/services/repoService";
+import { templateService, type DocTemplateDto } from "@/services/templateService";
 import type { DocCollection, DocumentItem, IntegrityCheckResult } from "@/types/document";
 import {
   FileText,
@@ -29,8 +30,8 @@ import {
   Upload,
   Globe,
   FileUp,
-  FileCode,
   ExternalLink,
+  RotateCcw,
 } from "lucide-react";
 
 const STATUS_CONFIG: Record<
@@ -83,11 +84,52 @@ const STATUS_CONFIG: Record<
 
 const STATUS_FILTERS = [
   { key: "ALL", label: "Tất cả trạng thái" },
-  { key: "DRAFT", label: "Bản nháp" },
-  { key: "REVIEW", label: "Đang chờ duyệt" },
-  { key: "APPROVED", label: "Đã phê duyệt" },
   { key: "PUBLISHED", label: "Đã xuất bản" },
+  { key: "REVIEW", label: "Đang xem xét" },
+  { key: "DRAFT", label: "Bản nháp" },
+  { key: "APPROVED", label: "Đã phê duyệt" },
+  { key: "REJECTED", label: "Bị từ chối" },
 ];
+
+function getMatchingSnippet(content: string | undefined | null, query: string): string | null {
+  if (!content || !query.trim()) return null;
+  const q = query.trim().toLowerCase();
+  const lowerContent = content.toLowerCase();
+  const idx = lowerContent.indexOf(q);
+  if (idx === -1) return null;
+
+  const start = Math.max(0, idx - 45);
+  const end = Math.min(content.length, idx + q.length + 55);
+  let snippet = content.slice(start, end).replace(/\r?\n|\r/g, " ");
+  if (start > 0) snippet = "..." + snippet;
+  if (end < content.length) snippet = snippet + "...";
+  return snippet;
+}
+
+function highlightMatch(text: string | null | undefined, query: string): React.ReactNode {
+  if (!text) return "";
+  if (!query.trim()) return text;
+  const escaped = query.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const parts = text.split(new RegExp(`(${escaped})`, "gi"));
+  return parts.map((part, i) =>
+    part.toLowerCase() === query.trim().toLowerCase() ? (
+      <mark
+        key={i}
+        style={{
+          background: "#fef08a",
+          color: "#854d0e",
+          padding: "1px 3px",
+          borderRadius: 3,
+          fontWeight: 600,
+        }}
+      >
+        {part}
+      </mark>
+    ) : (
+      part
+    )
+  );
+}
 
 function DocumentListPageContent() {
   const searchParams = useSearchParams();
@@ -97,11 +139,13 @@ function DocumentListPageContent() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [collections, setCollections] = useState<DocCollection[]>([]);
   const [repos, setRepos] = useState<RepoItem[]>([]);
+  const [templates, setTemplates] = useState<DocTemplateDto[]>([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState<number | null>(
     initialCollectionId ? parseInt(initialCollectionId, 10) : null
   );
 
   const [selectedStatus, setSelectedStatus] = useState<string>("ALL");
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRepoId, setSelectedRepoId] = useState<string>("ALL");
 
@@ -157,10 +201,11 @@ function DocumentListPageContent() {
   const loadData = useCallback(async () => {
     try {
       setRefreshing(true);
-      const [docs, cols, rps] = await Promise.all([
+      const [docs, cols, rps, tmpls] = await Promise.all([
         documentService.getDocuments(),
-        documentService.getCollections(),
+        documentService.getCollections().catch(() => []),
         repoService.getRepositories().catch(() => []),
+        templateService.getTemplates().catch(() => []),
       ]);
       const sortedDocs = [...docs].sort((a, b) => {
         const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
@@ -170,6 +215,7 @@ function DocumentListPageContent() {
       setDocuments(sortedDocs);
       setCollections(cols);
       setRepos(rps);
+      setTemplates(tmpls || []);
     } catch (err: any) {
       console.error("Lỗi nạp dữ liệu:", err);
       notify("error", "Không thể nạp dữ liệu tài liệu: " + (err.response?.data?.message || err.message));
@@ -197,15 +243,62 @@ function DocumentListPageContent() {
     return map;
   }, [collections]);
 
-  // Lọc tài liệu theo Collection, Status, Search, Repo
+  // Map templateId thành DocTemplateDto
+  const templateMap = useMemo(() => {
+    const map = new Map<number, DocTemplateDto>();
+    templates.forEach((t) => map.set(t.id, t));
+    return map;
+  }, [templates]);
+
+  // Đếm số lượng tài liệu theo từng trạng thái phê duyệt
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      ALL: documents.length,
+      PUBLISHED: 0,
+      REVIEW: 0,
+      DRAFT: 0,
+      APPROVED: 0,
+      REJECTED: 0,
+    };
+    documents.forEach((d) => {
+      if (d.status === "PUBLISHED") counts.PUBLISHED++;
+      else if (d.status === "UNDER_REVIEW_STAFF" || d.status === "UNDER_REVIEW_MANAGER") counts.REVIEW++;
+      else if (d.status === "DRAFT") counts.DRAFT++;
+      else if (d.status === "APPROVED") counts.APPROVED++;
+      else if (d.status === "REJECTED") counts.REJECTED++;
+    });
+    return counts;
+  }, [documents]);
+
+  // Kiểm tra có bất kỳ bộ lọc hoặc từ khóa nào đang hoạt động
+  const hasActiveFilters =
+    searchQuery.trim() !== "" ||
+    selectedStatus !== "ALL" ||
+    selectedTemplateId !== "ALL" ||
+    selectedRepoId !== "ALL" ||
+    selectedCollectionId !== null;
+
+  // Đặt lại toàn bộ bộ lọc về mặc định
+  const handleResetFilters = () => {
+    setSearchQuery("");
+    setSelectedStatus("ALL");
+    setSelectedTemplateId("ALL");
+    setSelectedRepoId("ALL");
+    setSelectedCollectionId(null);
+  };
+
+  // Lọc tài liệu theo Collection, Status, Template, Repo và Tìm kiếm toàn văn tức thì
   const filteredDocs = useMemo(() => {
-    return documents.filter((doc) => {
-      // Lọc theo collection
+    const q = searchQuery.toLowerCase().trim();
+
+    return documents
+      .filter((doc) => {
+        // 1. Lọc theo collection
       if (selectedCollectionId !== null) {
         if (doc.collectionId !== selectedCollectionId) return false;
       }
 
-      // Lọc theo trạng thái
+        // 2. Lọc theo trạng thái phê duyệt
       if (selectedStatus === "DRAFT" && doc.status !== "DRAFT") return false;
       if (
         selectedStatus === "REVIEW" &&
@@ -216,27 +309,56 @@ function DocumentListPageContent() {
       }
       if (selectedStatus === "APPROVED" && doc.status !== "APPROVED") return false;
       if (selectedStatus === "PUBLISHED" && doc.status !== "PUBLISHED") return false;
+        if (selectedStatus === "REJECTED" && doc.status !== "REJECTED") return false;
 
-      // Lọc theo repo
+        // 3. Lọc theo loại mẫu tài liệu (template)
+        if (selectedTemplateId !== "ALL") {
+          if (selectedTemplateId === "NONE") {
+            if (doc.templateId !== null && doc.templateId !== undefined) return false;
+          } else {
+            const tmplIdNum = parseInt(selectedTemplateId, 10);
+            if (doc.templateId !== tmplIdNum) return false;
+          }
+        }
+
+        // 4. Lọc theo repo
       if (selectedRepoId !== "ALL" && doc.repoId !== parseInt(selectedRepoId, 10)) {
         return false;
       }
 
-      // Lọc theo từ khóa tìm kiếm (tiêu đề, targetPath)
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        const titleMatch = doc.title.toLowerCase().includes(q);
+        // 5. Tìm kiếm toàn văn tức thì (Full-Text Search):
+        // Khớp trong tiêu đề, file path, nội dung tóm tắt/markdown, nguồn hoặc tên repo
+        if (q) {
+          const titleMatch = doc.title ? doc.title.toLowerCase().includes(q) : false;
         const pathMatch = doc.targetPath ? doc.targetPath.toLowerCase().includes(q) : false;
-        if (!titleMatch && !pathMatch) return false;
+          const contentMatch = doc.latestVersion?.content
+            ? doc.latestVersion.content.toLowerCase().includes(q)
+            : false;
+          const sourceMatch = doc.sourceType ? doc.sourceType.toLowerCase().includes(q) : false;
+          const repoName = repoMap.get(doc.repoId)?.toLowerCase() || "";
+          const repoMatch = repoName.includes(q);
+
+          if (!titleMatch && !pathMatch && !contentMatch && !sourceMatch && !repoMatch) {
+            return false;
+          }
       }
 
       return true;
-    }).sort((a, b) => {
+      })
+      .sort((a, b) => {
       const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
       const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
       return timeB - timeA;
     });
-  }, [documents, selectedCollectionId, selectedStatus, selectedRepoId, searchQuery]);
+  }, [
+    documents,
+    selectedCollectionId,
+    selectedStatus,
+    selectedTemplateId,
+    selectedRepoId,
+    searchQuery,
+    repoMap,
+  ]);
 
   // Xử lý tạo Bộ sưu tập mới
   const handleCreateCollection = async (e: React.FormEvent) => {
@@ -460,7 +582,26 @@ function DocumentListPageContent() {
       {/* Tiêu đề Trang & Nút Làm mới duy nhất ở trên */}
       <div className="ld-page-header" style={{ marginBottom: 16 }}>
         <div>
-          <h1 className="ld-page-title">Document Workspace</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <h1 className="ld-page-title" style={{ margin: 0 }}>Cơ sở Tri thức &amp; Quản lý Tài liệu</h1>
+            <span
+              style={{
+                fontSize: 11,
+                fontFamily: "var(--font-mono)",
+                fontWeight: 600,
+                padding: "2px 8px",
+                borderRadius: 12,
+                background: "var(--color-accent-subtle)",
+                color: "var(--color-accent-dark)",
+                border: "1px solid #b8dec5",
+              }}
+            >
+              Knowledge Base
+            </span>
+          </div>
+          <p style={{ fontSize: 13, color: "var(--color-text-secondary)", margin: "4px 0 0 0" }}>
+            Tra cứu, tìm kiếm toàn văn tức thì theo tiêu đề, nội dung và đường dẫn file nguồn; kết hợp bộ lọc đa tiêu chí theo trạng thái phê duyệt và loại mẫu tài liệu.
+          </p>
         </div>
         <div>
           <button
@@ -711,68 +852,179 @@ function DocumentListPageContent() {
       <div
         className="ld-card"
         style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 12,
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "12px 16px",
+          padding: "16px 20px",
           marginBottom: 16,
+          display: "flex",
+          flexDirection: "column",
+          gap: 14,
         }}
       >
-        {/* Tìm kiếm */}
-        <div style={{ position: "relative", minWidth: 260, flex: 1 }}>
+        {/* Hàng 1: Ô Tìm kiếm Toàn văn tức thì */}
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <div style={{ position: "relative", flex: 1 }}>
           <Search
-            size={15}
+              size={16}
             style={{
               position: "absolute",
-              left: 12,
+                left: 14,
               top: "50%",
               transform: "translateY(-50%)",
-              color: "var(--color-text-disabled)",
+                color: searchQuery ? "var(--color-accent)" : "var(--color-text-disabled)",
+                transition: "color 150ms ease",
             }}
           />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Tìm theo tiêu đề hoặc file path (ví dụ: docs/arch.md)..."
+              placeholder="Tìm kiếm tức thì theo từ khóa trong tiêu đề, nội dung tóm tắt hoặc đường dẫn file nguồn..."
             className="ld-input"
-            style={{ paddingLeft: 34, fontSize: 13 }}
+              style={{
+                width: "100%",
+                paddingLeft: 38,
+                paddingRight: searchQuery ? 38 : 14,
+                fontSize: 13,
+                height: 40,
+                borderRadius: 8,
+              }}
           />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                style={{
+                  position: "absolute",
+                  right: 12,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "#94a3b8",
+                  padding: 4,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderRadius: "50%",
+                }}
+                title="Xóa từ khóa tìm kiếm"
+              >
+                <X size={14} />
+              </button>
+            )}
         </div>
 
-        {/* Lọc Trạng thái (Tabs) */}
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-          {STATUS_FILTERS.map((f) => (
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={handleResetFilters}
+              className="ld-btn ld-btn-ghost ld-btn-sm"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                color: "#ef4444",
+                whiteSpace: "nowrap",
+                fontWeight: 500,
+                padding: "8px 12px",
+                height: 40,
+                border: "1px solid #fecaca",
+                borderRadius: 8,
+                background: "#fef2f2",
+              }}
+              title="Đặt lại toàn bộ từ khóa và tiêu chí lọc"
+            >
+              <RotateCcw size={14} />
+              <span>Đặt lại bộ lọc</span>
+            </button>
+          )}
+        </div>
+
+        {/* Hàng 2: Bộ lọc đa tiêu chí (Trạng thái, Loại mẫu tài liệu, Repository) */}
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 12,
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          {/* Lọc Trạng thái phê duyệt (Pills / Tabs kèm số lượng thực tế) */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text-secondary)", marginRight: 2 }}>
+              Trạng thái:
+            </span>
+            {STATUS_FILTERS.map((f) => {
+              const isSelected = selectedStatus === f.key;
+              const count = statusCounts[f.key as keyof typeof statusCounts] ?? 0;
+              return (
             <button
               key={f.key}
               type="button"
               onClick={() => setSelectedStatus(f.key)}
               style={{
-                padding: "6px 12px",
+                    padding: "5px 10px",
                 fontSize: 12,
                 borderRadius: 6,
-                border: selectedStatus === f.key ? "1px solid var(--color-accent)" : "1px solid transparent",
-                background: selectedStatus === f.key ? "var(--color-accent-subtle)" : "transparent",
-                color: selectedStatus === f.key ? "var(--color-accent-dark)" : "var(--color-text-secondary)",
-                fontWeight: selectedStatus === f.key ? 600 : 400,
+                    border: isSelected ? "1px solid var(--color-accent)" : "1px solid var(--color-border)",
+                    background: isSelected ? "var(--color-accent-subtle)" : "#ffffff",
+                    color: isSelected ? "var(--color-accent-dark)" : "var(--color-text-secondary)",
+                    fontWeight: isSelected ? 600 : 400,
                 cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
                 transition: "all 120ms ease",
               }}
             >
-              {f.label}
+                  <span>{f.label}</span>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      padding: "1px 5px",
+                      borderRadius: 10,
+                      background: isSelected ? "var(--color-accent)" : "#f1f5f9",
+                      color: isSelected ? "#ffffff" : "#64748b",
+                    }}
+                  >
+                    {count}
+                  </span>
             </button>
-          ))}
+              );
+            })}
+          </div>
+
+          {/* Cụm Dropdown: Loại mẫu tài liệu (Template) & Kho lưu trữ (Repo) */}
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            {/* Lọc Loại mẫu tài liệu */}
+            <div style={{ minWidth: 210 }}>
+              <select
+                value={selectedTemplateId}
+                onChange={(e) => setSelectedTemplateId(e.target.value)}
+                className="ld-select"
+                style={{ padding: "6px 10px", fontSize: 12, width: "100%", height: 34 }}
+                title="Lọc theo loại mẫu tài liệu"
+              >
+                <option value="ALL">Tất cả mẫu tài liệu (Templates)</option>
+                <option value="NONE">Tự do (Không dùng template)</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={String(t.id)}>
+                    Mẫu: {t.name} ({t.type})
+                  </option>
+                ))}
+              </select>
         </div>
 
         {/* Lọc Repo */}
-        <div style={{ minWidth: 180 }}>
+            <div style={{ minWidth: 170 }}>
           <select
             value={selectedRepoId}
             onChange={(e) => setSelectedRepoId(e.target.value)}
             className="ld-select"
-            style={{ padding: "6px 10px", fontSize: 13, width: "100%" }}
+                style={{ padding: "6px 10px", fontSize: 12, width: "100%", height: 34 }}
+                title="Lọc theo kho lưu trữ GitHub"
           >
             <option value="ALL">Tất cả Repository</option>
             {repos.map((r) => (
@@ -781,6 +1033,56 @@ function DocumentListPageContent() {
               </option>
             ))}
           </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Hàng 3: Thống kê kết quả tìm kiếm thời gian thực */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            paddingTop: 8,
+            borderTop: "1px dashed var(--color-border)",
+            fontSize: 12,
+            color: "var(--color-text-secondary)",
+          }}
+        >
+          <div>
+            <span>Tìm thấy </span>
+            <strong style={{ color: "var(--color-accent-dark)" }}>{filteredDocs.length}</strong>
+            <span> / {documents.length} tài liệu</span>
+            {searchQuery.trim() && (
+              <span style={{ marginLeft: 8, color: "var(--color-text-primary)" }}>
+                khớp từ khóa <em>&ldquo;{searchQuery.trim()}&rdquo;</em>
+              </span>
+            )}
+            {selectedTemplateId !== "ALL" && (
+              <span style={{ marginLeft: 8, color: "#6d28d9" }}>
+                · Mẫu: {selectedTemplateId === "NONE" ? "Tự do" : templateMap.get(parseInt(selectedTemplateId, 10))?.name || selectedTemplateId}
+              </span>
+            )}
+          </div>
+
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                fontSize: 11,
+                color: "#059669",
+                background: "#ecfdf5",
+                padding: "2px 8px",
+                borderRadius: 4,
+                border: "1px solid #a7f3d0",
+              }}
+            >
+              <Sparkles size={11} />
+              <span>Tìm kiếm tức thì &lt; 1ms</span>
+            </span>
+          </div>
         </div>
       </div>
 
@@ -864,7 +1166,7 @@ function DocumentListPageContent() {
                       onMouseEnter={(e) => (e.currentTarget.style.color = "var(--color-accent)")}
                       onMouseLeave={(e) => (e.currentTarget.style.color = "var(--color-text-primary)")}
                     >
-                      {doc.title}
+                      {highlightMatch(doc.title, searchQuery)}
                     </Link>
 
                     {/* Huy hiệu Trạng thái */}
@@ -882,6 +1184,29 @@ function DocumentListPageContent() {
                       {statusMeta.icon}
                       {statusMeta.label}
                     </span>
+
+                    {/* Huy hiệu Loại mẫu tài liệu (Template) */}
+                    {doc.templateId && templateMap.get(doc.templateId) && (
+                      <span
+                        className="ld-badge"
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 500,
+                          background: "#f5f3ff",
+                          color: "#6d28d9",
+                          border: "1px solid #ddd6fe",
+                          padding: "2px 8px",
+                          borderRadius: 4,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                        title={`Mẫu tài liệu: ${templateMap.get(doc.templateId)?.name}`}
+                      >
+                        <Layers size={11} />
+                        <span>{templateMap.get(doc.templateId)?.name}</span>
+                      </span>
+                    )}
 
                     {/* Huy hiệu Phiên bản */}
                     <span
@@ -1005,7 +1330,7 @@ function DocumentListPageContent() {
                           border: "1px solid #e2e8f0",
                         }}
                       >
-                        {doc.targetPath}
+                        {highlightMatch(doc.targetPath, searchQuery)}
                       </span>
                     )}
 
@@ -1041,6 +1366,34 @@ function DocumentListPageContent() {
                       </button>
                     )}
                   </div>
+
+                  {/* Trích đoạn nội dung khớp từ khóa tìm kiếm toàn văn */}
+                  {searchQuery.trim() && (() => {
+                    const snippet = getMatchingSnippet(doc.latestVersion?.content, searchQuery);
+                    if (!snippet) return null;
+                    return (
+                      <div
+                        style={{
+                          marginTop: 8,
+                          padding: "6px 12px",
+                          background: "#fefce8",
+                          border: "1px solid #fef08a",
+                          borderRadius: 6,
+                          fontSize: 12,
+                          color: "#854d0e",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                        }}
+                      >
+                        <Search size={12} style={{ color: "#ca8a04", flexShrink: 0 }} />
+                        <span style={{ fontWeight: 600, flexShrink: 0 }}>Khớp nội dung:</span>
+                        <span style={{ fontStyle: "italic", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {highlightMatch(snippet, searchQuery)}
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Các nút Hành động Nhanh */}

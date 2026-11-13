@@ -22,6 +22,9 @@ export const documentService = {
   async getDocuments(params?: {
     collectionId?: number;
     repoId?: number;
+    keyword?: string;
+    status?: string;
+    templateId?: number;
   }): Promise<DocumentItem[]> {
     const res = await apiClient.get<DocumentItem[]>("/api/documents", {
       params,
