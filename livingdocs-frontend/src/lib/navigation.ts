@@ -4,7 +4,7 @@ import { APP_ROLES } from "@/types/navigation";
 export const NAV_ITEMS: NavItem[] = [
   { role: "DEVELOPER", href: "/nhat-ky-thay-doi", label: "Nhật ký thay đổi", icon: "history" },
   { role: "DEVELOPER", href: "/kho-luu-tru", label: "Kho lưu trữ", icon: "archive" },
-  { role: "DEVELOPER", href: "/tai-lieu-cua-toi", label: "Tài liệu", icon: "files" },
+  { role: "DEVELOPER", href: "/tai-lieu-cua-toi", label: "Cơ sở tri thức", icon: "files" },
   { role: "DEVELOPER", href: "/cay-ma-nguon", label: "Cây thư mục", icon: "tree" },
   { role: "DEVELOPER", href: "/canh-bao-sai-lech", label: "Cảnh báo", icon: "alert" },
   { role: "STAFF", href: "/nhat-ky-thay-doi", label: "Nhật ký thay đổi", icon: "history" },
