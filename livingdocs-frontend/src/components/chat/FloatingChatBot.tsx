@@ -6,63 +6,11 @@ import {
   Send,
   RefreshCw,
   Minus,
+  Bot,
   Zap,
 } from "lucide-react";
 import { aiChatService, type ChatMessage } from "@/services/aiChatService";
 import { MarkdownViewer } from "@/components/shared/MarkdownViewer";
-
-/**
- * Biểu tượng Lõi Trí tuệ AI Lượng tử độc quyền của LivingDocs (Quantum Neural Nexus):
- * Kết hợp 2 quỹ đạo elip lượng tử đan chéo biểu trưng cho vòng phân tích AST & Git,
- * cùng ngôi sao năng lượng 4 cánh phát sáng, mang phong cách AI cao cấp, hiện đại,
- * hoàn toàn khác biệt với các emoji robot hoạt hình đại trà.
- */
-export function AiCoreIcon({ size = 24, className }: { size?: number; className?: string }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-      style={{ display: "block" }}
-    >
-      {/* 2 quỹ đạo lượng tử đan chéo */}
-      <ellipse
-        cx="12"
-        cy="12"
-        rx="9.5"
-        ry="4.2"
-        transform="rotate(-30 12 12)"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeDasharray="3 1.5"
-        opacity="0.85"
-      />
-      <ellipse
-        cx="12"
-        cy="12"
-        rx="9.5"
-        ry="4.2"
-        transform="rotate(30 12 12)"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeDasharray="3 1.5"
-        opacity="0.85"
-      />
-
-      {/* Ngôi sao 4 cánh cong toán học (Astroid Nexus) */}
-      <path
-        d="M12 3C12 7.8 16.2 12 21 12C16.2 12 12 16.2 12 21C12 16.2 7.8 12 3 12C7.8 12 12 7.8 12 3Z"
-        fill="currentColor"
-      />
-
-      {/* Tâm hạt nhân phát sáng */}
-      <circle cx="12" cy="12" r="1.8" fill="#ffffff" />
-    </svg>
-  );
-}
 
 const INITIAL_MESSAGE: ChatMessage = {
   id: "init-1",
@@ -216,7 +164,7 @@ export function FloatingChatBot() {
             title="Mở BOT hỗ trợ"
           >
             <div style={{ position: "relative", display: "grid", placeItems: "center" }}>
-              <AiCoreIcon size={25} />
+              <Bot size={24} />
               <span
                 style={{
                   position: "absolute",
@@ -291,7 +239,7 @@ export function FloatingChatBot() {
                     flexShrink: 0,
                   }}
                 >
-                  <AiCoreIcon size={19} />
+                  <Bot size={18} />
                 </div>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.2 }}>
@@ -456,7 +404,7 @@ export function FloatingChatBot() {
                       color: "#2563eb",
                     }}
                   >
-                    <AiCoreIcon size={15} className="animate-spin" />
+                    <Bot size={14} className="animate-spin" />
                   </div>
                   <span style={{ fontSize: 11, color: "#64748b", fontStyle: "italic" }}>
                     Trợ lý AI đang suy nghĩ...
