@@ -15,7 +15,6 @@ import {
   Send,
   Bot,
   User,
-  Sparkles,
   CheckCircle2,
 } from "lucide-react";
 import { aiChatService } from "@/services/aiChatService";
@@ -280,7 +279,7 @@ export default function AstroshipLivingDocsHomePage() {
   const [chatMessages, setChatMessages] = useState<Array<{ sender: "bot" | "user"; text: string }>>([
     {
       sender: "bot",
-      text: "Xin chào! Tôi là Trợ lý AI của LivingDocs. Tôi có thể hỗ trợ gì về đồng bộ tài liệu, kiểm duyệt 2 lớp hoặc liên kết GitHub cho bạn?",
+      text: "Xin chào! Tôi là BOT hỗ trợ của LivingDocs. Tôi có thể hỗ trợ gì về đồng bộ tài liệu, kiểm duyệt 2 lớp hoặc liên kết GitHub cho bạn?",
     },
   ]);
   const [chatInput, setChatInput] = useState("");
@@ -827,7 +826,7 @@ export default function AstroshipLivingDocsHomePage() {
             setIsFeedbackOpen(false);
           }}
           className="no-rainbow flex flex-col items-center justify-center gap-1 group cursor-pointer transition-transform hover:scale-110 active:scale-95"
-          title="Chat với BOT Trợ lý AI"
+          title="Chat với BOT hỗ trợ"
         >
           <div className="rainbow-orbit w-11 h-11 rounded-full bg-amber-400 text-black flex items-center justify-center shadow-lg group-hover:bg-amber-300 transition-colors">
             <Bot className="w-5 h-5 stroke-[2.4]" />
@@ -939,8 +938,8 @@ export default function AstroshipLivingDocsHomePage() {
                 <Bot className="w-5 h-5" />
               </div>
               <div>
-                <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
-                  BOT Trợ lý AI <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                <h4 className="text-sm font-bold text-white">
+                  BOT hỗ trợ
                 </h4>
                 <span className="text-[10px] text-amber-400 font-medium flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" /> Sẵn sàng hỗ trợ
