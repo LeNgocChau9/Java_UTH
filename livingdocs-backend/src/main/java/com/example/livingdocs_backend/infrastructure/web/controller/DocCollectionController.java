@@ -1,16 +1,22 @@
 package com.example.livingdocs_backend.infrastructure.web.controller;
 
+import com.example.livingdocs_backend.application.dto.CollectionRollbackRequest;
+import com.example.livingdocs_backend.application.dto.CollectionRollbackResponse;
 import com.example.livingdocs_backend.application.dto.DocCollectionRequest;
 import com.example.livingdocs_backend.application.dto.DocCollectionResponse;
+import com.example.livingdocs_backend.application.port.DocumentServicePort;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocCollectionEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocCollectionRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentRepository;
+import com.example.livingdocs_backend.infrastructure.security.UserPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -25,6 +31,7 @@ public class DocCollectionController {
 
     private final SpringDataDocCollectionRepository collectionRepository;
     private final SpringDataDocumentRepository documentRepository;
+    private final DocumentServicePort documentServicePort;
 
     @GetMapping
     @Operation(summary = "Danh sách bộ sưu tập", description = "Lấy danh sách toàn bộ các bộ sưu tập tài liệu kèm số lượng tài liệu bên trong.")
@@ -102,5 +109,31 @@ public class DocCollectionController {
                 "status", HttpStatus.OK.value(),
                 "message", "Đã xóa bộ sưu tập ID: " + id
         ));
+    }
+
+    @PostMapping("/{id}/rollback")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
+    @Operation(
+            summary = "Khôi phục hàng loạt toàn bộ Bộ sưu tập về phiên bản trước",
+            description = "Hoàn tác hàng loạt cho toàn bộ các tài liệu thuộc cùng một bộ sưu tập nhằm phục hồi nhanh chóng trạng thái an toàn trước khi xảy ra một đợt cập nhật tự động bị lỗi hoặc không đạt yêu cầu. Tự động ghi nhận dòng nhật ký kiểm toán về thao tác hoàn tác."
+    )
+    public ResponseEntity<CollectionRollbackResponse> rollbackCollection(
+            @PathVariable Long id,
+            @RequestBody(required = false) CollectionRollbackRequest request,
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+
+        Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
+        String actorRole = extractRole(userPrincipal);
+
+        CollectionRollbackResponse response = documentServicePort.rollbackCollection(id, request, actorId, actorRole);
+        return ResponseEntity.ok(response);
+    }
+
+    private String extractRole(UserPrincipal userPrincipal) {
+        if (userPrincipal == null || userPrincipal.getAuthorities() == null || userPrincipal.getAuthorities().isEmpty()) {
+            return "MANAGER";
+        }
+        String auth = userPrincipal.getAuthorities().iterator().next().getAuthority();
+        return auth.startsWith("ROLE_") ? auth.substring(5) : auth;
     }
 }
