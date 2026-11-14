@@ -26,7 +26,6 @@ import {
   Layers,
   X,
   History,
-  Sparkles,
   Upload,
   Globe,
   FileUp,
@@ -582,26 +581,7 @@ function DocumentListPageContent() {
       {/* Tiêu đề Trang & Nút Làm mới duy nhất ở trên */}
       <div className="ld-page-header" style={{ marginBottom: 16 }}>
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <h1 className="ld-page-title" style={{ margin: 0 }}>Cơ sở Tri thức &amp; Quản lý Tài liệu</h1>
-            <span
-              style={{
-                fontSize: 11,
-                fontFamily: "var(--font-mono)",
-                fontWeight: 600,
-                padding: "2px 8px",
-                borderRadius: 12,
-                background: "var(--color-accent-subtle)",
-                color: "var(--color-accent-dark)",
-                border: "1px solid #b8dec5",
-              }}
-            >
-              Knowledge Base
-            </span>
-          </div>
-          <p style={{ fontSize: 13, color: "var(--color-text-secondary)", margin: "4px 0 0 0" }}>
-            Tra cứu, tìm kiếm toàn văn tức thì theo tiêu đề, nội dung và đường dẫn file nguồn; kết hợp bộ lọc đa tiêu chí theo trạng thái phê duyệt và loại mẫu tài liệu.
-          </p>
+          <h1 className="ld-page-title" style={{ margin: 0 }}>Quản Lí Tài Liệu</h1>
         </div>
         <div>
           <button
@@ -1063,25 +1043,6 @@ function DocumentListPageContent() {
                 · Mẫu: {selectedTemplateId === "NONE" ? "Tự do" : templateMap.get(parseInt(selectedTemplateId, 10))?.name || selectedTemplateId}
               </span>
             )}
-          </div>
-
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 4,
-                fontSize: 11,
-                color: "#059669",
-                background: "#ecfdf5",
-                padding: "2px 8px",
-                borderRadius: 4,
-                border: "1px solid #a7f3d0",
-              }}
-            >
-              <Sparkles size={11} />
-              <span>Tìm kiếm tức thì &lt; 1ms</span>
-            </span>
           </div>
         </div>
       </div>
