@@ -386,6 +386,9 @@ public class CodeIndexService implements CodeIndexServicePort {
     }
 
     private boolean isEntityDocumented(CodeEntity e, Set<Long> documentedEntityIds, Set<String> documentedKeys) {
+        if ("UNDOCUMENTED".equalsIgnoreCase(e.getDocStatus())) {
+            return false;
+        }
         if ("DOCUMENTED".equalsIgnoreCase(e.getDocStatus())) {
             return true;
         }

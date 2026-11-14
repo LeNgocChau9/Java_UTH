@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { Suspense, useEffect, useState, useMemo } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import {
   Sparkles,
@@ -29,12 +29,14 @@ import {
   type DocumentationGapDto,
 } from "@/services/codeEntityService";
 
-export default function KhoangTrongTaiLieuPage() {
+function KhoangTrongTaiLieuContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialRepoParam = searchParams.get("repo") || searchParams.get("repositoryId");
 
   // State kho lưu trữ
   const [repositories, setRepositories] = useState<RepoItem[]>([]);
-  const [selectedRepoId, setSelectedRepoId] = useState<string>("");
+  const [selectedRepoId, setSelectedRepoId] = useState<string>(initialRepoParam || "ALL");
   const [loadingRepos, setLoadingRepos] = useState<boolean>(true);
 
   // State bộ lọc
@@ -56,8 +58,17 @@ export default function KhoangTrongTaiLieuPage() {
       .getRepositories()
       .then((items) => {
         setRepositories(items);
-        if (items.length > 0 && !selectedRepoId) {
-          setSelectedRepoId(String(items[0].repositoryId));
+        if (items.length > 0) {
+          if (initialRepoParam && items.some((r) => String(r.repositoryId) === initialRepoParam)) {
+            setSelectedRepoId(initialRepoParam);
+          } else {
+            const saved = typeof window !== "undefined" ? localStorage.getItem("livingdocs_selected_repo_id") : null;
+            if (saved && (saved === "ALL" || items.some((r) => String(r.repositoryId) === saved))) {
+              setSelectedRepoId(saved);
+            } else if (!selectedRepoId) {
+              setSelectedRepoId("ALL");
+            }
+          }
         }
       })
       .catch(() => {
@@ -272,7 +283,13 @@ export default function KhoangTrongTaiLieuPage() {
               </label>
               <select
                 value={selectedRepoId}
-                onChange={(e) => setSelectedRepoId(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSelectedRepoId(val);
+                  if (typeof window !== "undefined") {
+                    localStorage.setItem("livingdocs_selected_repo_id", val);
+                  }
+                }}
                 disabled={loadingRepos}
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
               >
@@ -416,31 +433,60 @@ export default function KhoangTrongTaiLieuPage() {
               </p>
             </div>
           ) : !gapData || gapData.items.length === 0 ? (
-            <div className="p-12 text-center">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 ring-1 ring-emerald-200">
-                <CheckCircle2 size={24} />
+            gapData && gapData.totalEntities === 0 ? (
+              <div className="p-12 text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-500 ring-1 ring-slate-200">
+                  <FolderTree size={24} />
+                </div>
+                <h3 className="mt-3 text-sm font-bold text-slate-800">
+                  Kho lưu trữ chưa có dữ liệu phần tử mã nguồn
+                </h3>
+                <p className="mt-1 text-xs text-slate-500 max-w-md mx-auto">
+                  Kho lưu trữ này chưa bóc tách Class/Method qua Tree-sitter AST hoặc chưa có file mã nguồn được đồng bộ.
+                </p>
+                <div className="mt-4 flex items-center justify-center gap-2">
+                  <button
+                    onClick={() => setSelectedRepoId("ALL")}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                  >
+                    <Filter size={13} />
+                    Xem tất cả kho lưu trữ
+                  </button>
+                  <Link
+                    href={`/cay-ma-nguon?repo=${selectedRepoId}`}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 cursor-pointer"
+                  >
+                    <Sparkles size={13} />
+                    Mở Cây mã nguồn quét AST
+                  </Link>
+                </div>
               </div>
-              <h3 className="mt-3 text-sm font-bold text-slate-800">
-                Tuyệt vời! Không phát hiện khoảng trống tài liệu
-              </h3>
-              <p className="mt-1 text-xs text-slate-500 max-w-md mx-auto">
-                Tất cả các lớp, giao diện và phương thức phù hợp với bộ lọc hiện tại đã được tài liệu hóa đầy đủ
-                hoặc không có phần tử mã nguồn nào bị thiếu.
-              </p>
-              {selectedType !== "ALL" || selectedPackage !== "ALL" || searchKeyword ? (
-                <button
-                  onClick={() => {
-                    setSelectedType("ALL");
-                    setSelectedPackage("ALL");
-                    setSearchKeyword("");
-                  }}
-                  className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
-                >
-                  <Filter size={13} />
-                  Đặt lại tất cả bộ lọc
-                </button>
-              ) : null}
-            </div>
+            ) : (
+              <div className="p-12 text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 ring-1 ring-emerald-200">
+                  <CheckCircle2 size={24} />
+                </div>
+                <h3 className="mt-3 text-sm font-bold text-slate-800">
+                  Tuyệt vời! Không phát hiện khoảng trống tài liệu
+                </h3>
+                <p className="mt-1 text-xs text-slate-500 max-w-md mx-auto">
+                  Tất cả các lớp, giao diện và phương thức phù hợp với bộ lọc hiện tại đã được tài liệu hóa đầy đủ (Độ bao phủ 100%).
+                </p>
+                {selectedType !== "ALL" || selectedPackage !== "ALL" || searchKeyword ? (
+                  <button
+                    onClick={() => {
+                      setSelectedType("ALL");
+                      setSelectedPackage("ALL");
+                      setSearchKeyword("");
+                    }}
+                    className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                  >
+                    <Filter size={13} />
+                    Đặt lại tất cả bộ lọc
+                  </button>
+                ) : null}
+              </div>
+            )
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
@@ -584,5 +630,24 @@ export default function KhoangTrongTaiLieuPage() {
         </div>
       </div>
     </AppShell>
+  );
+}
+
+export default function KhoangTrongTaiLieuPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell>
+          <div className="flex h-64 items-center justify-center">
+            <div className="flex items-center gap-2 text-sm text-slate-500">
+              <RefreshCw size={18} className="animate-spin text-indigo-600" />
+              <span>Đang tải khoảng trống tài liệu...</span>
+            </div>
+          </div>
+        </AppShell>
+      }
+    >
+      <KhoangTrongTaiLieuContent />
+    </Suspense>
   );
 }
