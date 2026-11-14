@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import {
   Mail,
   MapPin,
@@ -262,6 +263,34 @@ const SHOWCASE_SECTIONS = [
 ];
 
 export default function AstroshipLivingDocsHomePage() {
+  const router = useRouter();
+  const [isSignedIn, setIsSignedIn] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("livingdocs_access_token");
+    setIsSignedIn(Boolean(token && token.trim().length > 0));
+  }, []);
+
+  /**
+   * Điều hướng có bảo vệ:
+   * - Nếu đã đăng nhập (có token) -> đi thẳng vào trang bên trong (targetPath) không cần đăng nhập lại.
+   * - Nếu chưa đăng nhập -> chuyển sang trang /login?next=<targetPath> để yêu cầu đăng nhập trước.
+   */
+  const handleProtectedNavigate = useCallback(
+    (e: React.MouseEvent, targetPath: string) => {
+      e.preventDefault();
+      if (typeof window === "undefined") return;
+      const token = window.localStorage.getItem("livingdocs_access_token");
+      if (token && token.trim().length > 0) {
+        router.push(targetPath);
+      } else {
+        router.push(`/login?next=${encodeURIComponent(targetPath)}`);
+      }
+    },
+    [router]
+  );
+
   const statDocs = useCounterOnView(1420, 1600);
   const statAccuracy = useCounterOnView(98.8, 1600, 1, 80);
   const statAudit = useCounterOnView(100, 1200);
@@ -376,18 +405,21 @@ export default function AstroshipLivingDocsHomePage() {
             </a>
             <Link
               href="/yeu-cau-sinh-tai-lieu"
+              onClick={(e) => handleProtectedNavigate(e, "/yeu-cau-sinh-tai-lieu")}
               className="rainbow-orbit px-3.5 py-1.5 rounded-lg hover:text-amber-300 hover:bg-white/5 transition-all duration-200"
             >
               Tạo tài liệu AI
             </Link>
             <Link
               href="/hang-doi-xem-xet"
+              onClick={(e) => handleProtectedNavigate(e, "/hang-doi-xem-xet")}
               className="rainbow-orbit px-3.5 py-1.5 rounded-lg hover:text-amber-300 hover:bg-white/5 transition-all duration-200"
             >
               Hàng đợi Thẩm định
             </Link>
             <Link
               href="/trung-tam-phe-duyet"
+              onClick={(e) => handleProtectedNavigate(e, "/trung-tam-phe-duyet")}
               className="rainbow-orbit px-3.5 py-1.5 rounded-lg hover:text-amber-300 hover:bg-white/5 transition-all duration-200"
             >
               Trung tâm Phê duyệt
@@ -412,10 +444,10 @@ export default function AstroshipLivingDocsHomePage() {
               </svg>
             </a>
             <Link
-              href="/login"
+              href={isSignedIn ? "/dashboard" : "/login"}
               className="rainbow-orbit rounded-full text-center transition-all px-6 py-2.5 bg-white text-black hover:bg-amber-300 hover:text-black text-sm font-semibold inline-block hover:scale-105 active:scale-95 duration-200 shadow-md"
             >
-              Đăng nhập
+              {isSignedIn ? "Vào Hệ thống" : "Đăng nhập"}
             </Link>
           </div>
         </div>
@@ -432,12 +464,14 @@ export default function AstroshipLivingDocsHomePage() {
             <div className="mt-8 flex flex-wrap gap-4">
               <Link
                 href="/yeu-cau-sinh-tai-lieu"
+                onClick={(e) => handleProtectedNavigate(e, "/yeu-cau-sinh-tai-lieu")}
                 className="rainbow-orbit rounded-full px-6 py-3 bg-white text-black hover:bg-amber-300 hover:text-black font-semibold text-sm transition-all hover:scale-105 active:scale-95 shadow-[0_4px_20px_rgba(0,0,0,0.5)]"
               >
                 Tạo tài liệu bằng AI
               </Link>
               <Link
                 href="/dashboard"
+                onClick={(e) => handleProtectedNavigate(e, "/dashboard")}
                 className="rainbow-orbit rounded-full px-6 py-3 bg-black/50 border border-white/20 text-white hover:border-amber-400 hover:text-amber-300 font-semibold text-sm transition-all hover:scale-105 active:scale-95"
               >
                 Vào Dashboard
@@ -590,15 +624,17 @@ export default function AstroshipLivingDocsHomePage() {
               <div className="flex flex-wrap gap-4 mt-8 justify-center">
                 <Link
                   href="/yeu-cau-sinh-tai-lieu"
+                  onClick={(e) => handleProtectedNavigate(e, "/yeu-cau-sinh-tai-lieu")}
                   className="rainbow-orbit rounded-full px-7 py-3.5 bg-white text-black hover:bg-amber-300 hover:text-black font-semibold text-sm transition-all hover:scale-105 active:scale-95 inline-block"
                 >
                   Tạo tài liệu bằng AI
                 </Link>
                 <Link
-                  href="/login"
+                  href="/dashboard"
+                  onClick={(e) => handleProtectedNavigate(e, "/dashboard")}
                   className="rainbow-orbit rounded-full px-7 py-3.5 bg-transparent border border-white/40 text-white hover:border-amber-400 hover:text-amber-300 font-semibold text-sm transition-all hover:scale-105 active:scale-95 inline-block"
                 >
-                  Đăng nhập hệ thống
+                  {isSignedIn ? "Vào Dashboard" : "Đăng nhập hệ thống"}
                 </Link>
               </div>
             </div>
@@ -707,12 +743,20 @@ export default function AstroshipLivingDocsHomePage() {
                   </a>
                 </li>
                 <li>
-                  <Link href="/dashboard" className="inline-flex items-center gap-1.5 text-slate-400 hover:text-amber-300 transition-colors">
+                  <Link
+                    href="/dashboard"
+                    onClick={(e) => handleProtectedNavigate(e, "/dashboard")}
+                    className="inline-flex items-center gap-1.5 text-slate-400 hover:text-amber-300 transition-colors"
+                  >
                     <ChevronRight className="w-3.5 h-3.5 text-amber-400" /> Dashboard Tech Lead
                   </Link>
                 </li>
                 <li>
-                  <Link href="/kho-luu-tru" className="inline-flex items-center gap-1.5 text-slate-400 hover:text-amber-300 transition-colors">
+                  <Link
+                    href="/kho-luu-tru"
+                    onClick={(e) => handleProtectedNavigate(e, "/kho-luu-tru")}
+                    className="inline-flex items-center gap-1.5 text-slate-400 hover:text-amber-300 transition-colors"
+                  >
                     <ChevronRight className="w-3.5 h-3.5 text-amber-400" /> Kho lưu trữ Repository
                   </Link>
                 </li>
@@ -731,27 +775,47 @@ export default function AstroshipLivingDocsHomePage() {
               </h4>
               <ul className="space-y-3 text-sm">
                 <li>
-                  <Link href="/yeu-cau-sinh-tai-lieu" className="inline-flex items-center gap-1.5 text-slate-400 hover:text-amber-300 transition-colors">
+                  <Link
+                    href="/yeu-cau-sinh-tai-lieu"
+                    onClick={(e) => handleProtectedNavigate(e, "/yeu-cau-sinh-tai-lieu")}
+                    className="inline-flex items-center gap-1.5 text-slate-400 hover:text-amber-300 transition-colors"
+                  >
                     <ChevronRight className="w-3.5 h-3.5 text-amber-400" /> Sinh tài liệu bằng AI
                   </Link>
                 </li>
                 <li>
-                  <Link href="/hang-doi-xem-xet" className="inline-flex items-center gap-1.5 text-slate-400 hover:text-amber-300 transition-colors">
+                  <Link
+                    href="/hang-doi-xem-xet"
+                    onClick={(e) => handleProtectedNavigate(e, "/hang-doi-xem-xet")}
+                    className="inline-flex items-center gap-1.5 text-slate-400 hover:text-amber-300 transition-colors"
+                  >
                     <ChevronRight className="w-3.5 h-3.5 text-amber-400" /> Thẩm định mã nguồn AST
                   </Link>
                 </li>
                 <li>
-                  <Link href="/trung-tam-phe-duyet" className="inline-flex items-center gap-1.5 text-slate-400 hover:text-amber-300 transition-colors">
+                  <Link
+                    href="/trung-tam-phe-duyet"
+                    onClick={(e) => handleProtectedNavigate(e, "/trung-tam-phe-duyet")}
+                    className="inline-flex items-center gap-1.5 text-slate-400 hover:text-amber-300 transition-colors"
+                  >
                     <ChevronRight className="w-3.5 h-3.5 text-amber-400" /> Trung tâm phê duyệt 2 lớp
                   </Link>
                 </li>
                 <li>
-                  <Link href="/canh-bao-sai-lech" className="inline-flex items-center gap-1.5 text-slate-400 hover:text-amber-300 transition-colors">
+                  <Link
+                    href="/canh-bao-sai-lech"
+                    onClick={(e) => handleProtectedNavigate(e, "/canh-bao-sai-lech")}
+                    className="inline-flex items-center gap-1.5 text-slate-400 hover:text-amber-300 transition-colors"
+                  >
                     <ChevronRight className="w-3.5 h-3.5 text-amber-400" /> Cảnh báo sai lệch (Drift)
                   </Link>
                 </li>
                 <li>
-                  <Link href="/giam-sat-suc-khoe" className="inline-flex items-center gap-1.5 text-slate-400 hover:text-amber-300 transition-colors">
+                  <Link
+                    href="/giam-sat-suc-khoe"
+                    onClick={(e) => handleProtectedNavigate(e, "/giam-sat-suc-khoe")}
+                    className="inline-flex items-center gap-1.5 text-slate-400 hover:text-amber-300 transition-colors"
+                  >
                     <ChevronRight className="w-3.5 h-3.5 text-amber-400" /> Giám sát sức khỏe tài liệu
                   </Link>
                 </li>

@@ -296,6 +296,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // Desktop sidebar collapse state
   const [desktopSidebarHidden, setDesktopSidebarHidden] = useState(false);
 
+  // Bảo vệ toàn bộ các trang bên trong AppShell: nếu chưa đăng nhập thì bắt buộc chuyển về /login?next=<pathname>
+  useEffect(() => {
+    if (ready && !signedIn) {
+      const target = pathname && pathname !== "/login" ? `?next=${encodeURIComponent(pathname)}` : "";
+      router.replace(`/login${target}`);
+    }
+  }, [ready, signedIn, pathname, router]);
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       const savedCollapse = localStorage.getItem("livingdocs_sidebar_collapsed");
@@ -1397,7 +1405,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           }}
           onClick={() => { setNotifOpen(false); setUserMenuOpen(false); }}
         >
-          {children}
+          {ready && signedIn ? children : null}
         </main>
       </div>
 

@@ -46,6 +46,26 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
   const REST_X = 245;
   const REST_Y = 300;
 
+  // Read destination redirect path from URL query (?next=... or ?redirect=...)
+  const getTargetAfterLogin = (): string => {
+    if (typeof window === "undefined") return "/dashboard";
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get("next") || params.get("redirect");
+    if (raw && raw.startsWith("/") && !raw.startsWith("//") && raw !== "/login") {
+      return raw;
+    }
+    return "/dashboard";
+  };
+
+  // Nếu người dùng đã có phiên đăng nhập hợp lệ thì chuyển thẳng tới trang đích mà không cần đăng nhập lại
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const existingToken = window.localStorage.getItem("livingdocs_access_token");
+    if (existingToken && existingToken.trim().length > 0) {
+      router.replace(getTargetAfterLogin());
+    }
+  }, [router]);
+
   // Sound helper
   const playElasticPluckSound = (pullDist: number) => {
     if (!isSoundEnabled) return;
@@ -311,7 +331,7 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
       } else {
         await login({ email: email.trim(), password });
       }
-      router.push("/dashboard");
+      router.push(getTargetAfterLogin());
       router.refresh();
     } catch (caught) {
       if (axios.isAxiosError(caught)) {
@@ -335,8 +355,7 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
 
   // GitHub OAuth trigger
   function handleGithubAuth() {
-    const next = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("next") : null;
-    const target = next && next.startsWith("/") && !next.startsWith("//") ? next : null;
+    const target = getTargetAfterLogin();
     const query = target ? `?redirect=${encodeURIComponent(target)}` : "";
     window.location.assign(`/api/auth/github${query}`);
   }
