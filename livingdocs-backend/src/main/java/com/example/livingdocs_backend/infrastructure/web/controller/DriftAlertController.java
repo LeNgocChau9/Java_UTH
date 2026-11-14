@@ -2,6 +2,9 @@ package com.example.livingdocs_backend.infrastructure.web.controller;
 
 import com.example.livingdocs_backend.application.dto.DriftAlertActionRequest;
 import com.example.livingdocs_backend.application.dto.DriftAlertResponse;
+import com.example.livingdocs_backend.application.dto.drift.ManualDriftAnalysisRequestDto;
+import com.example.livingdocs_backend.application.dto.drift.ManualDriftAnalysisResponseDto;
+import com.example.livingdocs_backend.application.port.DocDriftDetectionServicePort;
 import com.example.livingdocs_backend.application.service.DriftAlertService;
 import com.example.livingdocs_backend.infrastructure.sse.SseNotificationService;
 import com.example.livingdocs_backend.infrastructure.security.UserPrincipal;
@@ -15,6 +18,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -31,6 +35,19 @@ public class DriftAlertController {
 
     private final DriftAlertService driftAlertService;
     private final SseNotificationService sseNotificationService;
+    private final DocDriftDetectionServicePort docDriftDetectionService;
+
+    @PostMapping("/manual-analyze")
+    @Operation(
+            summary = "Kích hoạt thủ công phân tích sai lệch tài liệu theo PR hoặc Tài liệu cụ thể",
+            description = "Cho phép Developer hoặc Tech Lead chủ động bấm nút yêu cầu phân tích sự thay đổi và trôi dạt tài liệu cho một Pull Request hoặc một tài liệu cụ thể bất kỳ lúc nào mà không cần chờ Webhook."
+    )
+    public ResponseEntity<ManualDriftAnalysisResponseDto> triggerManualAnalyze(
+            @RequestBody ManualDriftAnalysisRequestDto request
+    ) {
+        ManualDriftAnalysisResponseDto response = docDriftDetectionService.triggerManualDriftAnalysis(request);
+        return ResponseEntity.ok(response);
+    }
 
     @GetMapping(value = "/stream", produces = org.springframework.http.MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "Mở kết nối Server-Sent Events (SSE) để nhận cảnh báo sai lệch thời gian thực")

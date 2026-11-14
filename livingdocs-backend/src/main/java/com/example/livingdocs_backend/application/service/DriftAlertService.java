@@ -26,7 +26,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class DriftAlertService {
 
-    static final Set<String> HANDLER_ROLES = Set.of("MANAGER", "TECH_LEAD", "ADMIN");
+    static final Set<String> HANDLER_ROLES = Set.of("MANAGER", "TECH_LEAD", "ADMIN", "DEVELOPER", "STAFF");
     static final Set<String> SEVERITIES = Set.of("LOW", "MEDIUM", "HIGH", "CRITICAL");
     private static final String OPEN = "OPEN";
     private static final String PENDING = "PENDING";

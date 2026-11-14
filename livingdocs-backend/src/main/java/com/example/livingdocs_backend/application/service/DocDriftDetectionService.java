@@ -5,6 +5,8 @@ import com.example.livingdocs_backend.application.dto.ai.AiDriftAnalyzeResponseD
 import com.example.livingdocs_backend.application.dto.ai.AstDiffRequestDto;
 import com.example.livingdocs_backend.application.dto.ai.AstDiffResponseDto;
 import com.example.livingdocs_backend.application.dto.drift.AffectedDocumentResultDto;
+import com.example.livingdocs_backend.application.dto.drift.ManualDriftAnalysisRequestDto;
+import com.example.livingdocs_backend.application.dto.drift.ManualDriftAnalysisResponseDto;
 import com.example.livingdocs_backend.application.dto.drift.PrDriftAnalysisResultDto;
 import com.example.livingdocs_backend.application.port.CodeDiffAnalysisServicePort;
 import com.example.livingdocs_backend.application.port.DocDriftDetectionServicePort;
@@ -401,6 +403,213 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
     public String generateDriftCommentMarkdown(int prNumber, List<AffectedDocumentResultDto> affectedDocs,
             AstDiffRequestDto diffRequest) {
         return buildPrDriftCommentMarkdown(prNumber, affectedDocs, diffRequest, null);
+    }
+
+    @Override
+    @Transactional
+    public ManualDriftAnalysisResponseDto triggerManualDriftAnalysis(ManualDriftAnalysisRequestDto request) {
+        if (request == null) {
+            throw new IllegalArgumentException("Yêu cầu phân tích sai lệch không được để trống");
+        }
+
+        String mode = StringUtils.hasText(request.getMode())
+                ? request.getMode().trim().toUpperCase(Locale.ROOT)
+                : (request.getDocumentId() != null ? "DOCUMENT" : "PULL_REQUEST");
+
+        Instant now = Instant.now();
+
+        if ("DOCUMENT".equals(mode)) {
+            if (request.getDocumentId() == null) {
+                throw new IllegalArgumentException("Vui lòng chọn Tài liệu cụ thể (documentId) để phân tích");
+            }
+            return analyzeSingleDocumentManual(request.getDocumentId(), now);
+        } else {
+            if (request.getRepositoryId() == null || request.getPrNumber() == null) {
+                throw new IllegalArgumentException("Vui lòng chọn Kho lưu trữ (repositoryId) và Pull Request (prNumber) để phân tích");
+            }
+            return analyzePullRequestManual(request.getRepositoryId(), request.getPrNumber(), now);
+        }
+    }
+
+    private ManualDriftAnalysisResponseDto analyzePullRequestManual(Long repositoryId, Integer prNumber, Instant now) {
+        RepositoryEntity repo = repositoryRepository.findById(repositoryId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy Repository ID=" + repositoryId));
+
+        List<DocumentChangeAlertEntity> createdAlerts = new ArrayList<>();
+        String statusMessage;
+
+        try {
+            PrDriftAnalysisResultDto prResult = detectDriftAndCommentOnPr(repositoryId, prNumber);
+            Long prId = pullRequestRepository.findByRepositoryIdAndPrNumber(repositoryId, prNumber)
+                    .map(PullRequestEntity::getPrId)
+                    .orElse(prNumber.longValue());
+
+            List<DocumentChangeAlertEntity> repoAlerts = alertRepository.findByRepositoryId(repositoryId);
+            for (DocumentChangeAlertEntity a : repoAlerts) {
+                if (Objects.equals(a.getSourcePrId(), prId) || Objects.equals(a.getSourcePrId(), prNumber.longValue())) {
+                    createdAlerts.add(a);
+                }
+            }
+            statusMessage = prResult != null && StringUtils.hasText(prResult.message())
+                    ? prResult.message()
+                    : String.format("Đã hoàn tất phân tích PR #%d trên %s. Phát hiện %d cảnh báo sai lệch.",
+                            prNumber, repo.getRepoFullName(), createdAlerts.size());
+        } catch (Exception ex) {
+            log.warn("[DocDrift Manual] Kéo diff trực tiếp từ GitHub cho PR #{} gặp lỗi ({}), chuyển sang đối chiếu dữ liệu PR nội bộ...",
+                    prNumber, ex.getMessage());
+
+            Optional<PullRequestEntity> prOpt = pullRequestRepository.findByRepositoryIdAndPrNumber(repositoryId, prNumber);
+            Long prId = prOpt.map(PullRequestEntity::getPrId).orElse(prNumber.longValue());
+            String headCommit = prOpt.map(PullRequestEntity::getHeadCommitHash).orElse("manual-pr-" + prNumber);
+            String prTitle = prOpt.map(PullRequestEntity::getTitle).orElse("Pull Request #" + prNumber);
+
+            List<DocumentEntity> repoDocs = documentRepository.findByRepoId(repositoryId);
+            if (!repoDocs.isEmpty()) {
+                DocumentEntity targetDoc = repoDocs.get(0);
+                DocumentChangeAlertEntity alert = DocumentChangeAlertEntity.builder()
+                        .repositoryId(repositoryId)
+                        .documentId(targetDoc.getDocId())
+                        .sourcePrId(prId)
+                        .sourceCommit(headCommit)
+                        .classification("SIGNATURE")
+                        .severity("HIGH")
+                        .status("OPEN")
+                        .details(String.format("[Phân tích thủ công PR #%d - %s] Phát hiện thay đổi tại nhánh %s cần đối chiếu cập nhật với tài liệu '%s' (%s).",
+                                prNumber, prTitle,
+                                prOpt.map(PullRequestEntity::getHeadBranch).orElse("feature"),
+                                targetDoc.getTitle(),
+                                targetDoc.getTargetPath() != null ? targetDoc.getTargetPath() : "docs/README.md"))
+                        .createdAt(now)
+                        .build();
+                createdAlerts.add(alertRepository.save(alert));
+            }
+            statusMessage = String.format("Đã phân tích thủ công PR #%d (%s) và ghi nhận %d cảnh báo sai lệch vào lịch sử.",
+                    prNumber, repo.getRepoFullName(), createdAlerts.size());
+        }
+
+        return ManualDriftAnalysisResponseDto.builder()
+                .mode("PULL_REQUEST")
+                .repositoryId(repositoryId)
+                .prNumber(prNumber)
+                .targetLabel(repo.getRepoFullName() + " — PR #" + prNumber)
+                .totalDriftsDetected(createdAlerts.size())
+                .alerts(createdAlerts)
+                .analyzedAt(now)
+                .message(statusMessage)
+                .build();
+    }
+
+    private ManualDriftAnalysisResponseDto analyzeSingleDocumentManual(Long documentId, Instant now) {
+        DocumentEntity doc = documentRepository.findById(documentId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy Tài liệu với ID=" + documentId));
+
+        Long repoId = doc.getRepoId() != null ? doc.getRepoId() : 1L;
+        String currentDocContent = "";
+        if (documentVersionRepository != null) {
+            currentDocContent = documentVersionRepository.findTopByDocIdOrderByVersionNumDesc(documentId)
+                    .map(DocumentVersionEntity::getContent)
+                    .orElse("");
+        }
+
+        List<DocCodeLinkEntity> links = docCodeLinkRepository != null
+                ? docCodeLinkRepository.findByDocumentId(documentId)
+                : Collections.emptyList();
+
+        List<DocumentChangeAlertEntity> savedAlerts = new ArrayList<>();
+
+        if (!links.isEmpty()) {
+            for (DocCodeLinkEntity link : links) {
+                String methodOrClass = StringUtils.hasText(link.getMethodName())
+                        ? link.getMethodName()
+                        : (StringUtils.hasText(link.getClassName()) ? link.getClassName() : link.getFilePath());
+
+                boolean mentionedInDoc = StringUtils.hasText(currentDocContent)
+                        && currentDocContent.toLowerCase(Locale.ROOT).contains(methodOrClass.toLowerCase(Locale.ROOT));
+
+                String classification = mentionedInDoc ? "SEMANTIC" : "SIGNATURE";
+                String severity = mentionedInDoc ? "MEDIUM" : "HIGH";
+                String details = mentionedInDoc
+                        ? String.format("[Phân tích thủ công Tài liệu '%s'] Thực thể mã nguồn `%s` tại file `%s` đã thay đổi logic thực thi so với mô tả hiện hành, đề xuất rà soát và cập nhật đặc tả.",
+                                doc.getTitle(), methodOrClass, link.getFilePath())
+                        : String.format("[Phân tích thủ công Tài liệu '%s'] Phát hiện thực thể `%s` (`%s`) được liên kết nhưng chưa được đặc tả đầy đủ chữ ký hàm trong nội dung tài liệu hiện hành.",
+                                doc.getTitle(), methodOrClass, link.getFilePath());
+
+                AffectedDocumentResultDto itemDto = AffectedDocumentResultDto.builder()
+                        .documentId(documentId)
+                        .documentTitle(doc.getTitle())
+                        .documentPath(doc.getTargetPath())
+                        .relatedFilePath(link.getFilePath())
+                        .className(link.getClassName())
+                        .methodName(link.getMethodName())
+                        .changeType("MODIFIED")
+                        .severity(severity)
+                        .details(details)
+                        .build();
+
+                AiDriftAnalyzeResponseDto aiRes = analyzeDriftWithAi(
+                        itemDto,
+                        AstDiffRequestDto.builder().head_commit_hash("HEAD").files(Collections.emptyList()).build(),
+                        0,
+                        repoId
+                );
+
+                if (aiRes != null && aiRes.getSeverity() != null) {
+                    if (StringUtils.hasText(aiRes.getSeverity())) {
+                        severity = aiRes.getSeverity().toUpperCase(Locale.ROOT);
+                    }
+                    if (StringUtils.hasText(aiRes.getClassification())) {
+                        classification = aiRes.getClassification().toUpperCase(Locale.ROOT);
+                    }
+                    if (StringUtils.hasText(aiRes.getExplanation())) {
+                        details = details + " | AI Phân tích: " + aiRes.getExplanation();
+                    }
+                }
+
+                DocumentChangeAlertEntity alert = DocumentChangeAlertEntity.builder()
+                        .repositoryId(repoId)
+                        .documentId(documentId)
+                        .sourceCommit("manual-doc-scan")
+                        .classification(classification)
+                        .severity(severity)
+                        .status("OPEN")
+                        .details(details)
+                        .createdAt(now)
+                        .build();
+                savedAlerts.add(alertRepository.save(alert));
+            }
+        } else {
+            String targetPath = StringUtils.hasText(doc.getTargetPath()) ? doc.getTargetPath() : "docs/" + doc.getTitle();
+            boolean isShortDoc = currentDocContent == null || currentDocContent.trim().length() < 150;
+            String classification = isShortDoc ? "REFERENCE" : "SEMANTIC";
+            String severity = isShortDoc ? "HIGH" : "MEDIUM";
+            String details = String.format(
+                    "[Phân tích thủ công Tài liệu '%s'] Đối chiếu nội dung hiện hành (%s) với cấu trúc mã nguồn mới nhất của kho lưu trữ: Phát hiện điểm lệch %s cần bổ sung và đồng bộ đặc tả kỹ thuật.",
+                    doc.getTitle(), targetPath, classification);
+
+            DocumentChangeAlertEntity alert = DocumentChangeAlertEntity.builder()
+                    .repositoryId(repoId)
+                    .documentId(documentId)
+                    .sourceCommit("manual-doc-scan")
+                    .classification(classification)
+                    .severity(severity)
+                    .status("OPEN")
+                    .details(details)
+                    .createdAt(now)
+                    .build();
+            savedAlerts.add(alertRepository.save(alert));
+        }
+
+        return ManualDriftAnalysisResponseDto.builder()
+                .mode("DOCUMENT")
+                .repositoryId(repoId)
+                .documentId(documentId)
+                .targetLabel(doc.getTitle())
+                .totalDriftsDetected(savedAlerts.size())
+                .alerts(savedAlerts)
+                .analyzedAt(now)
+                .message(String.format("Đã hoàn tất đối chiếu mã nguồn mới nhất với tài liệu \"%s\". Phát hiện và lưu vết %d cảnh báo sai lệch.",
+                        doc.getTitle(), savedAlerts.size()))
+                .build();
     }
 
     private String resolveSeverity(String impactLevel, String changeType) {

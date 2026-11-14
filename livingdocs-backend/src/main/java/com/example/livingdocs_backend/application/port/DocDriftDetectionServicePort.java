@@ -2,6 +2,8 @@ package com.example.livingdocs_backend.application.port;
 
 import com.example.livingdocs_backend.application.dto.ai.AstDiffRequestDto;
 import com.example.livingdocs_backend.application.dto.drift.AffectedDocumentResultDto;
+import com.example.livingdocs_backend.application.dto.drift.ManualDriftAnalysisRequestDto;
+import com.example.livingdocs_backend.application.dto.drift.ManualDriftAnalysisResponseDto;
 import com.example.livingdocs_backend.application.dto.drift.PrDriftAnalysisResultDto;
 
 import java.util.List;
@@ -46,5 +48,13 @@ public interface DocDriftDetectionServicePort {
     default String generateDriftCommentMarkdown(int prNumber, List<AffectedDocumentResultDto> affectedDocs,
             AstDiffRequestDto diffRequest) {
         return "";
+    }
+
+    /**
+     * Kích hoạt thủ công phân tích sai lệch tài liệu theo một Pull Request hoặc một Tài liệu cụ thể bất kỳ lúc nào.
+     * Đối chiếu mã nguồn mới nhất với nội dung tài liệu hiện hành, lưu vết lịch sử vào document_change_alerts.
+     */
+    default ManualDriftAnalysisResponseDto triggerManualDriftAnalysis(ManualDriftAnalysisRequestDto request) {
+        return null;
     }
 }
