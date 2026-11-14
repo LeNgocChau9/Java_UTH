@@ -976,9 +976,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             aria-label="Chuyển đổi giao diện Sáng / Tối"
           >
             {isDark ? (
-              <Sun size={18} className="text-amber-400" />
+              <Sun size={18} className="text-amber-400" fill="currentColor" />
             ) : (
-              <Moon size={18} className="text-slate-600" />
+              <Moon size={18} className="text-black" fill="#000000" stroke="#000000" />
             )}
           </button>
 
