@@ -87,9 +87,9 @@ public class AuthController {
         return ResponseEntity.ok(response);
     }
 
-    @GetMapping("/me")
+    @GetMapping({"/me", "/users/me", "/profile"})
     @SecurityRequirement(name = "BearerAuth")
-    @Operation(summary = "Lấy thông tin tài khoản hiện tại", description = "Xác thực Bearer token từ Authorization header và trả về thông tin cá nhân")
+    @Operation(summary = "Lấy thông tin tài khoản hiện tại", description = "Xác thực Bearer token từ Authorization header và trả về thông tin cá nhân kèm tùy chọn thông báo")
     public ResponseEntity<UserProfileResponse> getCurrentUser(Principal principal) {
         if (principal == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
@@ -98,9 +98,9 @@ public class AuthController {
         return ResponseEntity.ok(profile);
     }
 
-    @PutMapping("/me")
+    @PutMapping({"/me", "/users/me", "/profile"})
     @SecurityRequirement(name = "BearerAuth")
-    @Operation(summary = "Cập nhật thông tin cá nhân", description = "Cho phép người dùng tự đổi tên, đổi avatar và đổi mật khẩu tài khoản của chính mình")
+    @Operation(summary = "Cập nhật thông tin cá nhân", description = "Cho phép người dùng tự đổi họ tên, ảnh đại diện, đổi mật khẩu và lưu tùy chọn thông báo của chính mình")
     public ResponseEntity<UserProfileResponse> updateProfile(
             @Valid @RequestBody com.example.livingdocs_backend.application.dto.UpdateProfileRequest request,
             Principal principal) {
@@ -109,6 +109,42 @@ public class AuthController {
         }
         UserProfileResponse updated = authServicePort.updateProfile(principal.getName(), request);
         return ResponseEntity.ok(updated);
+    }
+
+    @PutMapping({"/me/password", "/users/me/password"})
+    @SecurityRequirement(name = "BearerAuth")
+    @Operation(summary = "Đổi mật khẩu cá nhân", description = "Cho phép người dùng tự đổi mật khẩu bằng cách xác nhận mật khẩu hiện tại (oldPassword) và mật khẩu mới (newPassword)")
+    public ResponseEntity<UserProfileResponse> changePassword(
+            @Valid @RequestBody com.example.livingdocs_backend.application.dto.UpdateProfileRequest request,
+            Principal principal) {
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        UserProfileResponse updated = authServicePort.updateProfile(principal.getName(), request);
+        return ResponseEntity.ok(updated);
+    }
+
+    @GetMapping({"/me/notification-preferences", "/users/me/notification-preferences", "/profile/notification-preferences"})
+    @SecurityRequirement(name = "BearerAuth")
+    @Operation(summary = "Xem tùy chọn nhận thông báo cá nhân", description = "Trả về cấu hình bật/tắt thông báo: tài liệu mới cần duyệt (reviewEnabled), cảnh báo sai lệch mã nguồn (driftAlertEnabled/documentEnabled), sự cố mã khóa truy cập GitHub (githubTokenIssueEnabled/githubEnabled) và nhận qua email (emailEnabled)")
+    public ResponseEntity<com.example.livingdocs_backend.application.dto.UserNotificationPreferencesDto> getNotificationPreferences(
+            Principal principal) {
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        return ResponseEntity.ok(authServicePort.getNotificationPreferences(principal.getName()));
+    }
+
+    @PutMapping({"/me/notification-preferences", "/users/me/notification-preferences", "/profile/notification-preferences"})
+    @SecurityRequirement(name = "BearerAuth")
+    @Operation(summary = "Cập nhật tùy chọn nhận thông báo cá nhân", description = "Lưu cấu hình bật/tắt nhận thông báo khi có tài liệu mới cần duyệt, cảnh báo sai lệch mã nguồn hoặc khi mã khóa truy cập GitHub gặp sự cố cần cấp quyền lại")
+    public ResponseEntity<com.example.livingdocs_backend.application.dto.UserNotificationPreferencesDto> updateNotificationPreferences(
+            @RequestBody com.example.livingdocs_backend.application.dto.UserNotificationPreferencesDto request,
+            Principal principal) {
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        return ResponseEntity.ok(authServicePort.updateNotificationPreferences(principal.getName(), request));
     }
 
     // ═══ Đăng nhập hoặc Liên kết bằng GitHub OAuth2 (Authorization Code Flow) ═══
