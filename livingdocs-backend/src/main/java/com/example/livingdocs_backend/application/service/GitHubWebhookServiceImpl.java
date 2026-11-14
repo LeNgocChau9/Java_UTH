@@ -69,8 +69,8 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
             return true;
         }
 
-        if (!StringUtils.hasText(signatureHeader) || !signatureHeader.toLowerCase().startsWith("sha256=")) {
-            log.error("[Webhook] Thiếu hoặc sai định dạng header X-Hub-Signature-256: {}", signatureHeader);
+        if (payloadRaw == null || !StringUtils.hasText(signatureHeader) || !signatureHeader.toLowerCase().startsWith("sha256=")) {
+            log.error("[Webhook] Thiếu payload hoặc sai định dạng header X-Hub-Signature-256: {}", signatureHeader);
             return false;
         }
 
@@ -83,11 +83,7 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
             mac.init(secretKeySpec);
             byte[] hmacBytes = mac.doFinal(payloadRaw.getBytes(StandardCharsets.UTF_8));
 
-            StringBuilder hex = new StringBuilder();
-            for (byte b : hmacBytes) {
-                hex.append(String.format("%02x", b));
-            }
-            String actualHash = hex.toString();
+            String actualHash = java.util.HexFormat.of().formatHex(hmacBytes);
 
             // So sánh an toàn chống tấn công timing attack
             boolean match = MessageDigest.isEqual(
