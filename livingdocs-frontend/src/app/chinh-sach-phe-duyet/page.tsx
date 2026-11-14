@@ -97,10 +97,6 @@ export default function ApprovalPolicyPage() {
               <SlidersHorizontal className="text-[#07543f]" size={22} />
               <h1 className="text-2xl font-bold text-slate-900">Chính sách phê duyệt</h1>
             </div>
-            <p className="mt-1 max-w-3xl text-sm text-slate-500">
-              Kiến trúc và hướng dẫn tổng quan dùng hai cấp: nhân viên xem xét, rồi quản lý xuất bản.
-              Tài liệu tham khảo API có thể để một cấp: nhân viên chấp thuận là tài liệu sang đã xuất bản.
-            </p>
           </div>
           <button
             type="button"

@@ -7,7 +7,7 @@ import { AppShell } from "@/components/AppShell";
 import { documentService } from "@/services/documentService";
 import { repoService, type RepoItem } from "@/services/repoService";
 import { templateService, type DocTemplateDto } from "@/services/templateService";
-import type { DocCollection, DocumentItem, IntegrityCheckResult } from "@/types/document";
+import type { CollectionOwnerItem, DocCollection, DocumentItem, IntegrityCheckResult } from "@/types/document";
 import {
   FileText,
   GitBranch,
@@ -31,6 +31,7 @@ import {
   FileUp,
   ExternalLink,
   RotateCcw,
+  UserCheck,
 } from "lucide-react";
 
 const STATUS_CONFIG: Record<
@@ -137,6 +138,7 @@ function DocumentListPageContent() {
 
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [collections, setCollections] = useState<DocCollection[]>([]);
+  const [collectionOwners, setCollectionOwners] = useState<CollectionOwnerItem[]>([]);
   const [repos, setRepos] = useState<RepoItem[]>([]);
   const [templates, setTemplates] = useState<DocTemplateDto[]>([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState<number | null>(
@@ -152,11 +154,17 @@ function DocumentListPageContent() {
   const [refreshing, setRefreshing] = useState(false);
   const [toast, setToast] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null);
 
-  // Modal tạo Bộ sưu tập
+  // Modal tạo / chỉnh sửa Bộ sưu tập & Phân quyền chủ sở hữu
   const [showCreateCollectionModal, setShowCreateCollectionModal] = useState(false);
+  const [editingCollection, setEditingCollection] = useState<DocCollection | null>(null);
   const [newColName, setNewColName] = useState("");
+  const [newColModuleTag, setNewColModuleTag] = useState("");
   const [newColDesc, setNewColDesc] = useState("");
+  const [newColOwnerId, setNewColOwnerId] = useState<string>("");
+  const [newColDocIds, setNewColDocIds] = useState<number[]>([]);
+  const [colDocFilter, setColDocFilter] = useState("");
   const [creatingCol, setCreatingCol] = useState(false);
+  const [assigningDocId, setAssigningDocId] = useState<number | null>(null);
 
   // Modal xác nhận xóa tài liệu
   const [docToDelete, setDocToDelete] = useState<DocumentItem | null>(null);
@@ -200,9 +208,10 @@ function DocumentListPageContent() {
   const loadData = useCallback(async () => {
     try {
       setRefreshing(true);
-      const [docs, cols, rps, tmpls] = await Promise.all([
+      const [docs, cols, owners, rps, tmpls] = await Promise.all([
         documentService.getDocuments(),
         documentService.getCollections().catch(() => []),
+        documentService.getCollectionOwners().catch(() => []),
         repoService.getRepositories().catch(() => []),
         templateService.getTemplates().catch(() => []),
       ]);
@@ -213,6 +222,7 @@ function DocumentListPageContent() {
       });
       setDocuments(sortedDocs);
       setCollections(cols);
+      setCollectionOwners(owners || []);
       setRepos(rps);
       setTemplates(tmpls || []);
     } catch (err: any) {
@@ -359,7 +369,34 @@ function DocumentListPageContent() {
     repoMap,
   ]);
 
-  // Xử lý tạo Bộ sưu tập mới
+  // Mở modal Tạo mới Bộ sưu tập
+  const openCreateCollectionModal = () => {
+    setEditingCollection(null);
+    setNewColName("");
+    setNewColModuleTag("");
+    setNewColDesc("");
+    setNewColOwnerId("");
+    setNewColDocIds([]);
+    setColDocFilter("");
+    setShowCreateCollectionModal(true);
+  };
+
+  // Mở modal Chỉnh sửa Bộ sưu tập & Phân quyền chủ sở hữu
+  const openEditCollectionModal = (col: DocCollection) => {
+    setEditingCollection(col);
+    setNewColName(col.name || "");
+    setNewColModuleTag(col.moduleTag || "");
+    setNewColDesc(col.description || "");
+    setNewColOwnerId(col.ownerId ? String(col.ownerId) : "");
+    const assignedDocIds = documents
+      .filter((d) => d.collectionId === col.id)
+      .map((d) => d.docId);
+    setNewColDocIds(assignedDocIds);
+    setColDocFilter("");
+    setShowCreateCollectionModal(true);
+  };
+
+  // Xử lý tạo mới hoặc cập nhật Bộ sưu tập & Phân quyền chủ sở hữu
   const handleCreateCollection = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newColName.trim()) {
@@ -367,22 +404,87 @@ function DocumentListPageContent() {
       return;
     }
 
+    const selectedOwner = collectionOwners.find((o) => String(o.userId) === newColOwnerId);
+    const payload = {
+      name: newColName.trim(),
+      moduleTag: newColModuleTag.trim() || undefined,
+      description: newColDesc.trim() || undefined,
+      ownerId: selectedOwner ? selectedOwner.userId : null,
+      ownerName: selectedOwner ? selectedOwner.fullName : undefined,
+      ownerEmail: selectedOwner ? selectedOwner.email : undefined,
+      ownerRole: selectedOwner ? selectedOwner.role : undefined,
+      documentIds: newColDocIds,
+    };
+
     setCreatingCol(true);
     try {
-      const created = await documentService.createCollection({
-        name: newColName.trim(),
-        description: newColDesc.trim() || undefined,
-      });
-      setCollections((prev) => [...prev, created]);
-      setSelectedCollectionId(created.id);
-      setNewColName("");
-      setNewColDesc("");
+      if (editingCollection) {
+        const updated = await documentService.updateCollection(editingCollection.id, payload);
+        setCollections((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+        const selectedDocSet = new Set(newColDocIds);
+        setDocuments((prev) =>
+          prev.map((d) => {
+            if (selectedDocSet.has(d.docId)) {
+              return { ...d, collectionId: updated.id };
+            }
+            if (d.collectionId === updated.id && !selectedDocSet.has(d.docId)) {
+              return { ...d, collectionId: null };
+            }
+            return d;
+          })
+        );
+        notify(
+          "success",
+          `Đã cập nhật bộ sưu tập "${updated.name}"${updated.ownerName ? ` (Phụ trách: ${updated.ownerName})` : ""}`
+        );
+      } else {
+        const created = await documentService.createCollection(payload);
+        setCollections((prev) => [...prev, created]);
+        setSelectedCollectionId(created.id);
+        if (newColDocIds.length > 0) {
+          const selectedDocSet = new Set(newColDocIds);
+          setDocuments((prev) =>
+            prev.map((d) => (selectedDocSet.has(d.docId) ? { ...d, collectionId: created.id } : d))
+          );
+        }
+        notify(
+          "success",
+          `Đã tạo bộ sưu tập "${created.name}"${created.ownerName ? ` · Phụ trách: ${created.ownerName}` : ""}`
+        );
+      }
       setShowCreateCollectionModal(false);
-      notify("success", `Đã tạo bộ sưu tập: ${created.name}`);
+      setEditingCollection(null);
     } catch (err: any) {
-      notify("error", "Tạo bộ sưu tập thất bại: " + (err.response?.data?.message || err.message));
+      notify(
+        "error",
+        (editingCollection ? "Cập nhật" : "Tạo") +
+          " bộ sưu tập thất bại: " +
+          (err.response?.data?.message || err.message)
+      );
     } finally {
       setCreatingCol(false);
+    }
+  };
+
+  // Xử lý gán hoặc gỡ trực tiếp 1 tài liệu vào/khỏi Bộ sưu tập ngay từ dòng tài liệu
+  const handleAssignDocToCollection = async (doc: DocumentItem, targetColId: number | null) => {
+    setAssigningDocId(doc.docId);
+    try {
+      await documentService.assignDocumentCollection(doc.docId, targetColId);
+      setDocuments((prev) =>
+        prev.map((d) => (d.docId === doc.docId ? { ...d, collectionId: targetColId } : d))
+      );
+      const targetColName = targetColId ? collectionMap.get(targetColId) : null;
+      notify(
+        "success",
+        targetColName
+          ? `Đã gán "${doc.title}" vào bộ sưu tập "${targetColName}"`
+          : `Đã gỡ "${doc.title}" khỏi bộ sưu tập`
+      );
+    } catch (err: any) {
+      notify("error", "Cập nhật bộ sưu tập thất bại: " + (err.response?.data?.message || err.message));
+    } finally {
+      setAssigningDocId(null);
     }
   };
 
@@ -673,7 +775,7 @@ function DocumentListPageContent() {
 
           <button
             type="button"
-            onClick={() => setShowCreateCollectionModal(true)}
+            onClick={openCreateCollectionModal}
             className="ld-btn ld-btn-ghost ld-btn-sm"
             style={{ color: "var(--color-accent)", fontWeight: 500 }}
           >
@@ -739,8 +841,8 @@ function DocumentListPageContent() {
                 className="ld-card"
                 style={{
                   padding: "10px 14px",
-                  minWidth: 200,
-                  maxWidth: 280,
+                  minWidth: 230,
+                  maxWidth: 310,
                   cursor: "pointer",
                   border: isSelected ? "2px solid var(--color-accent)" : "1px solid var(--color-border)",
                   background: isSelected ? "var(--color-accent-subtle)" : "#ffffff",
@@ -753,11 +855,11 @@ function DocumentListPageContent() {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    gap: 8,
+                    gap: 6,
                     marginBottom: 4,
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, flex: 1 }}>
                     <Folder
                       size={14}
                       style={{ color: isSelected ? "var(--color-accent)" : "#0284c7", flexShrink: 0 }}
@@ -775,45 +877,84 @@ function DocumentListPageContent() {
                     >
                       {col.name}
                     </span>
+                    {col.moduleTag && (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 600,
+                          background: "#e0f2fe",
+                          color: "#0369a1",
+                          padding: "1px 6px",
+                          borderRadius: 4,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {col.moduleTag}
+                      </span>
+                    )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setCollectionToDelete(col);
-                    }}
-                    title="Xóa bộ sưu tập"
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      color: "#94a3b8",
-                      cursor: "pointer",
-                      padding: "2px 4px",
-                      borderRadius: 4,
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      lineHeight: 1,
-                      flexShrink: 0,
-                      transition: "all 120ms ease",
-                    }}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLElement).style.color = "#ef4444";
-                      (e.currentTarget as HTMLElement).style.background = "#fee2e2";
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLElement).style.color = "#94a3b8";
-                      (e.currentTarget as HTMLElement).style.background = "transparent";
-                    }}
-                  >
-                    <Trash2 size={13} />
-                  </button>
+                  <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openEditCollectionModal(col);
+                      }}
+                      title="Chỉnh sửa bộ sưu tập & Phân quyền chủ sở hữu"
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        color: "#64748b",
+                        cursor: "pointer",
+                        padding: "2px 4px",
+                        borderRadius: 4,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        lineHeight: 1,
+                        transition: "all 120ms ease",
+                      }}
+                    >
+                      <Edit3 size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCollectionToDelete(col);
+                      }}
+                      title="Xóa bộ sưu tập"
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        color: "#94a3b8",
+                        cursor: "pointer",
+                        padding: "2px 4px",
+                        borderRadius: 4,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        lineHeight: 1,
+                        transition: "all 120ms ease",
+                      }}
+                      onMouseEnter={(e) => {
+                        (e.currentTarget as HTMLElement).style.color = "#ef4444";
+                        (e.currentTarget as HTMLElement).style.background = "#fee2e2";
+                      }}
+                      onMouseLeave={(e) => {
+                        (e.currentTarget as HTMLElement).style.color = "#94a3b8";
+                        (e.currentTarget as HTMLElement).style.background = "transparent";
+                      }}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
                 </div>
                 <p
                   style={{
                     fontSize: 11,
                     color: "var(--color-text-secondary)",
-                    margin: 0,
+                    margin: "0 0 4px 0",
                     whiteSpace: "nowrap",
                     overflow: "hidden",
                     textOverflow: "ellipsis",
@@ -822,10 +963,122 @@ function DocumentListPageContent() {
                 >
                   {count} tài liệu · {col.description || "Chưa có mô tả"}
                 </p>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    fontSize: 11,
+                    color: col.ownerName ? "#0f766e" : "#94a3b8",
+                    fontWeight: col.ownerName ? 600 : 400,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                  title={
+                    col.ownerName
+                      ? `Phụ trách: ${col.ownerName}${col.ownerEmail ? ` (${col.ownerEmail})` : ""}`
+                      : "Chưa phân công người phụ trách"
+                  }
+                >
+                  <UserCheck size={11} style={{ flexShrink: 0 }} />
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                    Phụ trách: {col.ownerName || "Chưa phân công"}
+                  </span>
+                </div>
               </div>
             );
           })}
         </div>
+
+        {/* Banner Thông tin Quản trị & Chủ sở hữu khi đang chọn 1 Bộ sưu tập */}
+        {selectedCollectionId !== null && (() => {
+          const activeCol = collections.find((c) => c.id === selectedCollectionId);
+          if (!activeCol) return null;
+          const activeCount = documents.filter((d) => d.collectionId === activeCol.id).length;
+          return (
+            <div
+              className="ld-card"
+              style={{
+                marginTop: 10,
+                padding: "12px 16px",
+                background: "#f0fdf4",
+                border: "1px solid #bbf7d0",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                flexWrap: "wrap",
+              }}
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <Folder size={16} style={{ color: "#059669" }} />
+                  <strong style={{ fontSize: 14, color: "#064e3b" }}>{activeCol.name}</strong>
+                  {activeCol.moduleTag && (
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        background: "#dcfce7",
+                        color: "#166534",
+                        border: "1px solid #86efac",
+                        padding: "1px 8px",
+                        borderRadius: 9999,
+                      }}
+                    >
+                      Phân hệ: {activeCol.moduleTag}
+                    </span>
+                  )}
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      background: "#ffffff",
+                      color: "#0f766e",
+                      border: "1px solid #99f6e4",
+                      padding: "2px 10px",
+                      borderRadius: 9999,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 5,
+                    }}
+                  >
+                    <UserCheck size={12} />
+                    <span>
+                      Phụ trách: {activeCol.ownerName || "Chưa gán chủ sở hữu"}
+                      {activeCol.ownerRole ? ` (${activeCol.ownerRole})` : ""}
+                    </span>
+                  </span>
+                </div>
+                <div style={{ fontSize: 12, color: "#166534" }}>
+                  {activeCol.description || "Bộ sưu tập tài liệu theo phân hệ nghiệp vụ của dự án."} · Hiện có{" "}
+                  <strong>{activeCount}</strong> tài liệu.
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => openEditCollectionModal(activeCol)}
+                  className="ld-btn ld-btn-secondary ld-btn-sm"
+                  style={{ background: "#ffffff" }}
+                >
+                  <Edit3 size={13} />
+                  <span>Chỉnh sửa & Phân quyền sở hữu</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCollectionToDelete(activeCol)}
+                  className="ld-btn ld-btn-ghost ld-btn-sm"
+                  style={{ color: "#dc2626" }}
+                >
+                  <Trash2 size={13} />
+                  <span>Xóa bộ sưu tập</span>
+                </button>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* BỘ LỌC VÀ THANH TÌM KIẾM TÀI LIỆU */}
@@ -1358,7 +1611,35 @@ function DocumentListPageContent() {
                 </div>
 
                 {/* Các nút Hành động Nhanh */}
-                <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
+                  {/* Chọn nhanh Bộ sưu tập cho tài liệu */}
+                  <select
+                    value={doc.collectionId ?? ""}
+                    disabled={assigningDocId === doc.docId}
+                    onChange={(e) =>
+                      handleAssignDocToCollection(
+                        doc,
+                        e.target.value ? parseInt(e.target.value, 10) : null
+                      )
+                    }
+                    className="ld-select"
+                    style={{
+                      padding: "4px 8px",
+                      fontSize: 11,
+                      height: 30,
+                      maxWidth: 165,
+                      borderRadius: 6,
+                    }}
+                    title="Gán hoặc chuyển tài liệu vào Bộ sưu tập"
+                  >
+                    <option value="">-- Gán bộ sưu tập --</option>
+                    {collections.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        📁 {c.name}
+                      </option>
+                    ))}
+                  </select>
+
                   {/* Nút Gửi review nhanh nếu đang DRAFT */}
                   {doc.status === "DRAFT" && (
                     <button
@@ -1915,7 +2196,7 @@ function DocumentListPageContent() {
         </div>
       )}
 
-      {/* MODAL TẠO BỘ SƯU TẬP MỚI */}
+      {/* MODAL TẠO / CHỈNH SỬA BỘ SƯU TẬP & PHÂN QUYỀN CHỦ SỞ HỮU */}
       {showCreateCollectionModal && (
         <div
           style={{
@@ -1933,8 +2214,10 @@ function DocumentListPageContent() {
           <div
             className="ld-card"
             style={{
-              maxWidth: 450,
+              maxWidth: 560,
               width: "100%",
+              maxHeight: "90vh",
+              overflowY: "auto",
               padding: 24,
               boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.2)",
             }}
@@ -1949,13 +2232,23 @@ function DocumentListPageContent() {
             >
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <FolderPlus size={20} style={{ color: "var(--color-accent)" }} />
-                <h3 style={{ fontSize: 16, fontWeight: 600, color: "var(--color-text-primary)", margin: 0 }}>
-                  Tạo bộ sưu tập mới
-                </h3>
+                <div>
+                  <h3 style={{ fontSize: 16, fontWeight: 600, color: "var(--color-text-primary)", margin: 0 }}>
+                    {editingCollection
+                      ? "Chỉnh sửa Bộ sưu tập & Phân quyền sở hữu"
+                      : "Tạo bộ sưu tập tài liệu mới"}
+                  </h3>
+                  <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: 0 }}>
+                    Tổ chức tài liệu theo phân hệ nghiệp vụ và chỉ định Tech Lead / Developer phụ trách chính
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
-                onClick={() => setShowCreateCollectionModal(false)}
+                onClick={() => {
+                  setShowCreateCollectionModal(false);
+                  setEditingCollection(null);
+                }}
                 className="ld-btn ld-btn-ghost ld-btn-sm"
               >
                 <X size={16} />
@@ -1963,6 +2256,50 @@ function DocumentListPageContent() {
             </div>
 
             <form onSubmit={handleCreateCollection}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: "var(--color-text-secondary)",
+                      marginBottom: 4,
+                    }}
+                  >
+                    Tên bộ sưu tập <span style={{ color: "#ef4444" }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={newColName}
+                    onChange={(e) => setNewColName(e.target.value)}
+                    placeholder="Ví dụ: Phân hệ Xác thực & Bảo mật"
+                    className="ld-input"
+                    required
+                  />
+                </div>
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: "var(--color-text-secondary)",
+                      marginBottom: 4,
+                    }}
+                  >
+                    Phân hệ nghiệp vụ (Module Tag)
+                  </label>
+                  <input
+                    type="text"
+                    value={newColModuleTag}
+                    onChange={(e) => setNewColModuleTag(e.target.value)}
+                    placeholder="Ví dụ: Auth & Security, Payment..."
+                    className="ld-input"
+                  />
+                </div>
+              </div>
+
               <div style={{ marginBottom: 14 }}>
                 <label
                   style={{
@@ -1973,19 +2310,24 @@ function DocumentListPageContent() {
                     marginBottom: 4,
                   }}
                 >
-                  Tên bộ sưu tập <span style={{ color: "#ef4444" }}>*</span>
+                  Chủ sở hữu phụ trách chính (Owner - Tech Lead / Developer)
                 </label>
-                <input
-                  type="text"
-                  value={newColName}
-                  onChange={(e) => setNewColName(e.target.value)}
-                  placeholder="Ví dụ: Tài liệu Hướng dẫn Triển khai"
-                  className="ld-input"
-                  required
-                />
+                <select
+                  value={newColOwnerId}
+                  onChange={(e) => setNewColOwnerId(e.target.value)}
+                  className="ld-select"
+                  style={{ width: "100%", padding: "8px 12px", fontSize: 13 }}
+                >
+                  <option value="">-- Chưa chỉ định người phụ trách --</option>
+                  {collectionOwners.map((owner) => (
+                    <option key={owner.userId} value={String(owner.userId)}>
+                      {owner.fullName} ({owner.roleLabel || owner.role}) — {owner.email}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              <div style={{ marginBottom: 20 }}>
+              <div style={{ marginBottom: 14 }}>
                 <label
                   style={{
                     display: "block",
@@ -2002,14 +2344,112 @@ function DocumentListPageContent() {
                   onChange={(e) => setNewColDesc(e.target.value)}
                   placeholder="Mô tả nội dung hoặc mục đích của bộ sưu tập tài liệu này..."
                   className="ld-input"
-                  style={{ minHeight: 75, resize: "vertical" }}
+                  style={{ minHeight: 68, resize: "vertical" }}
                 />
+              </div>
+
+              {/* Chọn / Gán tài liệu thuộc Bộ sưu tập */}
+              <div style={{ marginBottom: 20 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: 6,
+                  }}
+                >
+                  <label
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: "var(--color-text-secondary)",
+                    }}
+                  >
+                    Tài liệu thuộc bộ sưu tập ({newColDocIds.length} đã chọn)
+                  </label>
+                  <input
+                    type="text"
+                    value={colDocFilter}
+                    onChange={(e) => setColDocFilter(e.target.value)}
+                    placeholder="Lọc nhanh tài liệu..."
+                    className="ld-input"
+                    style={{ width: 180, padding: "4px 8px", fontSize: 11, height: 26 }}
+                  />
+                </div>
+                <div
+                  style={{
+                    maxHeight: 160,
+                    overflowY: "auto",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: 6,
+                    padding: 8,
+                    background: "#f8fafc",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 4,
+                  }}
+                >
+                  {documents.length === 0 ? (
+                    <span style={{ fontSize: 12, color: "#94a3b8", textAlign: "center", padding: 8 }}>
+                      Chưa có tài liệu nào trong hệ thống.
+                    </span>
+                  ) : (
+                    documents
+                      .filter(
+                        (d) =>
+                          !colDocFilter.trim() ||
+                          d.title.toLowerCase().includes(colDocFilter.trim().toLowerCase()) ||
+                          (d.targetPath || "").toLowerCase().includes(colDocFilter.trim().toLowerCase())
+                      )
+                      .map((d) => {
+                        const checked = newColDocIds.includes(d.docId);
+                        return (
+                          <label
+                            key={d.docId}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                              fontSize: 12,
+                              padding: "4px 6px",
+                              borderRadius: 4,
+                              background: checked ? "#eff6ff" : "transparent",
+                              cursor: "pointer",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setNewColDocIds((prev) => [...prev, d.docId]);
+                                } else {
+                                  setNewColDocIds((prev) => prev.filter((id) => id !== d.docId));
+                                }
+                              }}
+                            />
+                            <span style={{ fontWeight: checked ? 600 : 400, color: "#0f172a", flex: 1 }}>
+                              {d.title}
+                            </span>
+                            {d.targetPath && (
+                              <span style={{ fontSize: 11, color: "#64748b", fontFamily: "var(--font-mono)" }}>
+                                {d.targetPath}
+                              </span>
+                            )}
+                          </label>
+                        );
+                      })
+                  )}
+                </div>
               </div>
 
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
                 <button
                   type="button"
-                  onClick={() => setShowCreateCollectionModal(false)}
+                  onClick={() => {
+                    setShowCreateCollectionModal(false);
+                    setEditingCollection(null);
+                  }}
                   className="ld-btn ld-btn-secondary"
                 >
                   Hủy bỏ
@@ -2020,7 +2460,13 @@ function DocumentListPageContent() {
                   className="ld-btn ld-btn-primary"
                 >
                   <Plus size={14} />
-                  <span>{creatingCol ? "Đang tạo..." : "Tạo bộ sưu tập"}</span>
+                  <span>
+                    {creatingCol
+                      ? "Đang lưu..."
+                      : editingCollection
+                      ? "Lưu thay đổi"
+                      : "Tạo bộ sưu tập"}
+                  </span>
                 </button>
               </div>
             </form>

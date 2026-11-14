@@ -26,6 +26,21 @@ public class DocCollectionEntity {
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
+    @Column(name = "module_tag", length = 150)
+    private String moduleTag;
+
+    @Column(name = "owner_id")
+    private Long ownerId;
+
+    @Column(name = "owner_name", length = 150)
+    private String ownerName;
+
+    @Column(name = "owner_email", length = 255)
+    private String ownerEmail;
+
+    @Column(name = "owner_role", length = 50)
+    private String ownerRole;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;

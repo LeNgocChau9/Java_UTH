@@ -1,7 +1,9 @@
 import { apiClient } from "./apiClient";
 import type {
   CreateDocumentPayload,
+  CollectionOwnerItem,
   DocCollection,
+  SaveCollectionPayload,
   DocumentDetail,
   GroundingEvidenceItem,
   DocumentItem,
@@ -266,15 +268,70 @@ export const documentService = {
   },
 
   /**
+   * Lấy danh sách nhân sự (Tech Lead / Developer) để gán làm Chủ sở hữu (Owner) cho bộ sưu tập
+   */
+  async getCollectionOwners(): Promise<CollectionOwnerItem[]> {
+    const res = await apiClient.get<CollectionOwnerItem[]>("/api/collections/owners");
+    return res.data;
+  },
+
+  /**
    * Tạo bộ sưu tập mới
    */
-  async createCollection(payload: {
-    name: string;
-    description?: string;
-  }): Promise<DocCollection> {
+  async createCollection(payload: SaveCollectionPayload): Promise<DocCollection> {
     const res = await apiClient.post<DocCollection>(
       "/api/collections",
       payload
+    );
+    return res.data;
+  },
+
+  /**
+   * Cập nhật bộ sưu tập và chuyển giao quyền sở hữu (Owner)
+   */
+  async updateCollection(id: number, payload: SaveCollectionPayload): Promise<DocCollection> {
+    const res = await apiClient.put<DocCollection>(
+      `/api/collections/${id}`,
+      payload
+    );
+    return res.data;
+  },
+
+  /**
+   * Gán hoặc đồng bộ danh sách tài liệu thuộc về một bộ sưu tập
+   */
+  async assignDocumentsToCollection(
+    collectionId: number,
+    documentIds: number[],
+    replaceAll = true
+  ): Promise<DocCollection> {
+    const res = await apiClient.post<DocCollection>(
+      `/api/collections/${collectionId}/documents`,
+      { documentIds, replaceAll }
+    );
+    return res.data;
+  },
+
+  /**
+   * Gỡ một tài liệu khỏi bộ sưu tập
+   */
+  async removeDocumentFromCollection(collectionId: number, docId: number): Promise<DocCollection> {
+    const res = await apiClient.delete<DocCollection>(
+      `/api/collections/${collectionId}/documents/${docId}`
+    );
+    return res.data;
+  },
+
+  /**
+   * Gán hoặc gỡ trực tiếp một tài liệu vào/khỏi bộ sưu tập mà không tạo phiên bản mới
+   */
+  async assignDocumentCollection(
+    docId: number,
+    collectionId: number | null
+  ): Promise<DocumentDetail> {
+    const res = await apiClient.put<DocumentDetail>(
+      `/api/documents/${docId}/collection`,
+      { collectionId }
     );
     return res.data;
   },

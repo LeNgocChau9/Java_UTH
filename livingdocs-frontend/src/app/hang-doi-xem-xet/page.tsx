@@ -424,11 +424,8 @@ export default function HangDoiXemXetStaffPage() {
           <div>
             <h1 className="ld-page-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <Inbox size={22} style={{ color: "#0f766e" }} />
-              Hàng đợi xem xét của Staff (Review Queue)
+              Hàng đợi xem xét
             </h1>
-            <p className="ld-page-subtitle">
-              Đối chiếu tài liệu AI sinh với mã nguồn thực tế (AST code_entities), chỉnh sửa trực tiếp và phê duyệt chuyển Manager.
-            </p>
           </div>
           <button
             onClick={fetchQueue}

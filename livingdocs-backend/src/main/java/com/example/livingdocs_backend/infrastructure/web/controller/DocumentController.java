@@ -44,6 +44,9 @@ public class DocumentController {
     private final SpringDataCodeEntityRepository codeEntityRepository;
     private final AuditServicePort auditServicePort;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentRepository springDataDocumentRepository;
+
     @PostMapping
     @Operation(summary = "Tạo tài liệu mới", description = "Tạo mới tài liệu và tự động tạo phiên bản v1 kèm chuỗi băm khởi tạo (Genesis Hash).")
     public ResponseEntity<DocumentResponse> createDocument(
@@ -100,6 +103,30 @@ public class DocumentController {
 
         DocumentResponse response = documentServicePort.updateDocument(docId, request, actorId, actorRole);
         return ResponseEntity.ok(response);
+    }
+
+    @PutMapping("/{docId}/collection")
+    @Operation(summary = "Gán hoặc gỡ tài liệu khỏi Bộ sưu tập", description = "Cập nhật trực tiếp collectionId cho tài liệu mà không tạo phiên bản nội dung mới.")
+    public ResponseEntity<DocumentDetailResponse> assignDocumentCollection(
+            @PathVariable Long docId,
+            @RequestBody(required = false) Map<String, Object> body) {
+        Long collectionId = null;
+        if (body != null && body.get("collectionId") != null) {
+            Object raw = body.get("collectionId");
+            if (raw instanceof Number num) {
+                collectionId = num.longValue();
+            } else if (!raw.toString().isBlank()) {
+                collectionId = Long.parseLong(raw.toString().trim());
+            }
+        }
+        final Long targetCollectionId = collectionId;
+        if (springDataDocumentRepository != null) {
+            springDataDocumentRepository.findById(docId).ifPresent(doc -> {
+                doc.setCollectionId(targetCollectionId);
+                springDataDocumentRepository.save(doc);
+            });
+        }
+        return ResponseEntity.ok(documentServicePort.getDocumentById(docId));
     }
 
     @PostMapping("/{docId}/submit-review")

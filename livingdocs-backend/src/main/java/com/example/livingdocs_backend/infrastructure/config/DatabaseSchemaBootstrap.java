@@ -21,6 +21,11 @@ public class DatabaseSchemaBootstrap implements ApplicationRunner {
         try {
             jdbcTemplate.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_type VARCHAR(50) DEFAULT 'MANUAL'");
             jdbcTemplate.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_url VARCHAR(1024)");
+            jdbcTemplate.execute("ALTER TABLE doc_collections ADD COLUMN IF NOT EXISTS module_tag VARCHAR(150)");
+            jdbcTemplate.execute("ALTER TABLE doc_collections ADD COLUMN IF NOT EXISTS owner_id BIGINT");
+            jdbcTemplate.execute("ALTER TABLE doc_collections ADD COLUMN IF NOT EXISTS owner_name VARCHAR(150)");
+            jdbcTemplate.execute("ALTER TABLE doc_collections ADD COLUMN IF NOT EXISTS owner_email VARCHAR(255)");
+            jdbcTemplate.execute("ALTER TABLE doc_collections ADD COLUMN IF NOT EXISTS owner_role VARCHAR(50)");
             jdbcTemplate.execute("ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS commit_hash VARCHAR(256)");
             jdbcTemplate.execute("ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS commit_url VARCHAR(1024)");
             jdbcTemplate.execute("ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS published_at TIMESTAMP");

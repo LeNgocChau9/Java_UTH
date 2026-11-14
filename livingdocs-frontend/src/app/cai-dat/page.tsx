@@ -210,9 +210,6 @@ export default function CaiDatPage() {
             <Settings size={22} className="text-emerald-700" />
             <h1 style={{ fontSize: 20, fontWeight: 700, color: "#0f172a", margin: 0 }}>Cài đặt</h1>
           </div>
-          <p style={{ fontSize: 13, color: "#64748b", margin: 0 }}>
-            Tùy chỉnh Key AI, cấu hình AI Local và chính sách kiểm soát hợp nhất Pull Request.
-          </p>
         </div>
 
         {/* Bộ chuyển đổi 3 tiện ích: Cloud AI, Local AI và Chặn PR */}
@@ -291,7 +288,7 @@ export default function CaiDatPage() {
             }}
           >
             <GitPullRequest size={16} />
-            Chặn Hợp nhất PR (Checks API)
+            Chặn Hợp nhất PR
           </button>
         </div>
 

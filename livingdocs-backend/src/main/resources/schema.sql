@@ -200,6 +200,10 @@ CREATE TABLE IF NOT EXISTS public.doc_collections
     updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
     owner_id bigint,
     default_template_id bigint,
+    module_tag character varying(150) COLLATE pg_catalog."default",
+    owner_name character varying(150) COLLATE pg_catalog."default",
+    owner_email character varying(255) COLLATE pg_catalog."default",
+    owner_role character varying(50) COLLATE pg_catalog."default",
     CONSTRAINT doc_collections_pkey PRIMARY KEY (id)
 );
 
@@ -271,6 +275,7 @@ CREATE TABLE IF NOT EXISTS public.document_change_alerts
     source_commit character varying(64) COLLATE pg_catalog."default",
     source_pr_id bigint,
     details text COLLATE pg_catalog."default",
+    draft_version_id bigint,
     created_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
     resolved_at timestamp with time zone,
     CONSTRAINT document_change_alerts_pkey PRIMARY KEY (alert_id)

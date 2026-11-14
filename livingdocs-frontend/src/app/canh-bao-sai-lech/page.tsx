@@ -698,11 +698,8 @@ function CanhBaoSaiLechContent() {
                     lineHeight: 1.2,
                   }}
                 >
-                  Cảnh báo sai lệch tài liệu (Drift Alerts)
+                  Cảnh báo sai lệch tài liệu
                 </h1>
-                <p style={{ fontSize: 13, color: "#64748b", margin: "4px 0 0" }}>
-                  Phát hiện sự không đồng nhất giữa mã nguồn Git vừa thay đổi và nội dung tài liệu kỹ thuật
-                </p>
               </div>
             </div>
           </div>

@@ -2,10 +2,26 @@ from typing import List, Optional, Any
 from pydantic import BaseModel, Field, model_validator
 
 class AstExtractRequest(BaseModel):
+    model_config = {"extra": "ignore"}
+
     repository_id: Optional[int] = Field(default=1, description="ID kho lưu trữ trong hệ thống")
-    file_path: str = Field(..., description="Đường dẫn tương đối của file nguồn Java (vd: src/main/java/.../UserService.java)")
-    source_code: str = Field(..., description="Nội dung mã nguồn Java cần phân tích AST")
+    file_path: Optional[str] = Field(default="Unknown.java", description="Đường dẫn tương đối của file nguồn Java (vd: src/main/java/.../UserService.java)")
+    source_code: Optional[str] = Field(default="", description="Nội dung mã nguồn Java cần phân tích AST")
     commit_hash: Optional[str] = Field(default="mock-commit-hash-001", description="Mã băm commit của mã nguồn")
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_ast_extract(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if data.get("repository_id") is None and data.get("repositoryId") is not None:
+                data["repository_id"] = data.get("repositoryId")
+            fp = data.get("file_path") or data.get("filePath")
+            data["file_path"] = str(fp) if fp is not None else "Unknown.java"
+            sc = data.get("source_code") if data.get("source_code") is not None else data.get("sourceCode")
+            data["source_code"] = str(sc) if sc is not None else ""
+            ch = data.get("commit_hash") or data.get("commitHash")
+            data["commit_hash"] = str(ch) if ch is not None else "mock-commit-hash-001"
+        return data
 
 class CodeEntityItem(BaseModel):
     model_config = {"extra": "ignore"}

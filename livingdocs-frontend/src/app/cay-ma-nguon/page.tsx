@@ -6,6 +6,7 @@ import { AppShell } from "@/components/AppShell";
 import {
   codeEntityService,
   CodeEntityDto,
+  EntityDocRegenerateResponse,
 } from "@/services/codeEntityService";
 import { repoService, RepoItem } from "@/services/repoService";
 import { refreshSession } from "@/services/authService";
@@ -66,6 +67,86 @@ export default function SourceTreePage() {
   const [filterType, setFilterType] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [copiedSig, setCopiedSig] = useState<string | null>(null);
+  const [currentFileSource, setCurrentFileSource] = useState<string>("");
+  const [regeneratingKey, setRegeneratingKey] = useState<string | null>(null);
+  const [regeneratedResults, setRegeneratedResults] = useState<
+    Record<string, EntityDocRegenerateResponse>
+  >({});
+  const [activeRegenResult, setActiveRegenResult] =
+    useState<EntityDocRegenerateResponse | null>(null);
+  const [activeRegenEntity, setActiveRegenEntity] =
+    useState<CodeEntityDto | null>(null);
+  const [customInstruction, setCustomInstruction] = useState<string>("");
+  const [previewMode, setPreviewMode] = useState<"section" | "full">("section");
+  const [regenError, setRegenError] = useState<string | null>(null);
+
+  const getEntityKey = (item: CodeEntityDto) =>
+    `${item.entityId || "local"}:${item.filePath}:${item.entityType}:${item.className || ""}:${item.methodName || ""}:${item.signature}`;
+
+  // Hàm gọi AI tạo lại tài liệu cục bộ cho thực thể được chọn trên Cây mã nguồn
+  const handleRegenerateEntityDoc = async (
+    item: CodeEntityDto,
+    instructionOverride?: string
+  ) => {
+    if (!selectedRepo) return;
+    const key = getEntityKey(item);
+    if (regeneratingKey === key) return;
+
+    setRegeneratingKey(key);
+    setRegenError(null);
+    setActiveRegenEntity(item);
+
+    try {
+      const res = await codeEntityService.regenerateEntityDoc({
+        entityId: item.entityId,
+        repositoryId: item.repositoryId || selectedRepo.repositoryId,
+        filePath: item.filePath || selectedFile,
+        entityType: item.entityType,
+        className: item.className,
+        methodName: item.methodName,
+        signature: item.signature,
+        returnType: item.returnType,
+        parameters: item.parameters,
+        startLine: item.startLine,
+        endLine: item.endLine,
+        javadoc: item.javadoc,
+        sourceCode: currentFileSource || item.signature,
+        commitHash: item.commitHash || selectedRepo.defaultBranch || "main",
+        instruction:
+          instructionOverride !== undefined
+            ? instructionOverride
+            : customInstruction || undefined,
+      });
+
+      setRegeneratedResults((prev) => ({ ...prev, [key]: res }));
+      setActiveRegenResult(res);
+      setPreviewMode("section");
+
+      // Cập nhật trạng thái thực thể sang DOCUMENTED trên giao diện
+      setEntities((prev) =>
+        prev.map((ent) =>
+          getEntityKey(ent) === key
+            ? { ...ent, entityId: res.entityId || ent.entityId, docStatus: "DOCUMENTED" }
+            : ent
+        )
+      );
+      setRepoEntities((prev) =>
+        prev.map((ent) =>
+          getEntityKey(ent) === key
+            ? { ...ent, entityId: res.entityId || ent.entityId, docStatus: "DOCUMENTED" }
+            : ent
+        )
+      );
+    } catch (err: any) {
+      setRegenError(
+        err?.response?.data?.message ||
+          err?.message ||
+          "Không thể tạo lại tài liệu cho thực thể này. Vui lòng thử lại."
+      );
+    } finally {
+      setRegeneratingKey(null);
+    }
+  };
 
   // Hàm gia hạn phiên kết nối GitHub
   const handleExtendSession = async () => {
@@ -241,11 +322,34 @@ export default function SourceTreePage() {
   useEffect(() => {
     if (!selectedRepo || !selectedFile) {
       setEntities([]);
+      setCurrentFileSource("");
       return;
     }
 
+    let cancelled = false;
+    const fetchFileSourceInBackground = () => {
+      repoService
+        .getFileContent(
+          selectedRepo.repositoryId,
+          selectedFile,
+          selectedRepo.defaultBranch
+        )
+        .then((fileRes) => {
+          if (
+            !cancelled &&
+            fileRes &&
+            typeof fileRes.content === "string" &&
+            fileRes.content.trim()
+          ) {
+            setCurrentFileSource(fileRes.content);
+          }
+        })
+        .catch(() => {});
+    };
+
     async function loadEntities() {
       setLoading(true);
+      setCurrentFileSource("");
       try {
         const repoName = selectedRepo!.repoName;
         const isDummy = (e: CodeEntityDto) => {
@@ -265,6 +369,7 @@ export default function SourceTreePage() {
         if (localMatched.length > 0) {
           setEntities(localMatched);
           setLoading(false);
+          fetchFileSourceInBackground();
           return;
         }
 
@@ -278,6 +383,7 @@ export default function SourceTreePage() {
           if (validDb.length > 0) {
             setEntities(validDb);
             setLoading(false);
+            fetchFileSourceInBackground();
             return;
           }
         } catch {
@@ -319,6 +425,7 @@ export default function SourceTreePage() {
 
         // 5. Nếu có mã nguồn thực tế: Bóc tách AST chi tiết và tự động lập chỉ mục CSDL
         if (sourceContent) {
+          setCurrentFileSource(sourceContent);
           const parsedEntities = parseUniversalCodeEntities(
             selectedFile,
             sourceContent,
@@ -374,6 +481,9 @@ export default function SourceTreePage() {
     }
 
     loadEntities();
+    return () => {
+      cancelled = true;
+    };
   }, [selectedRepo, selectedFile]);
 
   // 3. Xây dựng danh sách toàn bộ các file khả dụng từ Git tree, database và selectedFile
@@ -905,6 +1015,18 @@ export default function SourceTreePage() {
 
             {/* Danh sách các Entities bóc tách (Cuộn độc lập trong khung) */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {regenError && (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs font-medium text-rose-800 flex items-center justify-between">
+                <span>{regenError}</span>
+                <button
+                  type="button"
+                  onClick={() => setRegenError(null)}
+                  className="text-rose-600 hover:text-rose-900 font-bold ml-2"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
             {!selectedFile ? (
               <div className="flex h-64 flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white p-6 text-center">
                 <FileCode size={36} className="text-slate-300 mb-2" />
@@ -938,12 +1060,20 @@ export default function SourceTreePage() {
                   const isClass = item.entityType === "CLASS";
                   const isMethod = item.entityType === "METHOD";
                   const isCtor = item.entityType === "CONSTRUCTOR";
+                  const isOutdated =
+                    item.docStatus === "OUTDATED" || item.docStatus === "DRIFTED";
+                  const isDocumented = item.docStatus === "DOCUMENTED";
+                  const entityKey = getEntityKey(item);
+                  const isRegenerating = regeneratingKey === entityKey;
+                  const regenResult = regeneratedResults[entityKey];
 
                   return (
                     <div
                       key={idx}
                       className={`group rounded-xl border bg-white p-4.5 shadow-sm transition-all hover:shadow-md  ${
-                        isClass
+                        isOutdated
+                          ? "border-amber-300 hover:border-amber-500"
+                          : isClass
                           ? "border-emerald-200 hover:border-emerald-400 "
                           : isCtor
                           ? "border-amber-200 hover:border-amber-400 "
@@ -984,14 +1114,20 @@ export default function SourceTreePage() {
                             {/* Doc Status Badge */}
                             <span
                               className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                                item.docStatus === "DOCUMENTED"
+                                isOutdated
+                                  ? "bg-amber-100 text-amber-800 border border-amber-300"
+                                  : isDocumented
                                   ? "bg-purple-100 text-purple-700  "
                                   : "bg-slate-100 text-slate-500  "
                               }`}
                             >
-                              {item.docStatus === "DOCUMENTED" ? (
+                              {isOutdated ? (
                                 <>
-                                  <CheckCircle2 size={10} /> Đã có Javadoc
+                                  <AlertCircle size={10} /> Tài liệu lỗi thời (OUTDATED)
+                                </>
+                              ) : isDocumented ? (
+                                <>
+                                  <CheckCircle2 size={10} /> Đã có tài liệu
                                 </>
                               ) : (
                                 <>
@@ -1036,12 +1172,37 @@ export default function SourceTreePage() {
                           )}
                         </div>
 
-                        {/* Vị trí dòng mã */}
-                        <div className="shrink-0 text-right">
+                        {/* Vị trí dòng mã & Nút Tạo lại tài liệu cục bộ */}
+                        <div className="shrink-0 flex flex-row sm:flex-col items-center sm:items-end gap-2">
                           <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 text-[11px] font-mono text-slate-600  ">
                             <Hash size={12} />
                             Dòng {item.startLine} ➔ {item.endLine}
                           </span>
+                          <button
+                            type="button"
+                            disabled={isRegenerating}
+                            onClick={() => handleRegenerateEntityDoc(item)}
+                            title="Bóc tách lại cú pháp AST mới nhất và yêu cầu AI tạo lại riêng mục tài liệu cho thực thể này (lưu bản nháp DRAFT)"
+                            className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold shadow-xs transition cursor-pointer disabled:opacity-60 ${
+                              isOutdated
+                                ? "bg-amber-600 text-white hover:bg-amber-700"
+                                : isDocumented
+                                ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                                : "border border-emerald-600 bg-emerald-50 text-emerald-800 hover:bg-emerald-600 hover:text-white"
+                            }`}
+                          >
+                            {isRegenerating ? (
+                              <>
+                                <RefreshCw size={12} className="animate-spin" />
+                                <span>Đang tạo lại...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles size={12} />
+                                <span>Tạo lại tài liệu</span>
+                              </>
+                            )}
+                          </button>
                         </div>
                       </div>
 
@@ -1076,11 +1237,218 @@ export default function SourceTreePage() {
                           </pre>
                         </div>
                       )}
+
+                      {/* Kết quả tạo lại tài liệu cục bộ ngay trên thẻ thực thể */}
+                      {regenResult && (
+                        <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs text-slate-800 space-y-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 font-semibold text-emerald-800">
+                              <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />
+                              <span>
+                                Đã cập nhật vào Phiên bản nháp v{regenResult.versionNumber} ({regenResult.status}) — Giữ nguyên các mục đã duyệt khác
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveRegenEntity(item);
+                                  setActiveRegenResult(regenResult);
+                                  setPreviewMode("section");
+                                }}
+                                className="rounded-md bg-white border border-emerald-300 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 transition cursor-pointer"
+                              >
+                                Xem chi tiết bản nháp
+                              </button>
+                              <Link
+                                href={
+                                  regenResult.documentId
+                                    ? `/tai-lieu-cua-toi?docId=${regenResult.documentId}`
+                                    : "/tai-lieu-cua-toi"
+                                }
+                                className="rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700 transition"
+                              >
+                                Mở Tài liệu của tôi ➔
+                              </Link>
+                            </div>
+                          </div>
+                          <pre className="whitespace-pre-wrap rounded-lg border border-emerald-200/80 bg-white p-2.5 font-mono text-[11px] text-slate-700 max-h-44 overflow-y-auto">
+                            {regenResult.updatedSectionMarkdown}
+                          </pre>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
             )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Xem trước & Xác nhận Phiên bản nháp (DRAFT) sau khi tạo lại tài liệu thực thể */}
+      {activeRegenResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs">
+          <div className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-emerald-50/80 px-5 py-3.5">
+              <div className="flex items-center gap-2.5">
+                <span className="rounded-lg bg-emerald-600 p-1.5 text-white">
+                  <Sparkles size={16} />
+                </span>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Đã tạo lại tài liệu cho thực thể:{" "}
+                    <code className="rounded bg-emerald-100 px-1.5 py-0.5 text-emerald-900">
+                      {activeRegenResult.methodName || activeRegenResult.className}
+                    </code>
+                  </h3>
+                  <p className="text-[11px] text-slate-600">
+                    Lưu thành công vào{" "}
+                    <strong className="text-emerald-700">
+                      Phiên bản nháp v{activeRegenResult.versionNumber} ({activeRegenResult.status})
+                    </strong>{" "}
+                    — Các mục đã phê duyệt khác trong tài liệu tổng thể được giữ nguyên 100%.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveRegenResult(null)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-200/60 hover:text-slate-700 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex-1 space-y-3 overflow-y-auto p-5">
+              {/* Thông tin phiên bản & Hash Chain */}
+              <div className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs sm:grid-cols-3">
+                <div>
+                  <span className="text-slate-500">Tài liệu đích:</span>
+                  <div className="font-semibold text-slate-800 truncate">
+                    {activeRegenResult.documentTitle || activeRegenResult.targetPath || `Document #${activeRegenResult.documentId}`}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-slate-500">Phiên bản mới:</span>
+                  <div className="font-semibold text-emerald-700">
+                    Phiên bản nháp v{activeRegenResult.versionNumber} ({activeRegenResult.status})
+                  </div>
+                </div>
+                <div>
+                  <span className="text-slate-500">Chữ ký AST mới nhất:</span>
+                  <div className="font-mono text-[11px] text-slate-800 truncate" title={activeRegenResult.signature}>
+                    {activeRegenResult.signature}
+                  </div>
+                </div>
+              </div>
+
+              {/* Tuỳ chọn hướng dẫn bổ sung và tạo lại */}
+              {activeRegenEntity && (
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <input
+                    type="text"
+                    value={customInstruction}
+                    onChange={(e) => setCustomInstruction(e.target.value)}
+                    placeholder="Nhập hướng dẫn bổ sung cho AI nếu muốn tinh chỉnh thêm mục này..."
+                    className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-800 focus:border-emerald-500 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    disabled={!!regeneratingKey}
+                    onClick={() =>
+                      handleRegenerateEntityDoc(activeRegenEntity, customInstruction)
+                    }
+                    className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-900 disabled:opacity-50 cursor-pointer"
+                  >
+                    <RefreshCw size={12} className={regeneratingKey ? "animate-spin" : ""} />
+                    <span>Tạo lại kèm ghi chú</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Chuyển đổi xem Mục vừa cập nhật vs Toàn bộ tài liệu */}
+              <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode("section")}
+                    className={`rounded-lg px-3 py-1 text-xs font-semibold transition cursor-pointer ${
+                      previewMode === "section"
+                        ? "bg-emerald-600 text-white"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    Mục thực thể vừa tạo lại
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode("full")}
+                    className={`rounded-lg px-3 py-1 text-xs font-semibold transition cursor-pointer ${
+                      previewMode === "full"
+                        ? "bg-emerald-600 text-white"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    Toàn bộ tài liệu nháp (v{activeRegenResult.versionNumber})
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    copyToClipboard(
+                      previewMode === "section"
+                        ? activeRegenResult.updatedSectionMarkdown
+                        : activeRegenResult.fullMarkdown
+                    )
+                  }
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-100 cursor-pointer"
+                >
+                  <Copy size={12} /> Sao chép Markdown
+                </button>
+              </div>
+
+              <pre className="max-h-80 overflow-y-auto whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-900 p-4 font-mono text-xs leading-relaxed text-emerald-300">
+                {previewMode === "section"
+                  ? activeRegenResult.updatedSectionMarkdown
+                  : activeRegenResult.fullMarkdown}
+              </pre>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3">
+              <span className="text-[11px] text-slate-500">
+                Mã băm SHA-256: <code className="font-mono">{activeRegenResult.contentHash?.slice(0, 16)}...</code>
+              </span>
+              <div className="flex items-center gap-2">
+                <Link
+                  href={
+                    activeRegenResult.documentId
+                      ? `/workspace?docId=${activeRegenResult.documentId}`
+                      : "/workspace"
+                  }
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition"
+                >
+                  Mở trong Workspace
+                </Link>
+                <Link
+                  href={
+                    activeRegenResult.documentId
+                      ? `/tai-lieu-cua-toi?docId=${activeRegenResult.documentId}`
+                      : "/tai-lieu-cua-toi"
+                  }
+                  className="rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition"
+                >
+                  Xem trong Tài liệu của tôi ➔
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setActiveRegenResult(null)}
+                  className="rounded-lg bg-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-300 transition cursor-pointer"
+                >
+                  Đóng
+                </button>
+              </div>
             </div>
           </div>
         </div>

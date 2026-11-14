@@ -302,11 +302,8 @@ export default function ChangelogTimelinePage() {
                   <span>DÒNG THỜI GIAN NHẬT KÝ THAY ĐỔI</span>
                 </div>
                 <h1 className="text-2xl sm:text-3xl font-extrabold text-[#17231c] tracking-tight">
-                  Nhật Ký Thay Đổi Tài Liệu (Changelog)
+                  Nhật Ký Thay Đổi Tài Liệu
                 </h1>
-                <p className="text-sm text-[#526158] mt-2 max-w-2xl leading-relaxed">
-                  Dòng thời gian trực quan ghi nhận chi tiết quá trình khởi tạo, cập nhật, quy trình duyệt 2 cấp (Staff → Manager) và khôi phục tài liệu của toàn bộ nhóm LivingDocs.
-                </p>
               </div>
 
               <div className="flex items-center gap-3 self-start md:self-center">

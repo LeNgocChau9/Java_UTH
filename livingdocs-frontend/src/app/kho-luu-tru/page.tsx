@@ -326,22 +326,8 @@ export default function RepoManagementPage() {
             <FolderGit2 className="text-[#047857]" size={26} />
             Quản lý Kho lưu trữ GitHub
           </h1>
-          <p className="ld-page-subtitle">
-            Quản lý các kho mã nguồn đã kết nối, theo dõi Pull Requests, lịch sử Commits và đồng bộ tự động
-          </p>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <button
-            type="button"
-            onClick={handleManualVerifyTokens}
-            disabled={verifyingTokens}
-            className="ld-btn ld-btn-secondary"
-            style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}
-            title="Quét kiểm tra tính hợp lệ của toàn bộ token GitHub đã kết nối"
-          >
-            <ShieldCheck size={16} className={verifyingTokens ? "animate-spin text-amber-500" : "text-[#047857]"} />
-            {verifyingTokens ? "Đang quét Token..." : "Quét toàn vẹn Token"}
-          </button>
           <button
             type="button"
             onClick={() => setIsModalOpen(true)}
