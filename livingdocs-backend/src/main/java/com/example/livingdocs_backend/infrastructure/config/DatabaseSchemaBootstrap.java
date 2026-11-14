@@ -37,6 +37,17 @@ public class DatabaseSchemaBootstrap implements ApplicationRunner {
             jdbcTemplate.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMP WITH TIME ZONE");
 
             jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS user_notification_preferences (
+                    user_id BIGINT PRIMARY KEY,
+                    email_enabled BOOLEAN NOT NULL DEFAULT true,
+                    github_enabled BOOLEAN NOT NULL DEFAULT true,
+                    review_enabled BOOLEAN NOT NULL DEFAULT true,
+                    document_enabled BOOLEAN NOT NULL DEFAULT true,
+                    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """);
+
+            jdbcTemplate.execute("""
                 INSERT INTO doc_templates (id, name, type, structure_json, is_default)
                 VALUES
                   (1, 'API Reference', 'API_REFERENCE', '{}'::jsonb, false),

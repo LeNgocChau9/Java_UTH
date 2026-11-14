@@ -20,4 +20,5 @@ public class UserProfileResponse {
     private java.util.Set<String> roles;
     private String githubUsername;
     private Instant createdAt;
+    private UserNotificationPreferencesDto notificationPreferences;
 }
