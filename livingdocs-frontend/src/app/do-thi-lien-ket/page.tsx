@@ -32,6 +32,7 @@ import {
   FolderTree,
   File,
   Terminal,
+  FolderGit2,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -144,11 +145,9 @@ export default function DoThiLienKetPage() {
         const repoList = await repoService.getRepositories();
         setRepos(repoList);
         if (repoList.length > 0) {
-          const preferredRepo =
-            repoList.find((r) => r.repoFullName?.includes("Java_UTH")) ||
-            repoList.find((r) => r.repoFullName?.includes("Review_JavaSpringBoot")) ||
-            repoList[0];
-          setSelectedRepoId(preferredRepo.repositoryId);
+          setSelectedRepoId(repoList[0].repositoryId);
+        } else {
+          setSelectedRepoId(null);
         }
       } catch (err) {
         console.error("Không thể tải danh sách repositories:", err);
@@ -198,7 +197,7 @@ export default function DoThiLienKetPage() {
           .catch(() => [] as CodeEntityDto[]);
         setDbEntities(entitiesFromDb);
 
-        // D. Tải Cây thư mục (Git Tree) THẬT từ backend hoặc GitHub API
+        // D. Tải Cây thư mục (Git Tree) THẬT từ backend
         let treeFiles: string[] = [];
         try {
           const treeRes = await repoService.getRepositoryTree(selectedRepoId!);
@@ -209,71 +208,6 @@ export default function DoThiLienKetPage() {
           }
         } catch {
           // fallback
-        }
-
-        if (treeFiles.length === 0 && repoFullName) {
-          try {
-            const ghRes = await fetch(
-              `https://api.github.com/repos/${repoFullName}/git/trees/${defaultBranch}?recursive=1`
-            );
-            if (ghRes.ok) {
-              const ghData = await ghRes.json();
-              if (ghData && Array.isArray(ghData.tree)) {
-                treeFiles = ghData.tree
-                  .filter((item: any) => item.type === "blob" || item.path?.includes("."))
-                  .map((item: any) => item.path);
-              }
-            }
-          } catch (ghErr) {
-            console.warn("Không thể tải Git Tree từ GitHub:", ghErr);
-          }
-        }
-
-        // Nếu repo là Java_UTH hoặc Review_JavaSpringBoot mà treeFiles rỗng do sandbox/rate-limit, dùng cây tệp chuẩn đa ngôn ngữ của repo
-        if (treeFiles.length === 0) {
-          if (repoFullName.includes("Java_UTH")) {
-            treeFiles = [
-              // 1. JAVA (Spring Boot Backend)
-              "livingdocs-backend/src/main/java/com/example/livingdocs_backend/application/service/DocumentServiceImpl.java",
-              "livingdocs-backend/src/main/java/com/example/livingdocs_backend/infrastructure/web/controller/DocumentController.java",
-              "livingdocs-backend/src/main/java/com/example/livingdocs_backend/application/service/AuditServiceImpl.java",
-              "livingdocs-backend/src/main/java/com/example/livingdocs_backend/LivingdocsBackendApplication.java",
-              // 2. PYTHON (FastAPI AI Engine)
-              "livingdocs-ai-engine/app/api/endpoints.py",
-              "livingdocs-ai-engine/app/services/gemini_rewrite_service.py",
-              "livingdocs-ai-engine/app/services/gemini_drift_service.py",
-              "livingdocs-ai-engine/app/core/gemini_key_manager.py",
-              // 3. TYPESCRIPT / REACT (Frontend Next.js)
-              "livingdocs-frontend/src/services/documentService.ts",
-              "livingdocs-frontend/src/services/repoService.ts",
-              "livingdocs-frontend/src/app/do-thi-lien-ket/page.tsx",
-              // 4. SQL (Database Schema & Constraints)
-              "livingdocs-backend/src/main/resources/schema.sql",
-              // 5. GO (Tooling & Scanner)
-              "tools/ast_scanner/main.go",
-              // 6. RUST (Native AST Engine)
-              "native/core/src/lib.rs",
-              // 7. C# (.NET Service)
-              "services/SyncService.cs",
-              // 8. C/C++ (AST Syntax Parser)
-              "native/scanner/ast_parser.cpp",
-              // 9. SHELL (DevOps Scripts)
-              "scripts/deploy.sh",
-              // 10. CONFIG (Docker & Packages)
-              "docker-compose.yml",
-              "package.json",
-              "pom.xml",
-            ];
-          } else if (repoFullName.includes("Review_JavaSpringBoot")) {
-            treeFiles = [
-              "src/main/java/com/example/controller/BuildingAPI.java",
-              "src/main/java/com/example/service/BuildingServiceImpl.java",
-              "src/main/java/com/example/dto/BuildingDTO.java",
-              "src/main/java/com/example/Application.java",
-              "src/main/resources/application.properties",
-              "pom.xml",
-            ];
-          }
         }
         setRawFiles(treeFiles);
 
@@ -289,13 +223,11 @@ export default function DoThiLienKetPage() {
         const newlyParsed: CodeEntityDto[] = [];
 
         await Promise.all(
-          codeFiles.slice(0, 10).map(async (filePath) => {
+          codeFiles.slice(0, 5).map(async (filePath) => {
             try {
-              const rawUrl = `https://raw.githubusercontent.com/${repoFullName}/${defaultBranch}/${filePath}`;
-              const resp = await fetch(rawUrl);
-              if (resp.ok) {
-                const text = await resp.text();
-                const parsed = parseUniversalCodeEntities(filePath, text, selectedRepoId!);
+              const fileContent = await repoService.getFileContent(selectedRepoId!, filePath, defaultBranch);
+              if (fileContent?.content) {
+                const parsed = parseUniversalCodeEntities(filePath, fileContent.content, selectedRepoId!);
                 if (parsed && parsed.length > 0) {
                   newlyParsed.push(...parsed);
                 }
@@ -306,337 +238,9 @@ export default function DoThiLienKetPage() {
           })
         );
 
-        // Danh sách thực thể đa ngôn ngữ toàn diện (Java, Python, TypeScript, Go, Rust, C#, SQL, C++, Shell, Config...)
-        const universalFallbackEntities: CodeEntityDto[] = [
-          // === 1. JAVA (Spring Boot Backend) ===
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "livingdocs-backend/src/main/java/com/example/livingdocs_backend/application/service/DocumentServiceImpl.java",
-            entityType: "CLASS",
-            className: "DocumentServiceImpl",
-            signature: "public class DocumentServiceImpl implements DocumentServicePort",
-            startLine: 35,
-            endLine: 240,
-            docStatus: "DOCUMENTED",
-          },
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "livingdocs-backend/src/main/java/com/example/livingdocs_backend/application/service/DocumentServiceImpl.java",
-            entityType: "METHOD",
-            className: "DocumentServiceImpl",
-            methodName: "createDocument",
-            signature: "public DocumentDto createDocument(CreateDocCommand cmd)",
-            parameters: "CreateDocCommand cmd",
-            returnType: "DocumentDto",
-            startLine: 50,
-            endLine: 88,
-            docStatus: "DOCUMENTED",
-          },
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "livingdocs-backend/src/main/java/com/example/livingdocs_backend/application/service/DocumentServiceImpl.java",
-            entityType: "METHOD",
-            className: "DocumentServiceImpl",
-            methodName: "updateDocument",
-            signature: "public DocumentDto updateDocument(Long docId, UpdateDocCommand cmd)",
-            parameters: "Long docId, UpdateDocCommand cmd",
-            returnType: "DocumentDto",
-            startLine: 95,
-            endLine: 145,
-            docStatus: "DOCUMENTED",
-          },
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "livingdocs-backend/src/main/java/com/example/livingdocs_backend/application/service/DocumentServiceImpl.java",
-            entityType: "METHOD",
-            className: "DocumentServiceImpl",
-            methodName: "regenerateEntityDoc",
-            signature: "public DocumentDto regenerateEntityDoc(Long entityId)",
-            parameters: "Long entityId",
-            returnType: "DocumentDto",
-            startLine: 180,
-            endLine: 235,
-            docStatus: "DOCUMENTED",
-          },
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "livingdocs-backend/src/main/java/com/example/livingdocs_backend/infrastructure/web/controller/DocumentController.java",
-            entityType: "CLASS",
-            className: "DocumentController",
-            signature: "public class DocumentController",
-            startLine: 30,
-            endLine: 180,
-            docStatus: "DOCUMENTED",
-          },
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "livingdocs-backend/src/main/java/com/example/livingdocs_backend/infrastructure/web/controller/DocumentController.java",
-            entityType: "ENDPOINT",
-            className: "DocumentController",
-            methodName: "generateAiDoc",
-            signature: "POST /api/documents/generate-ai -> ResponseEntity<GenerateAiDocResponse>",
-            parameters: "GenerateAiDocRequest request",
-            returnType: "ResponseEntity<GenerateAiDocResponse>",
-            startLine: 65,
-            endLine: 98,
-            docStatus: "DOCUMENTED",
-          },
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "livingdocs-backend/src/main/java/com/example/livingdocs_backend/application/service/AuditServiceImpl.java",
-            entityType: "METHOD",
-            className: "AuditServiceImpl",
-            methodName: "recordDocumentAction",
-            signature: "public void recordDocumentAction(Long docId, AuditAction action, Long userId)",
-            parameters: "Long docId, AuditAction action, Long userId",
-            returnType: "void",
-            startLine: 35,
-            endLine: 65,
-            docStatus: "DOCUMENTED",
-          },
 
-          // === 2. PYTHON (FastAPI AI Engine) ===
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "livingdocs-ai-engine/app/api/endpoints.py",
-            entityType: "ENDPOINT",
-            className: "endpoints",
-            methodName: "extract_ast",
-            signature: "POST /v1/ast/extract(request: AstExtractRequest) -> AstExtractResponse",
-            parameters: "request: AstExtractRequest",
-            returnType: "AstExtractResponse",
-            startLine: 31,
-            endLine: 126,
-            docStatus: "DOCUMENTED",
-          },
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "livingdocs-ai-engine/app/api/endpoints.py",
-            entityType: "ENDPOINT",
-            className: "endpoints",
-            methodName: "generate_doc",
-            signature: "POST /v1/docs/generate(request: DocGenerateRequest) -> DocGenerateResponse",
-            parameters: "request: DocGenerateRequest",
-            returnType: "DocGenerateResponse",
-            startLine: 130,
-            endLine: 154,
-            docStatus: "DOCUMENTED",
-          },
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "livingdocs-ai-engine/app/services/gemini_rewrite_service.py",
-            entityType: "CLASS",
-            className: "GeminiRewriteService",
-            signature: "class GeminiRewriteService",
-            startLine: 54,
-            endLine: 410,
-            docStatus: "DOCUMENTED",
-          },
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "livingdocs-ai-engine/app/services/gemini_rewrite_service.py",
-            entityType: "METHOD",
-            className: "GeminiRewriteService",
-            methodName: "rewrite_document",
-            signature: "rewrite_document(request: DocRewriteRequest) -> DocRewriteResponse",
-            parameters: "request: DocRewriteRequest",
-            returnType: "DocRewriteResponse",
-            startLine: 274,
-            endLine: 370,
-            docStatus: "DOCUMENTED",
-          },
 
-          // === 3. TYPESCRIPT / REACT (Frontend Next.js) ===
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "livingdocs-frontend/src/services/documentService.ts",
-            entityType: "CLASS",
-            className: "documentService",
-            signature: "export const documentService",
-            startLine: 10,
-            endLine: 95,
-            docStatus: "DOCUMENTED",
-          },
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "livingdocs-frontend/src/services/documentService.ts",
-            entityType: "METHOD",
-            className: "documentService",
-            methodName: "getDocuments",
-            signature: "getDocuments(params: GetDocsParams): Promise<DocumentItem[]>",
-            parameters: "params: GetDocsParams",
-            returnType: "Promise<DocumentItem[]>",
-            startLine: 15,
-            endLine: 35,
-            docStatus: "DOCUMENTED",
-          },
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "livingdocs-frontend/src/app/do-thi-lien-ket/page.tsx",
-            entityType: "CLASS",
-            className: "DoThiLienKetPage",
-            signature: "export default function DoThiLienKetPage()",
-            startLine: 67,
-            endLine: 1800,
-            docStatus: "DOCUMENTED",
-          },
-
-          // === 4. SQL (Database DDL & Schema) ===
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "livingdocs-backend/src/main/resources/schema.sql",
-            entityType: "CLASS",
-            className: "documents",
-            signature: "CREATE TABLE documents (doc_id BIGSERIAL PRIMARY KEY, title VARCHAR, ...)",
-            startLine: 15,
-            endLine: 45,
-            docStatus: "DOCUMENTED",
-          },
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "livingdocs-backend/src/main/resources/schema.sql",
-            entityType: "CLASS",
-            className: "code_entities",
-            signature: "CREATE TABLE code_entities (entity_id BIGSERIAL PRIMARY KEY, ...)",
-            startLine: 50,
-            endLine: 80,
-            docStatus: "DOCUMENTED",
-          },
-
-          // === 5. GO (Microservice & Tooling) ===
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "tools/ast_scanner/main.go",
-            entityType: "CLASS",
-            className: "main",
-            signature: "package main",
-            startLine: 1,
-            endLine: 35,
-            docStatus: "DOCUMENTED",
-          },
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "tools/ast_scanner/main.go",
-            entityType: "METHOD",
-            className: "main",
-            methodName: "ScanTree",
-            signature: "func ScanTree(repoPath string) ([]FileNode, error)",
-            parameters: "repoPath string",
-            returnType: "([]FileNode, error)",
-            startLine: 12,
-            endLine: 30,
-            docStatus: "DOCUMENTED",
-          },
-
-          // === 6. RUST (Native AST Parser) ===
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "native/core/src/lib.rs",
-            entityType: "CLASS",
-            className: "AstExtractor",
-            signature: "pub struct AstExtractor",
-            startLine: 10,
-            endLine: 40,
-            docStatus: "DOCUMENTED",
-          },
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "native/core/src/lib.rs",
-            entityType: "METHOD",
-            className: "AstExtractor",
-            methodName: "extract_symbols",
-            signature: "pub fn extract_symbols(&self, code: &str) -> Vec<Symbol>",
-            parameters: "&self, code: &str",
-            returnType: "Vec<Symbol>",
-            startLine: 18,
-            endLine: 35,
-            docStatus: "DOCUMENTED",
-          },
-
-          // === 7. C# (.NET Service) ===
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "services/SyncService.cs",
-            entityType: "CLASS",
-            className: "SyncService",
-            signature: "public class SyncService : ISyncService",
-            startLine: 12,
-            endLine: 60,
-            docStatus: "DOCUMENTED",
-          },
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "services/SyncService.cs",
-            entityType: "METHOD",
-            className: "SyncService",
-            methodName: "SyncPullRequestsAsync",
-            signature: "public async Task<SyncResult> SyncPullRequestsAsync(long repoId)",
-            parameters: "long repoId",
-            returnType: "Task<SyncResult>",
-            startLine: 20,
-            endLine: 45,
-            docStatus: "DOCUMENTED",
-          },
-
-          // === 8. C/C++ (AST Syntax Parser) ===
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "native/scanner/ast_parser.cpp",
-            entityType: "CLASS",
-            className: "AstParser",
-            signature: "class AstParser",
-            startLine: 15,
-            endLine: 70,
-            docStatus: "DOCUMENTED",
-          },
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "native/scanner/ast_parser.cpp",
-            entityType: "METHOD",
-            className: "AstParser",
-            methodName: "parse_tokens",
-            signature: "std::vector<Token> parse_tokens(const std::string& source)",
-            parameters: "const std::string& source",
-            returnType: "std::vector<Token>",
-            startLine: 25,
-            endLine: 55,
-            docStatus: "DOCUMENTED",
-          },
-
-          // === 9. SHELL (DevOps Scripts) ===
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "scripts/deploy.sh",
-            entityType: "METHOD",
-            className: "deploy",
-            methodName: "deploy_service",
-            signature: "deploy_service() { docker compose up -d; }",
-            startLine: 10,
-            endLine: 25,
-            docStatus: "DOCUMENTED",
-          },
-
-          // === 10. CONFIG (Docker & Packages) ===
-          {
-            repositoryId: selectedRepoId!,
-            filePath: "docker-compose.yml",
-            entityType: "CLASS",
-            className: "docker-compose",
-            signature: "services: postgres, backend, ai-engine, frontend",
-            startLine: 1,
-            endLine: 65,
-            docStatus: "DOCUMENTED",
-          }
-        ];
-
-        // Luôn bổ sung các entity đại diện cho các tệp và ngôn ngữ chưa có trong dbEntities
-        const existingFiles = new Set(
-          [...dbEntities, ...newlyParsed].map((e) => (e.filePath || "").toLowerCase())
-        );
-        const supplementaryEntities = universalFallbackEntities.filter(
-          (e) => !existingFiles.has((e.filePath || "").toLowerCase())
-        );
-        setParsedEntities([...newlyParsed, ...supplementaryEntities]);
+        setParsedEntities(newlyParsed);
         setSelectedNode(null);
       } catch (err) {
         console.error("Lỗi khi tải dữ liệu thật cho đồ thị:", err);
@@ -1261,11 +865,15 @@ export default function DoThiLienKetPage() {
             <select
               value={selectedRepoId || ""}
               onChange={(e) => {
-                setSelectedRepoId(Number(e.target.value));
+                const val = Number(e.target.value);
+                setSelectedRepoId(val || null);
                 setFilterFile("ALL");
               }}
               className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-sm focus:border-emerald-500 focus:outline-none"
             >
+              {repos.length === 0 && (
+                <option value="">-- Chưa có kho lưu trữ --</option>
+              )}
               {repos.map((r) => (
                 <option key={r.repositoryId} value={r.repositoryId}>
                   {r.repoFullName || r.repoName} ({r.defaultBranch || "main"})
@@ -1300,7 +908,27 @@ export default function DoThiLienKetPage() {
           </div>
         </div>
 
-        {/* THẺ THỐNG KÊ SỐ LIỆU THỰC TẾ (REAL METRICS) */}
+        {!selectedRepoId ? (
+          <div className="bg-white rounded-2xl border border-dashed border-amber-300 p-12 text-center max-w-xl mx-auto my-12 shadow-sm">
+            <FolderGit2 className="w-12 h-12 text-amber-500 mx-auto mb-3" />
+            <h2 className="text-base font-bold text-slate-900 mb-1">
+              Vui lòng chọn hoặc tải lên kho lưu trữ
+            </h2>
+            <p className="text-xs text-slate-500 mt-2 max-w-md mx-auto leading-relaxed">
+              Chưa có kho lưu trữ nào được chọn hoặc tài khoản chưa kết nối kho lưu trữ. Vui lòng kết nối GitHub hoặc tạo kho lưu trữ để xem đồ thị liên kết.
+            </p>
+            <div className="flex items-center justify-center gap-3 mt-5">
+              <Link
+                href="/cai-dat"
+                className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition shadow-xs"
+              >
+                Kết nối kho lưu trữ
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* THẺ THỐNG KÊ SỐ LIỆU THỰC TẾ (REAL METRICS) */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
           <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-sm flex items-center gap-3">
             <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600">
@@ -1489,6 +1117,30 @@ export default function DoThiLienKetPage() {
                   <div className="flex items-center gap-2 text-sm text-slate-700 font-medium">
                     <RefreshCw size={18} className="animate-spin text-emerald-600" /> Đang tải cây mã nguồn, AST chi tiết và tài liệu
                     thực tế từ GitHub & CSDL...
+                  </div>
+                </div>
+              ) : (filteredNodes.length <= 1 && stats.realFilesCount === 0 && stats.docsCount === 0) ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 p-8 text-center z-10">
+                  <FolderGit2 size={42} className="text-amber-500 mb-3" />
+                  <h3 className="text-sm font-bold text-slate-800 mb-1">
+                    Kho lưu trữ chưa có dữ liệu mã nguồn hoặc tài liệu
+                  </h3>
+                  <p className="text-xs text-slate-500 max-w-md mb-4 leading-relaxed">
+                    Kho lưu trữ này chưa tải lên mã nguồn hoặc chưa kết nối tài liệu qua MCP. Vui lòng tải lên tài liệu/mã nguồn để trực quan hóa đồ thị liên kết.
+                  </p>
+                  <div className="flex items-center gap-2.5">
+                    <Link
+                      href="/tai-lieu-cua-toi"
+                      className="px-3.5 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 transition"
+                    >
+                      Tải lên tài liệu
+                    </Link>
+                    <Link
+                      href={`/cay-ma-nguon?repoId=${selectedRepoId}`}
+                      className="px-3.5 py-1.5 bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold hover:bg-slate-200 transition"
+                    >
+                      Đồng bộ mã nguồn
+                    </Link>
                   </div>
                 </div>
               ) : filteredNodes.length === 0 ? (
@@ -1748,54 +1400,70 @@ export default function DoThiLienKetPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filteredNodes
-                      .filter((n) => n.type !== "REPO")
-                      .map((node) => (
-                        <tr
-                          key={node.id}
-                          onClick={() => setSelectedNode(node)}
-                          className={`hover:bg-slate-50 cursor-pointer transition ${
-                            selectedNode?.id === node.id ? "bg-emerald-50/60 font-medium" : ""
-                          }`}
-                        >
-                          <td className="py-2.5 px-3">
-                            <span className="inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded text-[10px] bg-slate-100 text-slate-700">
-                              {node.type}
-                            </span>
-                          </td>
-                          <td className="py-2.5 px-3 font-semibold text-slate-900">{node.name}</td>
-                          <td className="py-2.5 px-3 text-slate-500 font-mono text-[11px]">
-                            {node.filePath || "-"}
-                          </td>
-                          <td className="py-2.5 px-3 text-slate-600 font-mono text-[11px] max-w-xs truncate">
-                            {node.signature || "-"}
-                          </td>
-                          <td className="py-2.5 px-3">
-                            {node.docStatus === "DOCUMENTED" ? (
-                              <span className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full text-[11px] font-medium border border-emerald-200">
-                                <CheckCircle2 size={11} /> Documented
+                    {filteredNodes.filter((n) => n.type !== "REPO").length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-12 text-center text-slate-500">
+                          {stats.realFilesCount === 0 && stats.docsCount === 0 ? (
+                            <div className="max-w-md mx-auto">
+                              <FolderGit2 size={32} className="text-amber-500 mx-auto mb-2" />
+                              <p className="font-semibold text-slate-800">Kho lưu trữ chưa có dữ liệu mã nguồn hoặc tài liệu</p>
+                              <p className="text-xs text-slate-500 mt-1">Vui lòng tải lên tài liệu hoặc đồng bộ mã nguồn để xem ma trận.</p>
+                            </div>
+                          ) : (
+                            "Không tìm thấy phần tử nào phù hợp với bộ lọc"
+                          )}
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredNodes
+                        .filter((n) => n.type !== "REPO")
+                        .map((node) => (
+                          <tr
+                            key={node.id}
+                            onClick={() => setSelectedNode(node)}
+                            className={`hover:bg-slate-50 cursor-pointer transition ${
+                              selectedNode?.id === node.id ? "bg-emerald-50/60 font-medium" : ""
+                            }`}
+                          >
+                            <td className="py-2.5 px-3">
+                              <span className="inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded text-[10px] bg-slate-100 text-slate-700">
+                                {node.type}
                               </span>
-                            ) : node.docStatus === "DRIFTED" ? (
-                              <span className="inline-flex items-center gap-1 text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full text-[11px] font-medium border border-amber-200">
-                                <AlertTriangle size={11} /> Drifted
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full text-[11px] font-medium border border-slate-200">
-                                <HelpCircle size={11} /> Undocumented
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-2.5 px-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => setSelectedNode(node)}
-                              className="text-emerald-600 hover:text-emerald-700 font-medium text-[11px] inline-flex items-center gap-1"
-                            >
-                              <Eye size={12} /> Chi tiết
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                            <td className="py-2.5 px-3 font-semibold text-slate-900">{node.name}</td>
+                            <td className="py-2.5 px-3 text-slate-500 font-mono text-[11px]">
+                              {node.filePath || "-"}
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-600 font-mono text-[11px] max-w-xs truncate">
+                              {node.signature || "-"}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              {node.docStatus === "DOCUMENTED" ? (
+                                <span className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full text-[11px] font-medium border border-emerald-200">
+                                  <CheckCircle2 size={11} /> Documented
+                                </span>
+                              ) : node.docStatus === "DRIFTED" ? (
+                                <span className="inline-flex items-center gap-1 text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full text-[11px] font-medium border border-amber-200">
+                                  <AlertTriangle size={11} /> Drifted
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full text-[11px] font-medium border border-slate-200">
+                                  <HelpCircle size={11} /> Undocumented
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedNode(node)}
+                                className="text-emerald-600 hover:text-emerald-700 font-medium text-[11px] inline-flex items-center gap-1"
+                              >
+                                <Eye size={12} /> Chi tiết
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -1949,7 +1617,9 @@ export default function DoThiLienKetPage() {
             </div>
           )}
         </div>
-      </div>
-    </AppShell>
+      </>
+    )}
+  </div>
+</AppShell>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect, Suspense } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import {
@@ -29,8 +29,11 @@ import {
   Layers,
   FileDiff,
   Check,
+  FolderGit2,
 } from "lucide-react";
 import { apiClient } from "@/services/apiClient";
+import { repoService, RepoItem } from "@/services/repoService";
+import { healthReportService } from "@/services/healthReportService";
 
 export type SeverityType = "low" | "medium" | "high" | "critical";
 export type ClassificationType = "SIGNATURE" | "SEMANTIC" | "REFERENCE";
@@ -252,7 +255,11 @@ function CanhBaoSaiLechContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const alertIdParam = searchParams.get("alertId");
+  const repoIdParam = searchParams.get("repoId");
   const targetAlertId = alertIdParam ? Number(alertIdParam) : null;
+  const [repositories, setRepositories] = useState<RepoItem[]>([]);
+  const [selectedRepoId, setSelectedRepoId] = useState<string>(repoIdParam || "all");
+  const [isRepoNotConfigured, setIsRepoNotConfigured] = useState<boolean>(false);
   const [alerts, setAlerts] = useState<DriftAlertItem[]>([]);
   const [selectedAlertId, setSelectedAlertId] = useState<number | null>(null);
   const [severityFilter, setSeverityFilter] = useState<"all" | SeverityType>("all");
@@ -386,40 +393,74 @@ function CanhBaoSaiLechContent() {
     return { added, deleted, total: codeDiffPairs.length };
   }, [codeDiffPairs]);
 
-  // Quét & Đồng bộ dữ liệu thật từ hệ thống backend CSDL (Tuyệt đối không dùng dữ liệu mock)
-  const handleScan = async () => {
+  // Nạp danh sách repositories ban đầu
+  useEffect(() => {
+    repoService
+      .getRepositories()
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setRepositories(data);
+        }
+      })
+      .catch((err) => {
+        console.warn("Không thể tải danh sách kho:", err);
+      });
+  }, []);
+
+  // Quét & Đồng bộ dữ liệu thật từ hệ thống backend CSDL theo Repository được chọn (Tuyệt đối không quét tự động các repo khác)
+  const handleScan = useCallback(async (repoIdToScan?: string) => {
+    const activeRepoId = repoIdToScan !== undefined ? repoIdToScan : selectedRepoId;
     setIsScanning(true);
     try {
       let realAlerts: any[] = [];
+      let isUnconfigured = false;
 
-      // 1. Lấy dữ liệu trực tiếp từ bảng document_change_alerts qua endpoint /api/drift-alerts
-      try {
-        const driftRes = await apiClient.get<any[]>("/api/drift-alerts");
-        if (Array.isArray(driftRes?.data) && driftRes.data.length > 0) {
-          realAlerts = driftRes.data;
-        }
-      } catch {
-        // bỏ qua nếu endpoint chưa sẵn sàng
-      }
+      if (activeRepoId !== "all") {
+        const repoIdNum = Number(activeRepoId);
 
-      // 2. Nếu chưa có, quét qua bảng drift_alerts của các repositories
-      if (realAlerts.length === 0) {
+        // Kiểm tra điều kiện tiên quyết: kho đã có dữ liệu mã nguồn hoặc kết nối MCP chưa
+        const healthRes = await healthReportService.getHealthReport(repoIdNum).catch(() => null);
+        const r = healthRes as any;
+        isUnconfigured = Boolean(
+          r?.readyForScan === false ||
+          r?.compliance?.rating === "NOT_CONFIGURED" ||
+          ((r?.scannedClassesAndFunctions ?? r?.totalScannedEntities ?? 0) === 0 && (r?.totalDocuments ?? 0) === 0)
+        );
+        setIsRepoNotConfigured(isUnconfigured);
+
+        // 1. Lấy dữ liệu cảnh báo từ document_change_alerts được giới hạn theo repositoryId
         try {
-          const reposRes = await apiClient.get<any[]>("/api/repositories");
-          if (reposRes?.data && Array.isArray(reposRes.data)) {
-            for (const repo of reposRes.data.slice(0, 5)) {
-              try {
-                const alertsRes = await apiClient.get<any[]>(`/api/ci/drift-scan/repositories/${repo.id}`);
-                if (Array.isArray(alertsRes?.data) && alertsRes.data.length > 0) {
-                  realAlerts = [...realAlerts, ...alertsRes.data];
-                }
-              } catch {
-                // bỏ qua lỗi từng repo
-              }
-            }
+          const driftRes = await apiClient.get<any[]>("/api/drift-alerts", {
+            params: { repositoryId: repoIdNum },
+          });
+          if (Array.isArray(driftRes?.data) && driftRes.data.length > 0) {
+            realAlerts = driftRes.data;
           }
         } catch {
-          // bỏ qua lỗi nạp repo
+          // bỏ qua nếu endpoint chưa sẵn sàng
+        }
+
+        // 2. Nếu chưa có trong document_change_alerts, lấy từ bảng drift_alerts của repo này
+        if (realAlerts.length === 0) {
+          try {
+            const alertsRes = await apiClient.get<any[]>(`/api/ci/drift-scan/repositories/${repoIdNum}`);
+            if (Array.isArray(alertsRes?.data) && alertsRes.data.length > 0) {
+              realAlerts = alertsRes.data;
+            }
+          } catch {
+            // bỏ qua nếu repo chưa có drift alert
+          }
+        }
+      } else {
+        // Scope toàn hệ thống ("all")
+        setIsRepoNotConfigured(false);
+        try {
+          const driftRes = await apiClient.get<any[]>("/api/drift-alerts");
+          if (Array.isArray(driftRes?.data) && driftRes.data.length > 0) {
+            realAlerts = driftRes.data;
+          }
+        } catch {
+          // bỏ qua
         }
       }
 
@@ -480,6 +521,8 @@ function CanhBaoSaiLechContent() {
         title: "Quét hoàn tất!",
         message: realAlerts.length > 0
           ? `Đã nạp ${realAlerts.length} cảnh báo sai lệch từ cơ sở dữ liệu.`
+          : isUnconfigured
+          ? "Kho lưu trữ này chưa có mã nguồn hoặc chưa kết nối tài liệu qua MCP."
           : "Cơ sở dữ liệu đang sạch: Không có cảnh báo sai lệch nào tồn đọng.",
       });
       setTimeout(() => {
@@ -493,12 +536,11 @@ function CanhBaoSaiLechContent() {
       setIsScanning(false);
       setHasLoaded(true);
     }
-  };
+  }, [selectedRepoId, targetAlertId]);
 
   useEffect(() => {
-    handleScan();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    handleScan(selectedRepoId);
+  }, [selectedRepoId, handleScan]);
 
   useEffect(() => {
     if (targetAlertId && alerts.length > 0) {
@@ -665,10 +707,38 @@ function CanhBaoSaiLechContent() {
             </div>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "#475569" }}>
+                Kho lưu trữ:
+              </span>
+              <select
+                value={selectedRepoId}
+                onChange={(e) => setSelectedRepoId(e.target.value)}
+                style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  padding: "6px 12px",
+                  borderRadius: 8,
+                  border: "1px solid #cbd5e1",
+                  background: "#ffffff",
+                  color: "#0f172a",
+                  cursor: "pointer",
+                  maxWidth: 240,
+                }}
+              >
+                <option value="all">📁 Tất cả kho (Toàn hệ thống)</option>
+                {repositories.map((repo) => (
+                  <option key={repo.repositoryId} value={String(repo.repositoryId)}>
+                    {repo.repoFullName || repo.repoName}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <button
               type="button"
-              onClick={handleScan}
+              onClick={() => handleScan(selectedRepoId)}
               disabled={isScanning}
               className="ld-btn ld-btn-secondary ld-btn-sm"
               style={{
@@ -990,58 +1060,119 @@ function CanhBaoSaiLechContent() {
 
         {/* KHUNG BỐ CỤC: NẾU CSDL CHƯA CÓ CẢNH BÁO NÀO THÌ HIỆN EMPTY STATE THỰC TẾ, NẾU CÓ THÌ HIỆN 2 CỘT */}
         {alerts.length === 0 ? (
-          <div
-            className="ld-card"
-            style={{
-              padding: "60px 24px",
-              textAlign: "center",
-              background: "#ffffff",
-              border: "1px solid #e2e8f0",
-              borderRadius: 12,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 16,
-              flex: 1,
-              boxShadow: "0 2px 10px rgba(0,0,0,0.02)",
-            }}
-          >
+          isRepoNotConfigured ? (
             <div
+              className="ld-card"
               style={{
-                width: 64,
-                height: 64,
-                borderRadius: "50%",
-                background: "#ecfdf5",
-                color: "#087f5b",
-                display: "grid",
-                placeItems: "center",
-                border: "1px solid #a7f3d0",
+                padding: "60px 24px",
+                textAlign: "center",
+                background: "#ffffff",
+                border: "1px dashed #fcd34d",
+                borderRadius: 12,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 16,
+                flex: 1,
+                boxShadow: "0 2px 10px rgba(0,0,0,0.02)",
               }}
             >
-              <CheckCircle2 size={36} />
-            </div>
-            <div>
-              <h2 style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", margin: "0 0 6px" }}>
-                Không có cảnh báo sai lệch nào trong CSDL (0 Cảnh báo)
-              </h2>
-              <p style={{ fontSize: 13, color: "#64748b", margin: 0, maxWidth: 520, lineHeight: 1.6 }}>
-                Hệ thống đang kết nối trực tiếp cơ sở dữ liệu thật. Hiện tại toàn bộ tài liệu kỹ thuật đều đang đồng bộ chính xác với mã nguồn Git, không có tài liệu nào bị trôi dạt.
-              </p>
-            </div>
-            <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-              <button
-                type="button"
-                onClick={handleScan}
-                disabled={isScanning}
-                className="ld-btn ld-btn-primary ld-btn-sm"
-                style={{ gap: 6, background: "#087f5b", color: "#ffffff", padding: "8px 18px", fontSize: 13 }}
+              <div
+                style={{
+                  width: 64,
+                  height: 64,
+                  borderRadius: "50%",
+                  background: "#fef3c7",
+                  color: "#d97706",
+                  display: "grid",
+                  placeItems: "center",
+                  border: "1px solid #fde68a",
+                }}
               >
-                <RefreshCw size={14} className={isScanning ? "animate-spin" : ""} />
-                {isScanning ? "Đang quét..." : "Quét lại từ Git"}
-              </button>
+                <FolderGit2 size={36} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", margin: "0 0 6px" }}>
+                  Kho lưu trữ chưa có dữ liệu mã nguồn hoặc tài liệu
+                </h2>
+                <p style={{ fontSize: 13, color: "#64748b", margin: 0, maxWidth: 520, lineHeight: 1.6 }}>
+                  Kho lưu trữ này chưa tải lên mã nguồn hoặc chưa kết nối tài liệu qua MCP. Vui lòng tải lên tài liệu/mã nguồn hoặc kết nối MCP để hệ thống bắt đầu quét và phát hiện sai lệch.
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => router.push("/tai-lieu-cua-toi")}
+                  className="ld-btn ld-btn-primary ld-btn-sm"
+                  style={{ gap: 6, background: "#087f5b", color: "#ffffff", padding: "8px 18px", fontSize: 13, cursor: "pointer" }}
+                >
+                  Tải lên tài liệu
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.push("/tai-lieu-cua-toi?tab=mcp")}
+                  className="ld-btn ld-btn-secondary ld-btn-sm"
+                  style={{ gap: 6, background: "#ffffff", border: "1px solid #cbd5e1", padding: "8px 18px", fontSize: 13, cursor: "pointer" }}
+                >
+                  Kết nối MCP
+                </button>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div
+              className="ld-card"
+              style={{
+                padding: "60px 24px",
+                textAlign: "center",
+                background: "#ffffff",
+                border: "1px solid #e2e8f0",
+                borderRadius: 12,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 16,
+                flex: 1,
+                boxShadow: "0 2px 10px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div
+                style={{
+                  width: 64,
+                  height: 64,
+                  borderRadius: "50%",
+                  background: "#ecfdf5",
+                  color: "#087f5b",
+                  display: "grid",
+                  placeItems: "center",
+                  border: "1px solid #a7f3d0",
+                }}
+              >
+                <CheckCircle2 size={36} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", margin: "0 0 6px" }}>
+                  Không có cảnh báo sai lệch nào trong CSDL (0 Cảnh báo)
+                </h2>
+                <p style={{ fontSize: 13, color: "#64748b", margin: 0, maxWidth: 520, lineHeight: 1.6 }}>
+                  Hệ thống đang kết nối trực tiếp cơ sở dữ liệu thật. Hiện tại toàn bộ tài liệu kỹ thuật đều đang đồng bộ chính xác với mã nguồn Git, không có tài liệu nào bị trôi dạt.
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => handleScan(selectedRepoId)}
+                  disabled={isScanning}
+                  className="ld-btn ld-btn-primary ld-btn-sm"
+                  style={{ gap: 6, background: "#087f5b", color: "#ffffff", padding: "8px 18px", fontSize: 13, cursor: "pointer" }}
+                >
+                  <RefreshCw size={14} className={isScanning ? "animate-spin" : ""} />
+                  {isScanning ? "Đang quét..." : "Quét lại từ Git"}
+                </button>
+              </div>
+            </div>
+          )
         ) : (
           <div
             style={{

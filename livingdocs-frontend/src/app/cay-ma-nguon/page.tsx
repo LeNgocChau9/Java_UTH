@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
 import {
   codeEntityService,
@@ -33,6 +34,7 @@ import {
   Check,
   RefreshCw,
   Key,
+  FolderGit2,
 } from "lucide-react";
 
 // Cấu trúc node cây thư mục
@@ -170,34 +172,12 @@ export default function SourceTreePage() {
           setRepos(data);
           setSelectedRepo(data[0]);
         } else {
-          const fallback: RepoItem = {
-            repositoryId: 1,
-            workspaceId: 1,
-            connectionId: 1,
-            githubRepoId: 987654,
-            repoName: "Java_UTH",
-            repoFullName: "LeNgocChau9/Java_UTH",
-            defaultBranch: "main",
-            isActive: true,
-            autoDocEnabled: true,
-          };
-          setRepos([fallback]);
-          setSelectedRepo(fallback);
+          setRepos([]);
+          setSelectedRepo(null);
         }
       } catch {
-        const fallback: RepoItem = {
-          repositoryId: 1,
-          workspaceId: 1,
-          connectionId: 1,
-          githubRepoId: 987654,
-          repoName: "Java_UTH",
-          repoFullName: "LeNgocChau9/Java_UTH",
-          defaultBranch: "main",
-          isActive: true,
-          autoDocEnabled: true,
-        };
-        setRepos([fallback]);
-        setSelectedRepo(fallback);
+        setRepos([]);
+        setSelectedRepo(null);
       }
     }
     loadRepos();
@@ -229,26 +209,6 @@ export default function SourceTreePage() {
           }
         } catch {
           setGitTreeFiles([]);
-        }
-
-        // Nếu backend chưa có hoặc trả về rỗng, thử tải trực tiếp từ GitHub Public Git Tree API cho đúng repo đang chọn
-        if (realFiles.length === 0 && selectedRepo?.repoFullName) {
-          try {
-            const repoFullName = selectedRepo.repoFullName;
-            const branch = selectedRepo.defaultBranch || "main";
-            const ghRes = await fetch(`https://api.github.com/repos/${repoFullName}/git/trees/${branch}?recursive=1`);
-            if (ghRes.ok) {
-              const ghData = await ghRes.json();
-              if (ghData && ghData.tree && Array.isArray(ghData.tree)) {
-                realFiles = ghData.tree
-                  .filter((item: any) => item.type === "blob" || item.path?.includes("."))
-                  .map((item: any) => item.path);
-                setGitTreeFiles(realFiles);
-              }
-            }
-          } catch {
-            // ignore
-          }
         }
 
         const data = await codeEntityService.getByRepository(selectedRepo!.repositoryId);
@@ -699,7 +659,7 @@ export default function SourceTreePage() {
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs font-medium text-slate-500">Kho lưu trữ:</span>
             <select
-              value={selectedRepo?.repositoryId || 1}
+              value={selectedRepo?.repositoryId || ""}
               onChange={(e) => {
                 const r = repos.find(
                   (item) => item.repositoryId === Number(e.target.value)
@@ -716,6 +676,9 @@ export default function SourceTreePage() {
               }}
               className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 shadow-sm focus:border-emerald-500 focus:outline-none"
             >
+              {repos.length === 0 && (
+                <option value="">-- Chưa có kho lưu trữ --</option>
+              )}
               {repos.map((r) => (
                 <option key={r.repositoryId} value={r.repositoryId}>
                   {r.repoFullName || r.repoName} ({r.defaultBranch || "main"})
@@ -757,7 +720,26 @@ export default function SourceTreePage() {
             <button type="button" onClick={() => setRenewNotice(null)} className="text-emerald-600 hover:text-emerald-900 font-bold ml-2">✕</button>
           </div>
         )}
-        <div className="flex flex-col md:flex-row gap-4 h-[calc(100vh-175px)] min-h-0 overflow-hidden">
+        {!selectedRepo ? (
+          <div className="bg-white rounded-2xl border border-dashed border-amber-300 p-12 text-center max-w-xl mx-auto my-12 shadow-sm">
+            <FolderGit2 className="w-12 h-12 text-amber-500 mx-auto mb-3" />
+            <h2 className="text-base font-bold text-slate-900 mb-1">
+              Vui lòng chọn hoặc tải lên kho lưu trữ
+            </h2>
+            <p className="text-xs text-slate-500 mt-2 max-w-md mx-auto leading-relaxed">
+              Chưa có kho lưu trữ nào được chọn hoặc tài khoản chưa kết nối kho lưu trữ. Vui lòng kết nối GitHub hoặc tải lên kho lưu trữ để xem cây mã nguồn.
+            </p>
+            <div className="flex items-center justify-center gap-3 mt-5">
+              <Link
+                href="/cai-dat"
+                className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition shadow-xs"
+              >
+                Kết nối kho lưu trữ
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col md:flex-row gap-4 h-[calc(100vh-175px)] min-h-0 overflow-hidden">
           {/* CỘT TRÁI: Cây thư mục mã nguồn (Rộng rãi 380px-420px, có nút mở rộng và cuộn ngang) */}
           <div
             className={`w-full ${
@@ -1102,7 +1084,8 @@ export default function SourceTreePage() {
             </div>
           </div>
         </div>
-      </div>
-    </AppShell>
+      )}
+    </div>
+  </AppShell>
   );
 }

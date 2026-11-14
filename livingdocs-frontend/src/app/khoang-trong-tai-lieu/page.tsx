@@ -152,11 +152,11 @@ function KhoangTrongTaiLieuContent() {
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <span className="inline-flex items-center justify-center rounded-lg bg-indigo-50 p-2 text-indigo-600 ring-1 ring-indigo-200">
+              <span className="inline-flex items-center justify-center rounded-lg bg-emerald-50 p-2 text-emerald-600 ring-1 ring-emerald-200">
                 <FileCode2 size={22} />
               </span>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-                Khoảng trống Tài liệu
+                Tài Liệu Còn Trống
               </h1>
             </div>
           </div>
@@ -167,15 +167,14 @@ function KhoangTrongTaiLieuContent() {
               disabled={loadingGaps}
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 cursor-pointer"
             >
-              <RefreshCw size={14} className={loadingGaps ? "animate-spin text-indigo-600" : ""} />
+              <RefreshCw size={14} className={loadingGaps ? "animate-spin text-emerald-600" : ""} />
               Làm mới
             </button>
             <Link
               href="/yeu-cau-sinh-tai-lieu"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 cursor-pointer"
             >
-              <Sparkles size={14} />
-              Tạo tài liệu AI
+              Sinh Tài Liệu
             </Link>
           </div>
         </div>
@@ -203,7 +202,7 @@ function KhoangTrongTaiLieuContent() {
           <div className="rounded-xl border border-blue-100 bg-gradient-to-br from-blue-50/50 to-white p-4 shadow-sm">
             <div className="flex items-center justify-between text-blue-600">
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                Lớp (Classes)
+                Class
               </span>
               <Boxes size={18} />
             </div>
@@ -213,14 +212,14 @@ function KhoangTrongTaiLieuContent() {
               </span>
               <span className="text-xs text-slate-400">lớp</span>
             </div>
-            <p className="mt-1 text-xs text-blue-600 font-medium">Class chưa có tài liệu</p>
+            <p className="mt-1 text-xs text-blue-600 font-medium">Class</p>
           </div>
 
           {/* Card 3: Giao diện thiếu tài liệu */}
           <div className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50/50 to-white p-4 shadow-sm">
             <div className="flex items-center justify-between text-purple-600">
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                Giao diện (Interfaces)
+                Interface
               </span>
               <Layers size={18} />
             </div>
@@ -230,14 +229,14 @@ function KhoangTrongTaiLieuContent() {
               </span>
               <span className="text-xs text-slate-400">interface</span>
             </div>
-            <p className="mt-1 text-xs text-purple-600 font-medium">Interface chưa có tài liệu</p>
+            <p className="mt-1 text-xs text-purple-600 font-medium">Interface</p>
           </div>
 
           {/* Card 4: Phương thức thiếu tài liệu */}
           <div className="rounded-xl border border-amber-100 bg-gradient-to-br from-amber-50/50 to-white p-4 shadow-sm">
             <div className="flex items-center justify-between text-amber-600">
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                Phương thức (Methods)
+                Phương thức
               </span>
               <Code2 size={18} />
             </div>
@@ -247,7 +246,7 @@ function KhoangTrongTaiLieuContent() {
               </span>
               <span className="text-xs text-slate-400">phương thức</span>
             </div>
-            <p className="mt-1 text-xs text-amber-600 font-medium">Hàm / Method cần tài liệu hóa</p>
+            <p className="mt-1 text-xs text-amber-600 font-medium">Phương thức</p>
           </div>
 
           {/* Card 5: Độ bao phủ tài liệu */}
@@ -279,7 +278,7 @@ function KhoangTrongTaiLieuContent() {
             {/* 1. Lọc theo Kho lưu trữ */}
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">
-                Kho lưu trữ (Repository)
+                Kho lưu trữ
               </label>
               <select
                 value={selectedRepoId}
@@ -305,7 +304,7 @@ function KhoangTrongTaiLieuContent() {
             {/* 2. Lọc theo Gói thư mục / Package */}
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">
-                Gói thư mục (Package)
+                Gói thư mục
               </label>
               <select
                 value={selectedPackage}
@@ -324,17 +323,17 @@ function KhoangTrongTaiLieuContent() {
             {/* 3. Lọc theo Loại phần tử mã nguồn */}
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">
-                Loại phần tử (Entity Type)
+                Loại phần tử
               </label>
               <select
                 value={selectedType}
                 onChange={(e) => setSelectedType(e.target.value)}
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
               >
-                <option value="ALL">Tất cả (All Types)</option>
-                <option value="CLASS">Lớp (CLASS)</option>
-                <option value="INTERFACE">Giao diện (INTERFACE)</option>
-                <option value="METHOD">Phương thức (METHOD)</option>
+                <option value="ALL">Tất cả</option>
+                <option value="CLASS">Class</option>
+                <option value="INTERFACE">Interface</option>
+                <option value="METHOD">Phương thức</option>
               </select>
             </div>
 
@@ -367,9 +366,9 @@ function KhoangTrongTaiLieuContent() {
             <span className="text-slate-400 font-medium text-[11px]">Lọc nhanh loại:</span>
             {[
               { id: "ALL", label: "Tất cả", color: "bg-slate-100 text-slate-700" },
-              { id: "CLASS", label: "Lớp (Class)", color: "bg-blue-50 text-blue-700 border-blue-200" },
-              { id: "INTERFACE", label: "Giao diện (Interface)", color: "bg-purple-50 text-purple-700 border-purple-200" },
-              { id: "METHOD", label: "Phương thức (Method)", color: "bg-amber-50 text-amber-700 border-amber-200" },
+              { id: "CLASS", label: "Class", color: "bg-blue-50 text-blue-700 border-blue-200" },
+              { id: "INTERFACE", label: "Interface", color: "bg-purple-50 text-purple-700 border-purple-200" },
+              { id: "METHOD", label: "Phương thức", color: "bg-amber-50 text-amber-700 border-amber-200" },
             ].map((p) => {
               const active = selectedType === p.id;
               return (
@@ -377,7 +376,7 @@ function KhoangTrongTaiLieuContent() {
                   key={p.id}
                   onClick={() => setSelectedType(p.id)}
                   className={`rounded-full px-2.5 py-0.5 text-xs font-semibold border transition cursor-pointer ${active
-                      ? "border-indigo-600 bg-indigo-600 text-white shadow-xs"
+                      ? "border-emerald-600 bg-emerald-600 text-white shadow-xs"
                       : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                     }`}
                 >
@@ -608,16 +607,15 @@ function KhoangTrongTaiLieuContent() {
                           </span>
                         </td>
 
-                        {/* 5. Nút một chạm: Sinh tài liệu AI */}
+                        {/* 5. Nút một chạm: Sinh tài liệu */}
                         <td className="py-3.5 px-4 align-top text-right whitespace-nowrap">
                           <button
                             onClick={() => handleOneClickGenerate(item)}
-                            className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-violet-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:from-indigo-700 hover:to-violet-700 hover:shadow cursor-pointer active:scale-95"
-                            title="Tự động điền thông tin tệp, lớp và mở ngay trang tạo tài liệu AI"
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 hover:shadow cursor-pointer active:scale-95"
+                            title="Tự động điền thông tin tệp, lớp và mở ngay trang tạo tài liệu"
                           >
-                            <Sparkles size={13} className="text-amber-300" />
-                            <span>Sinh tài liệu AI</span>
-                            <ArrowRight size={12} className="text-indigo-200 group-hover:translate-x-0.5 transition-transform" />
+                            <span>Sinh Tài Liệu</span>
+                            <ArrowRight size={12} className="text-emerald-100 group-hover:translate-x-0.5 transition-transform" />
                           </button>
                         </td>
                       </tr>

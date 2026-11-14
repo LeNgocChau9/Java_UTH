@@ -117,18 +117,16 @@ const NAV: NavItem[] = [
     href: "/tai-lieu-cua-toi",
     label: "Tài liệu",
     icon: <FileText size={16} />,
-    roles: ["DEVELOPER"],
+    roles: ["DEVELOPER", "TECH_LEAD"],
+    children: [
+      { href: "/tai-lieu-cua-toi", label: "Tất cả tài liệu" },
+      { href: "/khoang-trong-tai-lieu", label: "Tài Liệu Còn Trống" },
+    ],
   },
   {
     href: "/cay-ma-nguon",
     label: "Cây thư mục",
     icon: <GitFork size={16} />,
-    roles: ["DEVELOPER", "TECH_LEAD"],
-  },
-  {
-    href: "/khoang-trong-tai-lieu",
-    label: "Khoảng trống tài liệu",
-    icon: <FileCode2 size={16} />,
     roles: ["DEVELOPER", "TECH_LEAD"],
   },
   {

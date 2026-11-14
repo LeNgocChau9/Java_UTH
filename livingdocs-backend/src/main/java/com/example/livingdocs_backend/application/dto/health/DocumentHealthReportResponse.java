@@ -30,6 +30,17 @@ public class DocumentHealthReportResponse {
     @Schema(description = "Thời gian xử lý báo cáo (mili-giây, tiêu chuẩn dưới 300ms)", example = "45")
     private long executionTimeMs;
 
+    @Schema(description = "Trạng thái sẵn sàng quét (đã tải lên mã nguồn hoặc có tài liệu/MCP)", example = "true")
+    @Builder.Default
+    private boolean readyForScan = true;
+
+    @Schema(description = "Đã có dữ liệu hay chưa (đồng nghĩa readyForScan)", example = "true")
+    @Builder.Default
+    private Boolean hasData = true;
+
+    @Schema(description = "Xếp hạng chất lượng tổng thể (ví dụ EXCELLENT, GOOD, POOR, NOT_CONFIGURED)", example = "GOOD")
+    private String overallRating;
+
     // 1. Độ bao phủ mã nguồn
     @Schema(description = "Tỷ lệ bao phủ mã nguồn (%)", example = "82.5")
     private double coveragePercent;
@@ -71,4 +82,23 @@ public class DocumentHealthReportResponse {
     // 6. Thông tin phân rã theo từng kho (khi xem toàn hệ thống)
     @Schema(description = "Danh sách chi tiết sức khỏe và bao phủ theo từng kho")
     private List<RepoCoverageDto> repositoryDetails;
+
+    public String getOverallRating() {
+        if (overallRating != null) {
+            return overallRating;
+        }
+        return compliance != null ? compliance.getRating() : null;
+    }
+
+    public long getScannedClassesAndFunctions() {
+        return totalScannedEntities;
+    }
+
+    public void setScannedClassesAndFunctions(long scannedClassesAndFunctions) {
+        this.totalScannedEntities = scannedClassesAndFunctions;
+    }
+
+    public long getMissingClassesAndFunctions() {
+        return missingDocEntities != null ? missingDocEntities.getTotalMissing() : 0L;
+    }
 }

@@ -45,6 +45,7 @@ public class DocumentHealthReportController {
             throw new IllegalArgumentException("repositoryId phải là số nguyên dương");
         }
 
+        // ponytail: Nếu repositoryId được chỉ định và repo chưa có dữ liệu/MCP, Service sẽ trả về trạng thái NOT_CONFIGURED & readyForScan=false
         if ("markdown".equalsIgnoreCase(format) || "md".equalsIgnoreCase(format)) {
             String markdownContent = healthReportServicePort.exportHealthReportMarkdown(repositoryId);
             String filename = repositoryId != null
