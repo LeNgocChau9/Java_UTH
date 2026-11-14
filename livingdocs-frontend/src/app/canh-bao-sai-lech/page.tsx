@@ -257,12 +257,24 @@ function CanhBaoSaiLechContent() {
   const [selectedAlertId, setSelectedAlertId] = useState<number | null>(null);
   const [severityFilter, setSeverityFilter] = useState<"all" | SeverityType>("all");
   const [classificationFilter, setClassificationFilter] = useState<"all" | ClassificationType>("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "OPEN" | "RESOLVED" | "IGNORED">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [acceptingId, setAcceptingId] = useState<number | null>(null);
   const [ignoringId, setIgnoringId] = useState<number | null>(null);
   const [copiedCodeSide, setCopiedCodeSide] = useState<"old" | "new" | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
+
+  // State cho Modal Kích hoạt phân tích sai lệch thủ công (Task #212)
+  const [showManualModal, setShowManualModal] = useState(false);
+  const [manualMode, setManualMode] = useState<"PULL_REQUEST" | "DOCUMENT">("PULL_REQUEST");
+  const [reposList, setReposList] = useState<any[]>([]);
+  const [selectedRepoId, setSelectedRepoId] = useState<string>("");
+  const [prsList, setPrsList] = useState<any[]>([]);
+  const [selectedPrNumber, setSelectedPrNumber] = useState<string>("");
+  const [docsList, setDocsList] = useState<any[]>([]);
+  const [selectedDocId, setSelectedDocId] = useState<string>("");
+  const [isAnalyzingManual, setIsAnalyzingManual] = useState(false);
   const [successToast, setSuccessToast] = useState<{
     show: boolean;
     title: string;
@@ -318,6 +330,9 @@ function CanhBaoSaiLechContent() {
       signature: alerts.filter((a) => a.classification === "SIGNATURE").length,
       semantic: alerts.filter((a) => a.classification === "SEMANTIC").length,
       reference: alerts.filter((a) => a.classification === "REFERENCE").length,
+      open: alerts.filter((a) => a.status === "OPEN").length,
+      resolved: alerts.filter((a) => a.status === "RESOLVED" || a.status === "DRAFT_CREATED" || (a.status as string) === "ACCEPTED").length,
+      ignored: alerts.filter((a) => a.status === "IGNORED").length,
     };
   }, [alerts]);
 
@@ -327,6 +342,11 @@ function CanhBaoSaiLechContent() {
         severityFilter === "all" || item.severity === severityFilter;
       const matchClassification =
         classificationFilter === "all" || item.classification === classificationFilter;
+      const matchStatus =
+        statusFilter === "all" ||
+        (statusFilter === "OPEN" && item.status === "OPEN") ||
+        (statusFilter === "RESOLVED" && (item.status === "RESOLVED" || item.status === "DRAFT_CREATED" || (item.status as string) === "ACCEPTED")) ||
+        (statusFilter === "IGNORED" && item.status === "IGNORED");
       const matchSearch =
         searchQuery.trim() === "" ||
         item.docTitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -334,9 +354,9 @@ function CanhBaoSaiLechContent() {
         item.affectedFiles.some((f) =>
           f.toLowerCase().includes(searchQuery.toLowerCase())
         );
-      return matchSeverity && matchClassification && matchSearch;
+      return matchSeverity && matchClassification && matchStatus && matchSearch;
     });
-  }, [alerts, severityFilter, classificationFilter, searchQuery]);
+  }, [alerts, severityFilter, classificationFilter, statusFilter, searchQuery]);
 
   const selectedAlert = useMemo(() => {
     if (alerts.length === 0) return null;
@@ -509,10 +529,115 @@ function CanhBaoSaiLechContent() {
     }
   }, [targetAlertId, alerts]);
 
+  // Mở Modal Phân tích sai lệch thủ công và nạp danh sách Repo / PR / Tài liệu thật từ CSDL
+  const openManualAnalyzeModal = async () => {
+    setShowManualModal(true);
+    try {
+      const [reposRes, docsRes] = await Promise.all([
+        apiClient.get<any[]>("/api/repos").catch(() => ({ data: [] })),
+        apiClient.get<any[]>("/api/documents").catch(() => ({ data: [] })),
+      ]);
+      const rList = Array.isArray(reposRes.data) ? reposRes.data : [];
+      const dList = Array.isArray(docsRes.data) ? docsRes.data : [];
+      setReposList(rList);
+      setDocsList(dList);
+
+      if (rList.length > 0 && !selectedRepoId) {
+        const firstRepoId = String(rList[0].repositoryId || rList[0].id);
+        setSelectedRepoId(firstRepoId);
+        await handleRepoSelectForManual(firstRepoId);
+      }
+      if (dList.length > 0 && !selectedDocId) {
+        setSelectedDocId(String(dList[0].docId || dList[0].id));
+      }
+    } catch (e) {
+      console.warn("Không thể tải danh sách repo/tài liệu cho phân tích thủ công:", e);
+    }
+  };
+
+  const handleRepoSelectForManual = async (repoIdStr: string) => {
+    setSelectedRepoId(repoIdStr);
+    if (!repoIdStr) {
+      setPrsList([]);
+      setSelectedPrNumber("");
+      return;
+    }
+    try {
+      const prsRes = await apiClient.get<any[]>(`/api/repos/${repoIdStr}/pulls`).catch(() => ({ data: [] }));
+      const pList = Array.isArray(prsRes.data) ? prsRes.data : [];
+      setPrsList(pList);
+      if (pList.length > 0) {
+        setSelectedPrNumber(String(pList[0].prNumber));
+      } else {
+        setSelectedPrNumber("");
+      }
+    } catch {
+      setPrsList([]);
+    }
+  };
+
+  const handleTriggerManualAnalysis = async () => {
+    if (manualMode === "PULL_REQUEST" && (!selectedRepoId || !selectedPrNumber)) {
+      alert("Vui lòng chọn Kho lưu trữ và nhập/chọn số hiệu Pull Request cần phân tích!");
+      return;
+    }
+    if (manualMode === "DOCUMENT" && !selectedDocId) {
+      alert("Vui lòng chọn Tài liệu cụ thể cần phân tích sai lệch!");
+      return;
+    }
+
+    setIsAnalyzingManual(true);
+    try {
+      const payload =
+        manualMode === "PULL_REQUEST"
+          ? {
+              mode: "PULL_REQUEST",
+              repositoryId: Number(selectedRepoId),
+              prNumber: Number(selectedPrNumber),
+            }
+          : {
+              mode: "DOCUMENT",
+              documentId: Number(selectedDocId),
+            };
+
+      const res = await apiClient.post<any>("/api/drift-alerts/manual-analyze", payload);
+      setShowManualModal(false);
+      await handleScan();
+
+      const firstCreatedId = res.data?.alerts?.[0]?.alertId;
+      if (firstCreatedId) {
+        setSelectedAlertId(Number(firstCreatedId));
+      }
+
+      setSuccessToast({
+        show: true,
+        title: "Phân tích sai lệch thủ công hoàn tất!",
+        message:
+          res.data?.message ||
+          `Đã thực hiện đối chiếu mã nguồn và lưu vết ${res.data?.totalDriftsDetected || 0} cảnh báo vào lịch sử phân tích.`,
+      });
+      setTimeout(() => {
+        setSuccessToast((prev) => ({ ...prev, show: false }));
+      }, 5000);
+    } catch (err: any) {
+      alert("Phân tích sai lệch thủ công thất bại: " + (err.response?.data?.message || err.message || "Lỗi hệ thống"));
+    } finally {
+      setIsAnalyzingManual(false);
+    }
+  };
+
   // Hành động 1: Chấp nhận đề xuất (Tạo bản nháp mới & giải quyết cảnh báo)
   const handleAcceptFix = async (alertItem: DriftAlertItem) => {
     setAcceptingId(alertItem.id);
     try {
+      try {
+        await apiClient.patch(`/api/drift-alerts/${alertItem.id}`, {
+          action: "RESOLVE",
+          comment: "Người dùng chấp nhận đề xuất cập nhật tài liệu từ Trung tâm Cảnh báo",
+        });
+      } catch (e) {
+        console.info("Persisting resolve status for alert #", alertItem.id);
+      }
       try {
         await apiClient.post(`/api/drift-alerts/${alertItem.id}/auto-draft`);
         await apiClient.post(`/api/drift-alerts/${alertItem.id}/accept-draft`);
@@ -666,6 +791,24 @@ function CanhBaoSaiLechContent() {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button
+              type="button"
+              onClick={openManualAnalyzeModal}
+              className="ld-btn ld-btn-sm"
+              style={{
+                gap: 6,
+                fontSize: 13,
+                fontWeight: 600,
+                background: "#0284c7",
+                color: "#ffffff",
+                border: "1px solid #0369a1",
+                boxShadow: "0 2px 6px rgba(2, 132, 199, 0.25)",
+                cursor: "pointer",
+              }}
+            >
+              <Zap size={14} />
+              Phân tích thủ công (PR / Tài liệu)
+            </button>
             <button
               type="button"
               onClick={handleScan}
@@ -986,7 +1129,312 @@ function CanhBaoSaiLechContent() {
               Tham chiếu cấu trúc (REFERENCE) ({counts.reference})
             </button>
           </div>
+
+          {/* Tầng 3: Bộ lọc Lịch sử & Trạng thái giải quyết (OPEN / RESOLVED / IGNORED) */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flexWrap: "wrap",
+              paddingTop: 8,
+              borderTop: "1px dashed #e2e8f0",
+            }}
+          >
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginRight: 4, display: "flex", alignItems: "center", gap: 4 }}>
+              <Clock size={13} style={{ color: "#087f5b" }} /> Lịch sử & Trạng thái giải quyết:
+            </span>
+
+            <button
+              type="button"
+              onClick={() => setStatusFilter("all")}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 6,
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: "pointer",
+                border: statusFilter === "all" ? "1.5px solid #087f5b" : "1px solid #e2e8f0",
+                background: "transparent",
+                color: statusFilter === "all" ? "#07543f" : "#475569",
+                transition: "all 0.15s ease",
+              }}
+            >
+              Tất cả lịch sử ({counts.all})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setStatusFilter("OPEN")}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 6,
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: "pointer",
+                border: statusFilter === "OPEN" ? "1.5px solid #b45309" : "1px solid #e2e8f0",
+                background: "transparent",
+                color: statusFilter === "OPEN" ? "#b45309" : "#475569",
+                transition: "all 0.15s ease",
+              }}
+            >
+              Đang chờ xử lý ({counts.open})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setStatusFilter("RESOLVED")}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 6,
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: "pointer",
+                border: statusFilter === "RESOLVED" ? "1.5px solid #087f5b" : "1px solid #e2e8f0",
+                background: "transparent",
+                color: statusFilter === "RESOLVED" ? "#087f5b" : "#475569",
+                transition: "all 0.15s ease",
+              }}
+            >
+              Đã chấp nhận / Giải quyết ({counts.resolved})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setStatusFilter("IGNORED")}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 6,
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: "pointer",
+                border: statusFilter === "IGNORED" ? "1.5px solid #64748b" : "1px solid #e2e8f0",
+                background: "transparent",
+                color: statusFilter === "IGNORED" ? "#475569" : "#64748b",
+                transition: "all 0.15s ease",
+              }}
+            >
+              Đã bỏ qua ({counts.ignored})
+            </button>
+          </div>
         </div>
+
+        {/* MODAL KÍCH HOẠT THỦ CÔNG PHÂN TÍCH SAI LỆCH THEO PR HOẶC TÀI LIỆU CỤ THỂ */}
+        {showManualModal && (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(15, 23, 42, 0.55)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 1000,
+              padding: 16,
+            }}
+          >
+            <div
+              className="ld-card"
+              style={{
+                width: "100%",
+                maxWidth: 540,
+                background: "#ffffff",
+                borderRadius: 14,
+                padding: 24,
+                boxShadow: "0 20px 45px rgba(15, 23, 42, 0.2)",
+                border: "1px solid #e2e8f0",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 10,
+                      background: "#e0f2fe",
+                      color: "#0284c7",
+                      display: "grid",
+                      placeItems: "center",
+                    }}
+                  >
+                    <Zap size={18} />
+                  </div>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#0f172a" }}>
+                      Kích hoạt Phân tích Sai lệch Thủ công
+                    </h3>
+                    <p style={{ margin: "2px 0 0", fontSize: 12, color: "#64748b" }}>
+                      Chủ động đối chiếu AST & ngữ nghĩa ngay lập tức không cần chờ Webhook
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowManualModal(false)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    fontSize: 18,
+                    color: "#64748b",
+                    cursor: "pointer",
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Chuyển đổi 2 chế độ: Theo Pull Request hoặc Theo Tài liệu cụ thể */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 18 }}>
+                <button
+                  type="button"
+                  onClick={() => setManualMode("PULL_REQUEST")}
+                  style={{
+                    padding: "10px 12px",
+                    borderRadius: 8,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 6,
+                    border: manualMode === "PULL_REQUEST" ? "1.5px solid #0284c7" : "1px solid #e2e8f0",
+                    background: manualMode === "PULL_REQUEST" ? "#f0f9ff" : "#ffffff",
+                    color: manualMode === "PULL_REQUEST" ? "#0369a1" : "#475569",
+                  }}
+                >
+                  <GitPullRequest size={15} /> Theo Pull Request
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setManualMode("DOCUMENT")}
+                  style={{
+                    padding: "10px 12px",
+                    borderRadius: 8,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 6,
+                    border: manualMode === "DOCUMENT" ? "1.5px solid #087f5b" : "1px solid #e2e8f0",
+                    background: manualMode === "DOCUMENT" ? "#ecfdf5" : "#ffffff",
+                    color: manualMode === "DOCUMENT" ? "#065f46" : "#475569",
+                  }}
+                >
+                  <FileText size={15} /> Theo Tài liệu cụ thể
+                </button>
+              </div>
+
+              {manualMode === "PULL_REQUEST" ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 6 }}>
+                      1. Chọn Kho lưu trữ (Repository)
+                    </label>
+                    <select
+                      className="ld-input"
+                      value={selectedRepoId}
+                      onChange={(e) => handleRepoSelectForManual(e.target.value)}
+                      style={{ width: "100%", fontSize: 13, padding: "8px 10px" }}
+                    >
+                      <option value="">-- Chọn Repository --</option>
+                      {reposList.map((r) => {
+                        const rId = r.repositoryId || r.id;
+                        return (
+                          <option key={rId} value={String(rId)}>
+                            {r.repoFullName || r.repoName || `Repo #${rId}`}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 6 }}>
+                      2. Chọn Pull Request hoặc nhập số hiệu PR
+                    </label>
+                    {prsList.length > 0 ? (
+                      <select
+                        className="ld-input"
+                        value={selectedPrNumber}
+                        onChange={(e) => setSelectedPrNumber(e.target.value)}
+                        style={{ width: "100%", fontSize: 13, padding: "8px 10px", marginBottom: 8 }}
+                      >
+                        {prsList.map((pr) => (
+                          <option key={pr.prNumber} value={String(pr.prNumber)}>
+                            PR #{pr.prNumber} — {pr.title} ({pr.state})
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+                    <input
+                      type="number"
+                      className="ld-input"
+                      placeholder="Hoặc nhập trực tiếp số hiệu PR (VD: 212)..."
+                      value={selectedPrNumber}
+                      onChange={(e) => setSelectedPrNumber(e.target.value)}
+                      style={{ width: "100%", fontSize: 13, padding: "8px 10px" }}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 6 }}>
+                      Chọn Tài liệu kỹ thuật cần đối chiếu với mã nguồn mới nhất
+                    </label>
+                    <select
+                      className="ld-input"
+                      value={selectedDocId}
+                      onChange={(e) => setSelectedDocId(e.target.value)}
+                      style={{ width: "100%", fontSize: 13, padding: "8px 10px" }}
+                    >
+                      <option value="">-- Chọn Tài liệu trong hệ thống --</option>
+                      {docsList.map((doc) => {
+                        const dId = doc.docId || doc.id;
+                        return (
+                          <option key={dId} value={String(dId)}>
+                            #{dId} — {doc.title} ({doc.targetPath || "docs"})
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 22 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowManualModal(false)}
+                  className="ld-btn ld-btn-secondary ld-btn-sm"
+                  style={{ fontSize: 13 }}
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={handleTriggerManualAnalysis}
+                  disabled={isAnalyzingManual}
+                  className="ld-btn ld-btn-primary ld-btn-sm"
+                  style={{
+                    gap: 6,
+                    fontSize: 13,
+                    background: "#087f5b",
+                    color: "#ffffff",
+                    padding: "8px 18px",
+                  }}
+                >
+                  <Zap size={14} className={isAnalyzingManual ? "animate-spin" : ""} />
+                  {isAnalyzingManual ? "Đang đối chiếu AST & AI..." : "Chạy Phân tích Ngay"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* KHUNG BỐ CỤC: NẾU CSDL CHƯA CÓ CẢNH BÁO NÀO THÌ HIỆN EMPTY STATE THỰC TẾ, NẾU CÓ THÌ HIỆN 2 CỘT */}
         {alerts.length === 0 ? (
@@ -1030,6 +1478,15 @@ function CanhBaoSaiLechContent() {
               </p>
             </div>
             <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+              <button
+                type="button"
+                onClick={openManualAnalyzeModal}
+                className="ld-btn ld-btn-sm"
+                style={{ gap: 6, background: "#0284c7", color: "#ffffff", padding: "8px 18px", fontSize: 13 }}
+              >
+                <Zap size={14} />
+                Phân tích thủ công (PR / Tài liệu)
+              </button>
               <button
                 type="button"
                 onClick={handleScan}
