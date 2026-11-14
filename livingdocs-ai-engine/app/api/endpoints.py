@@ -1,4 +1,5 @@
 
+import logging
 from fastapi import APIRouter, HTTPException
 from app.core.config import get_settings
 from app.schemas.ai_schemas import (
@@ -34,6 +35,7 @@ from app.core.gemini_retry import (
     quota_controller,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["AI Engine Endpoints"])
 
 @router.post(
@@ -42,15 +44,31 @@ router = APIRouter(prefix="/v1", tags=["AI Engine Endpoints"])
     summary="Trích xuất phần tử mã nguồn đa ngôn ngữ (Java, Python, TypeScript, SQL)",
     description="Nhận vào mã nguồn file (Java, Python, TypeScript/JavaScript, SQL DDL), trả về JSON đầy đủ: Class, Method/Function, Constructor, Field/Table, Signature, Params, Return type, Javadoc/Docstring, Start/End Line."
 )
-async def extract_ast(request: AstExtractRequest):
+def extract_ast(request: AstExtractRequest):
+    if not request.source_code or not request.source_code.strip():
+        return AstExtractResponse(
+            status="success",
+            mode="real",
+            file_path=request.file_path or "",
+            commit_hash=request.commit_hash or "head",
+            total_entities=0,
+            entities=[]
+        )
+
     # Bóc tách đa ngôn ngữ bằng Tree-sitter chuẩn (100% Real AST Parser)
-    parsed = parse_multilingual_ast(request.file_path, request.source_code)
+    parsed = parse_multilingual_ast(request.file_path or "Unknown.java", request.source_code)
 
     if parsed.get("parse_error"):
-        raise HTTPException(
-            status_code=422,
-            detail=f"Lỗi phân tích cú pháp AST đa ngôn ngữ (Tree-sitter): {parsed['parse_error']}"
-        )
+        logger.warning("Cảnh báo phân tích AST cho file %s: %s", request.file_path, parsed["parse_error"])
+        if not parsed.get("methods") and not parsed.get("fields") and not parsed.get("class_name"):
+            return AstExtractResponse(
+                status="success",
+                mode="real",
+                file_path=request.file_path or "",
+                commit_hash=request.commit_hash or "head",
+                total_entities=0,
+                entities=[]
+            )
 
     entities: list[CodeEntityItem] = []
 
@@ -141,7 +159,7 @@ async def extract_ast(request: AstExtractRequest):
     summary="Tự động sinh tài liệu kỹ thuật từ mã nguồn theo mẫu",
     description="Nhận vào thông tin file, mẫu tài liệu (API_REFERENCE, README...) và trả về nội dung Markdown kèm bằng chứng xác thực."
 )
-async def generate_doc(request: DocGenerateRequest):
+def generate_doc(request: DocGenerateRequest):
     # Gọi Google Gemini API thật để sinh tài liệu kỹ thuật
     try:
         return GeminiDocService.generate_documentation(request)
@@ -168,7 +186,7 @@ async def generate_doc(request: DocGenerateRequest):
     summary="Đối chiếu AST Java giữa Base và Head commit của Pull Request",
     description="Phát hiện chính xác các phương thức Java bị xóa, thêm mới, đổi tên hoặc thay đổi chữ ký/tham số/thân hàm."
 )
-async def diff_ast(request: AstDiffRequest):
+def diff_ast(request: AstDiffRequest):
     file_results: list[FileDiffResult] = []
     total_affected = 0
 
@@ -243,7 +261,7 @@ async def diff_ast(request: AstDiffRequest):
         "mức độ nghiêm trọng (LOW/MEDIUM/HIGH/CRITICAL) và danh sách đề xuất sửa đổi cụ thể."
     )
 )
-async def analyze_drift(request: DriftAnalyzeRequest):
+def analyze_drift(request: DriftAnalyzeRequest):
     """
     Endpoint phân tích sai lệch ngữ nghĩa tài liệu — Task S4-09.
     """
@@ -314,7 +332,7 @@ async def analyze_drift(request: DriftAnalyzeRequest):
         "Bảo đảm văn phong kỹ thuật chuẩn, chỉ sửa các mục bị ảnh hưởng, giữ nguyên các phần còn lại."
     )
 )
-async def rewrite_document_suggestion(request: DocRewriteRequest):
+def rewrite_document_suggestion(request: DocRewriteRequest):
     """
     Endpoint AI Gợi ý đoạn văn bản sửa đổi theo Code mới — Task S4-10 (TV4).
 

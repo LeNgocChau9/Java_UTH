@@ -22,4 +22,6 @@ public class UpdateProfileRequest {
     private String newPassword;
 
     private String oldPassword;
+
+    private UserNotificationPreferencesDto notificationPreferences;
 }

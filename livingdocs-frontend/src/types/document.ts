@@ -65,13 +65,39 @@ export interface DocumentDetail extends DocumentItem {
   versionHistory: DocumentVersionItem[];
 }
 
+export interface CollectionOwnerItem {
+  userId: number;
+  fullName: string;
+  email: string;
+  role: string;
+  roleLabel?: string;
+  avatarUrl?: string | null;
+}
+
 export interface DocCollection {
   id: number;
   name: string;
   description?: string | null;
+  moduleTag?: string | null;
+  ownerId?: number | null;
+  ownerName?: string | null;
+  ownerEmail?: string | null;
+  ownerRole?: string | null;
   documentCount?: number;
+  documentIds?: number[];
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface SaveCollectionPayload {
+  name: string;
+  description?: string;
+  moduleTag?: string;
+  ownerId?: number | null;
+  ownerName?: string;
+  ownerEmail?: string;
+  ownerRole?: string;
+  documentIds?: number[];
 }
 
 export interface CreateDocumentPayload {

@@ -13,7 +13,7 @@ export interface CodeEntityDto {
   startLine: number;
   endLine: number;
   commitHash?: string;
-  docStatus: "DOCUMENTED" | "UNDOCUMENTED" | "DRIFTED" | string;
+  docStatus: "DOCUMENTED" | "UNDOCUMENTED" | "OUTDATED" | "DRIFTED" | string;
   javadoc?: string;
   annotations?: string[];
   createdAt?: string;
@@ -93,6 +93,52 @@ export interface DocGapSummaryDto {
   totalMethods: number;
   packages: string[];
   items: DocumentationGapDto[];
+}
+
+export interface EntityDocRegeneratePayload {
+  entityId?: number;
+  repositoryId: number;
+  documentId?: number;
+  filePath: string;
+  entityType: string;
+  className?: string;
+  methodName?: string;
+  signature: string;
+  returnType?: string;
+  parameters?: string;
+  startLine: number;
+  endLine: number;
+  javadoc?: string;
+  sourceCode?: string;
+  commitHash?: string;
+  instruction?: string;
+}
+
+export interface EntityDocRegenerateResponse {
+  versionId?: number;
+  documentId?: number;
+  documentTitle?: string;
+  targetPath?: string;
+  versionNumber: number;
+  contentHash?: string;
+  previousHash?: string;
+  entityId?: number;
+  repositoryId: number;
+  filePath: string;
+  entityType: string;
+  className?: string;
+  methodName?: string;
+  signature: string;
+  returnType?: string;
+  parameters?: string;
+  startLine: number;
+  endLine: number;
+  docStatus: string;
+  status: string;
+  updatedSectionMarkdown: string;
+  fullMarkdown: string;
+  summaryOfChanges?: string;
+  mode?: string;
 }
 
 export const codeEntityService = {
@@ -176,6 +222,20 @@ export const codeEntityService = {
     const res = await apiClient.get<DocGapSummaryDto>("/api/v1/code-entities/gaps", {
       params,
     });
+    return res.data;
+  },
+
+  /**
+   * Tạo lại tài liệu cục bộ cho một thực thể mã nguồn cụ thể (Method / Class) từ Cây mã nguồn.
+   * Chỉ cập nhật đúng mục (section) của thực thể đó trong tài liệu tổng thể và lưu thành phiên bản nháp (DRAFT).
+   */
+  async regenerateEntityDoc(
+    payload: EntityDocRegeneratePayload
+  ): Promise<EntityDocRegenerateResponse> {
+    const url = payload.entityId
+      ? `/api/v1/code-entities/${payload.entityId}/regenerate-doc`
+      : "/api/v1/code-entities/regenerate-doc";
+    const res = await apiClient.post<EntityDocRegenerateResponse>(url, payload);
     return res.data;
   },
 };

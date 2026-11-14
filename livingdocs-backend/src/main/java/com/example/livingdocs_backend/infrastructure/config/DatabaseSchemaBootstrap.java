@@ -21,6 +21,11 @@ public class DatabaseSchemaBootstrap implements ApplicationRunner {
         try {
             jdbcTemplate.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_type VARCHAR(50) DEFAULT 'MANUAL'");
             jdbcTemplate.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_url VARCHAR(1024)");
+            jdbcTemplate.execute("ALTER TABLE doc_collections ADD COLUMN IF NOT EXISTS module_tag VARCHAR(150)");
+            jdbcTemplate.execute("ALTER TABLE doc_collections ADD COLUMN IF NOT EXISTS owner_id BIGINT");
+            jdbcTemplate.execute("ALTER TABLE doc_collections ADD COLUMN IF NOT EXISTS owner_name VARCHAR(150)");
+            jdbcTemplate.execute("ALTER TABLE doc_collections ADD COLUMN IF NOT EXISTS owner_email VARCHAR(255)");
+            jdbcTemplate.execute("ALTER TABLE doc_collections ADD COLUMN IF NOT EXISTS owner_role VARCHAR(50)");
             jdbcTemplate.execute("ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS commit_hash VARCHAR(256)");
             jdbcTemplate.execute("ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS commit_url VARCHAR(1024)");
             jdbcTemplate.execute("ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS published_at TIMESTAMP");
@@ -30,6 +35,17 @@ public class DatabaseSchemaBootstrap implements ApplicationRunner {
             jdbcTemplate.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS last_error TEXT");
             jdbcTemplate.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP WITH TIME ZONE");
             jdbcTemplate.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMP WITH TIME ZONE");
+
+            jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS user_notification_preferences (
+                    user_id BIGINT PRIMARY KEY,
+                    email_enabled BOOLEAN NOT NULL DEFAULT true,
+                    github_enabled BOOLEAN NOT NULL DEFAULT true,
+                    review_enabled BOOLEAN NOT NULL DEFAULT true,
+                    document_enabled BOOLEAN NOT NULL DEFAULT true,
+                    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """);
 
             jdbcTemplate.execute("""
                 INSERT INTO doc_templates (id, name, type, structure_json, is_default)
@@ -57,24 +73,16 @@ public class DatabaseSchemaBootstrap implements ApplicationRunner {
             """);
             log.info("[DatabaseSchemaBootstrap] Đã kiểm tra và đồng bộ doc_templates, document_versions, jobs thành công.");
 
-            // Tự động seed cảnh báo sai lệch mẫu (nếu bảng rỗng) để chuông thông báo hiển thị badge đỏ số trắng trực quan
+            // ponytail: Dọn dẹp mock drift alerts và mock code_entities giả lập nếu có, tuyệt đối không tự động seed dữ liệu giả
             try {
-                Integer alertCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM document_change_alerts", Integer.class);
-                if (alertCount != null && alertCount == 0) {
-                    jdbcTemplate.execute("""
-                        INSERT INTO document_change_alerts (document_id, repository_id, classification, severity, status, source_commit, source_pr_id, details)
-                        SELECT d.doc_id, d.repo_id, 'SEMANTIC', 'HIGH', 'OPEN', '7f8a9bc', 12, 'Phát hiện thay đổi phương thức authenticate() trong commit 7f8a9bc làm sai lệch tài liệu kiến trúc.'
-                        FROM documents d
-                        ORDER BY d.doc_id DESC
-                        LIMIT 1
-                    """);
-                    log.info("[DatabaseSchemaBootstrap] Đã khởi tạo cảnh báo sai lệch mẫu cho chuông thông báo.");
-                }
+                jdbcTemplate.execute("DELETE FROM document_change_alerts WHERE source_commit = '7f8a9bc' AND source_pr_id = 12");
+                jdbcTemplate.execute("DELETE FROM code_entities WHERE repository_id = 7 AND commit_hash IN ('abce396', 'a9838a1', 'dd75419')");
+                log.info("[DatabaseSchemaBootstrap] Đã kiểm tra và dọn dẹp mock drift alerts & mock code_entities nếu tồn tại.");
             } catch (Exception ex) {
-                log.debug("[DatabaseSchemaBootstrap] Bỏ qua seed cảnh báo mẫu: {}", ex.getMessage());
+                log.debug("[DatabaseSchemaBootstrap] Bỏ qua dọn dẹp mock data: {}", ex.getMessage());
             }
 
-            // Khởi tạo các phần tử mã nguồn mẫu (code_entities) cho Repository 1 nếu chưa có
+            // Khởi tạo bảng code_entities nếu chưa có
             jdbcTemplate.execute("""
                         CREATE TABLE IF NOT EXISTS code_entities (
                             entity_id BIGSERIAL PRIMARY KEY,
@@ -95,7 +103,6 @@ public class DatabaseSchemaBootstrap implements ApplicationRunner {
                         )
                     """);
 
-            // Bảng code_entities phục vụ lưu trữ các thực thể mã nguồn bóc tách AST thực tế từ repository
             log.info(
                     "[DatabaseSchemaBootstrap] Đã kiểm tra và đồng bộ doc_templates, document_versions, jobs, code_entities thành công.");
         } catch (Exception ex) {

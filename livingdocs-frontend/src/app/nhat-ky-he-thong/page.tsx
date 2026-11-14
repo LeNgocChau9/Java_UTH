@@ -80,9 +80,6 @@ export default function AuditLogPage() {
               </div>
               <h1 className="text-2xl font-bold text-gray-900">Nhật ký kiểm toán hệ thống</h1>
             </div>
-            <p className="text-sm text-gray-500 mt-1">
-              Quản trị viên và Trưởng nhóm kỹ thuật xem đăng nhập, liên kết GitHub, sinh tài liệu AI, duyệt, xuất bản và rollback.
-            </p>
           </div>
           <button
             onClick={() => void load()}

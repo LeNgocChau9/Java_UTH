@@ -212,4 +212,78 @@ class DocumentHealthReportServiceTest {
         assertEquals("com.example.livingdocs_backend.infrastructure.web.controller", response.getPackages().get(1).getPackageName());
         assertEquals(1, response.getPackages().get(1).getTotalMissing());
     }
+
+    @Test
+    void returnsUnconfiguredWhenRepositoryHasNoCodeOrDocuments() {
+        when(repositoryRepository.findById(99L)).thenReturn(Optional.of(
+                RepositoryEntity.builder()
+                        .repositoryId(99L)
+                        .repoName("empty-repo")
+                        .build()
+        ));
+        when(queryPort.countScannedClassesAndFunctions(99L)).thenReturn(0L);
+        when(queryPort.countDocuments(99L)).thenReturn(0L);
+
+        DocumentHealthReportResponse report = healthReportService.generateHealthReport(99L);
+
+        assertNotNull(report);
+        assertFalse(report.isReadyForScan());
+        assertFalse(report.getHasData());
+        assertEquals("NOT_CONFIGURED", report.getOverallRating());
+        assertEquals(0.0, report.getCoveragePercent());
+        assertEquals(0.0, report.getFreshnessPercent());
+        assertEquals(0L, report.getTotalScannedEntities());
+        assertEquals(0L, report.getDocumentedEntities());
+        assertEquals(0L, report.getTotalDocuments());
+        assertEquals(0L, report.getMissingDocEntities().getTotalMissing());
+        assertEquals(0L, report.getTotalOpenDriftAlerts());
+        assertNotNull(report.getCompliance());
+        assertEquals("NOT_CONFIGURED", report.getCompliance().getRating());
+        assertEquals(0.0, report.getCompliance().getOverallScore());
+        assertTrue(report.getCompliance().getSummary().contains("chưa có dữ liệu mã nguồn"));
+    }
+
+    @Test
+    void returnsEmptyCoverageGapsWhenRepositoryHasNoCodeEntities() {
+        when(repositoryRepository.findById(99L)).thenReturn(Optional.of(
+                RepositoryEntity.builder()
+                        .repositoryId(99L)
+                        .repoName("empty-repo")
+                        .build()
+        ));
+        when(queryPort.countScannedClassesAndFunctions(99L)).thenReturn(0L);
+        when(codeEntityRepository.findCoverageGaps(99L)).thenReturn(List.of());
+
+        CoverageGapsResponse gaps = healthReportService.getCoverageGaps(99L);
+
+        assertNotNull(gaps);
+        assertEquals(99L, gaps.getRepositoryId());
+        assertEquals("empty-repo", gaps.getRepositoryName());
+        assertEquals(0L, gaps.getTotalMissing());
+        assertEquals(0L, gaps.getMissingClasses());
+        assertEquals(0L, gaps.getMissingMethods());
+        assertTrue(gaps.getPackages().isEmpty());
+        assertTrue(gaps.getItems().isEmpty());
+    }
+
+    @Test
+    void exportsClearUnconfiguredMarkdownWhenNotReadyForScan() {
+        when(repositoryRepository.findById(99L)).thenReturn(Optional.of(
+                RepositoryEntity.builder()
+                        .repositoryId(99L)
+                        .repoName("empty-repo")
+                        .build()
+        ));
+        when(queryPort.countScannedClassesAndFunctions(99L)).thenReturn(0L);
+        when(queryPort.countDocuments(99L)).thenReturn(0L);
+
+        String markdown = healthReportService.exportHealthReportMarkdown(99L);
+
+        assertNotNull(markdown);
+        assertTrue(markdown.contains("empty-repo"));
+        assertTrue(markdown.contains("NOT_CONFIGURED"));
+        assertTrue(markdown.contains("Kho Lưu Trữ Chưa Sẵn Sàng Quét"));
+        assertTrue(markdown.contains("chưa có dữ liệu mã nguồn"));
+        assertTrue(markdown.contains("MCP"));
+    }
 }

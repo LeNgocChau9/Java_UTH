@@ -393,22 +393,7 @@ export default function TrungTamPheDuyetManagerPage() {
             <h1 className="ld-page-title" style={{ color: "#0f766e" }}>
               Trung tâm phê duyệt của Manager
             </h1>
-            <span
-              className="ld-badge"
-              style={{
-                background: "#f0fdfa",
-                color: "#0f766e",
-                border: "1px solid #ccfbf1",
-                fontWeight: 600,
-                fontSize: 12,
-              }}
-            >
-              Duyệt cấp 2 & Xuất bản
-            </span>
           </div>
-          <p className="ld-page-subtitle">
-            Rà soát tài liệu do Staff chuyển lên, đối chiếu nhận xét & nhật ký Audit trail, quyết định xuất bản lên GitHub hoặc trả lại Staff.
-          </p>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -437,7 +422,7 @@ export default function TrungTamPheDuyetManagerPage() {
               fontWeight: 600,
             }}
           >
-            ⏳ {documents.length} tài liệu chờ Manager duyệt
+            Tài Liệu Chưa Duyệt ({documents.length})
           </span>
         </div>
       </div>
@@ -1521,11 +1506,6 @@ export default function TrungTamPheDuyetManagerPage() {
               <h2 style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", marginBottom: 6 }}>
                 Cấu hình chính sách phê duyệt theo loại tài liệu (doc_type)
               </h2>
-              <p style={{ fontSize: 13, color: "#64748b", margin: 0, maxWidth: 850 }}>
-                Thiết lập quy trình kiểm duyệt tài liệu linh hoạt theo loại tài liệu (doc_type):
-                <br />• <strong>1 Cấp (Staff duyệt)</strong>: Staff sau khi rà soát và đối chiếu mã nguồn sẽ phê duyệt xuất bản trực tiếp lên hệ thống (PUBLISHED).
-                <br />• <strong>2 Cấp (Staff ➔ Manager)</strong>: Sau khi Staff duyệt, tài liệu sẽ chuyển sang hàng đợi của Manager (UNDER_REVIEW_MANAGER) để quản lý ký duyệt lần cuối.
-              </p>
             </div>
             <div style={{ display: "flex", gap: 10 }}>
               <button
@@ -1731,13 +1711,6 @@ export default function TrungTamPheDuyetManagerPage() {
               <h2 style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", marginBottom: 6 }}>
                 Ủy quyền phê duyệt Manager (Manager Delegation)
               </h2>
-              <p style={{ fontSize: 13, color: "#64748b", margin: 0, maxWidth: 850 }}>
-                Cho phép Quản lý A ủy quyền quyền phê duyệt cho Quản lý B trong khoảng thời gian xác định (nghỉ phép, công tác).
-                Mọi thao tác phê duyệt sẽ được hệ thống đối chiếu và ghi nhận minh bạch vào Audit Trail:
-                <code style={{ background: "#f1f5f9", padding: "2px 6px", borderRadius: 4, marginLeft: 6, color: "#0f766e", fontWeight: 600 }}>
-                  Quản lý B phê duyệt thay cho Quản lý A theo ủy quyền
-                </code>.
-              </p>
             </div>
             <button
               onClick={() => setShowDelegationModal(true)}

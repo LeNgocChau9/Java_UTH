@@ -12,9 +12,10 @@ import com.example.livingdocs_backend.application.port.DashboardStatsQueryPort;
 import com.example.livingdocs_backend.application.port.DocumentHealthReportServicePort;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.CodeEntityJpaEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataCodeEntityRepository;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,18 +25,38 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class DocumentHealthReportServiceImpl implements DocumentHealthReportServicePort {
 
     private final DashboardStatsQueryPort queryPort;
     private final SpringDataRepositoryRepository repositoryRepository;
     private final SpringDataCodeEntityRepository codeEntityRepository;
+    private final SpringDataDocumentRepository documentRepository;
+
+    @Autowired
+    public DocumentHealthReportServiceImpl(
+            DashboardStatsQueryPort queryPort,
+            SpringDataRepositoryRepository repositoryRepository,
+            SpringDataCodeEntityRepository codeEntityRepository,
+            @Autowired(required = false) SpringDataDocumentRepository documentRepository) {
+        this.queryPort = queryPort;
+        this.repositoryRepository = repositoryRepository;
+        this.codeEntityRepository = codeEntityRepository;
+        this.documentRepository = documentRepository;
+    }
+
+    public DocumentHealthReportServiceImpl(
+            DashboardStatsQueryPort queryPort,
+            SpringDataRepositoryRepository repositoryRepository,
+            SpringDataCodeEntityRepository codeEntityRepository) {
+        this(queryPort, repositoryRepository, codeEntityRepository, null);
+    }
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
             .withZone(ZoneId.systemDefault());
@@ -63,6 +84,61 @@ public class DocumentHealthReportServiceImpl implements DocumentHealthReportServ
         double freshnessPercent = DashboardStatsService.percent(freshDocs, totalDocs);
         Instant latestCommitAt = queryPort.findLatestCommitAt(repositoryId).orElse(null);
 
+        // ponytail: Kiểm tra kho lưu trữ đã sẵn sàng quét chưa (đã tải code hoặc kết nối MCP/tài liệu)
+        boolean hasDocs = (documentRepository != null && repositoryId != null)
+                ? !documentRepository.findByRepoId(repositoryId).isEmpty()
+                : totalDocs > 0;
+        boolean hasCode = scanned > 0;
+        boolean readyForScan = (repositoryId == null) ? (hasCode || totalDocs > 0) : (hasCode || hasDocs);
+
+        if (repositoryId != null && !readyForScan) {
+            long executionTimeMs = System.currentTimeMillis() - startTime;
+            log.info("RepositoryId={} chưa có dữ liệu mã nguồn hoặc tài liệu MCP, trả về trạng thái NOT_CONFIGURED trong {} ms",
+                    repositoryId, executionTimeMs);
+
+            ProjectComplianceDto unconfiguredCompliance = ProjectComplianceDto.builder()
+                    .overallScore(0.0)
+                    .rating("NOT_CONFIGURED")
+                    .coverageScore(0.0)
+                    .freshnessScore(0.0)
+                    .driftControlScore(0.0)
+                    .summary("Kho lưu trữ chưa có dữ liệu mã nguồn được tải lên hoặc chưa kết nối tài liệu qua MCP.")
+                    .recommendations(List.of(
+                            "Tải mã nguồn lên kho lưu trữ hoặc đồng bộ từ GitHub để hệ thống phân tích cấu trúc mã nguồn.",
+                            "Kết nối hoặc nạp tài liệu từ MCP (Google Docs, Confluence, Jira) để bắt đầu đo lường sức khỏe tài liệu."
+                    ))
+                    .build();
+
+            MissingDocEntityStatsDto emptyMissingStats = MissingDocEntityStatsDto.builder()
+                    .totalMissing(0L)
+                    .missingClasses(0L)
+                    .missingMethodsAndFunctions(0L)
+                    .missingByType(Collections.emptyMap())
+                    .build();
+
+            return DocumentHealthReportResponse.builder()
+                    .repositoryId(repositoryId)
+                    .repositoryName(repoName)
+                    .generatedAt(Instant.now())
+                    .executionTimeMs(executionTimeMs)
+                    .readyForScan(false)
+                    .hasData(false)
+                    .overallRating("NOT_CONFIGURED")
+                    .coveragePercent(0.0)
+                    .totalScannedEntities(0L)
+                    .documentedEntities(0L)
+                    .freshnessPercent(0.0)
+                    .latestCommitAt(null)
+                    .totalDocuments(0L)
+                    .freshDocuments(0L)
+                    .missingDocEntities(emptyMissingStats)
+                    .totalOpenDriftAlerts(0L)
+                    .openAlertsBySeverity(Collections.emptyMap())
+                    .compliance(unconfiguredCompliance)
+                    .repositoryDetails(Collections.emptyList())
+                    .build();
+        }
+
         // 3. Số lượng hàm và lớp còn thiếu tài liệu
         MissingDocEntityStatsDto missingStats = queryPort.countMissingEntitiesByType(repositoryId);
 
@@ -84,6 +160,9 @@ public class DocumentHealthReportServiceImpl implements DocumentHealthReportServ
                 .repositoryName(repoName)
                 .generatedAt(Instant.now())
                 .executionTimeMs(executionTimeMs)
+                .readyForScan(true)
+                .hasData(true)
+                .overallRating(compliance != null ? compliance.getRating() : null)
                 .coveragePercent(coveragePercent)
                 .totalScannedEntities(scanned)
                 .documentedEntities(documented)
@@ -103,8 +182,15 @@ public class DocumentHealthReportServiceImpl implements DocumentHealthReportServ
     @Transactional(readOnly = true)
     public String exportHealthReportMarkdown(Long repositoryId) {
         DocumentHealthReportResponse report = generateHealthReport(repositoryId);
+        if (!report.isReadyForScan()) {
+            return renderUnconfiguredMarkdownReport(report);
+        }
         CoverageGapsResponse gaps = getCoverageGaps(repositoryId);
         return renderMarkdownReport(report, gaps);
+    }
+
+    public String exportHealthReportAsMarkdown(Long repositoryId) {
+        return exportHealthReportMarkdown(repositoryId);
     }
 
     @Override
@@ -120,6 +206,34 @@ public class DocumentHealthReportServiceImpl implements DocumentHealthReportServ
         List<CodeEntityJpaEntity> entities = (codeEntityRepository != null)
                 ? codeEntityRepository.findCoverageGaps(repositoryId)
                 : List.of();
+
+        // ponytail: Nếu repositoryId được chỉ định và repo chưa có code entity nào hoặc không có gaps, trả về danh sách rỗng ngay lập tức
+        if (repositoryId != null) {
+            long scanned = queryPort != null ? queryPort.countScannedClassesAndFunctions(repositoryId) : 0L;
+            if (scanned == 0 && entities.isEmpty()) {
+                return CoverageGapsResponse.builder()
+                        .repositoryId(repositoryId)
+                        .repositoryName(repoName)
+                        .totalMissing(0L)
+                        .missingClasses(0L)
+                        .missingMethods(0L)
+                        .packages(Collections.emptyList())
+                        .items(Collections.emptyList())
+                        .build();
+            }
+        }
+
+        if (entities.isEmpty()) {
+            return CoverageGapsResponse.builder()
+                    .repositoryId(repositoryId)
+                    .repositoryName(repoName)
+                    .totalMissing(0L)
+                    .missingClasses(0L)
+                    .missingMethods(0L)
+                    .packages(Collections.emptyList())
+                    .items(Collections.emptyList())
+                    .build();
+        }
 
         List<CoverageGapItemDto> allItems = new ArrayList<>();
         long missingClasses = 0L;
@@ -431,6 +545,30 @@ public class DocumentHealthReportServiceImpl implements DocumentHealthReportServ
             }
             sb.append("\n");
         }
+
+        sb.append("---\n");
+        sb.append("*Báo cáo được sinh tự động bởi LivingDocs Health Monitor Engine.*\n");
+
+        return sb.toString();
+    }
+
+    private String renderUnconfiguredMarkdownReport(DocumentHealthReportResponse r) {
+        StringBuilder sb = new StringBuilder();
+        String scopeTitle = r.getRepositoryName() != null ? "Kho lưu trữ: `" + r.getRepositoryName() + "`" : "Kho lưu trữ ID #" + r.getRepositoryId();
+
+        sb.append("# 📊 Báo Cáo Tình Trạng Sức Khỏe Tài Liệu (Document Health Report)\n\n");
+        sb.append("> **Phạm vi:** ").append(scopeTitle).append("  \n");
+        sb.append("> **Thời điểm xuất:** ").append(TIME_FORMATTER.format(r.getGeneratedAt())).append("  \n");
+        sb.append("> **Trạng thái:** ⚠️ CHƯA CẤU HÌNH / CHƯA CÓ DỮ LIỆU (`NOT_CONFIGURED`)\n\n");
+        sb.append("---\n\n");
+
+        sb.append("## ⚠️ Thông Báo: Kho Lưu Trữ Chưa Sẵn Sàng Quét\n\n");
+        sb.append("Kho lưu trữ này hiện **chưa có dữ liệu mã nguồn được tải lên** hoặc **chưa kết nối tài liệu qua MCP** (Google Docs, Confluence, Jira).\n\n");
+        sb.append("Hệ thống LivingDocs chỉ thực hiện quét khoảng trống và giám sát trôi dạt trên các kho lưu trữ đã có dữ liệu mã nguồn hoặc tài liệu được liên kết.\n\n");
+
+        sb.append("### Hướng dẫn thiết lập để bắt đầu đo lường:\n");
+        sb.append("1. **Nạp mã nguồn:** Tải mã nguồn lên hoặc đồng bộ từ GitHub để hệ thống bóc tách AST các lớp (classes) và phương thức (methods).\n");
+        sb.append("2. **Kết nối tài liệu MCP:** Nạp hoặc đồng bộ tài liệu từ các nền tảng ngoại vi (Google Docs, Confluence, Jira) vào kho lưu trữ.\n\n");
 
         sb.append("---\n");
         sb.append("*Báo cáo được sinh tự động bởi LivingDocs Health Monitor Engine.*\n");

@@ -142,6 +142,21 @@ public class DocTemplateService {
     }
 
     @Transactional
+    public TemplateVersionResponse rollbackVersion(Long templateId, Long versionId) {
+        DocTemplate template = findOrThrow(templateId);
+        DocumentTemplateVersion targetVersion = findVersionOrThrow(templateId, versionId);
+
+        String structureJson = targetVersion.getStructureJson();
+        String rulesJson = rulesOrEmpty(targetVersion.getRulesJson());
+
+        DocumentTemplateVersion restored = appendVersion(templateId, structureJson, rulesJson, null);
+        template.setStructureJson(structureJson);
+        docTemplateRepository.save(template);
+
+        return TemplateVersionResponse.from(restored);
+    }
+
+    @Transactional
     public void deleteVersion(Long templateId, Long versionId) {
         findOrThrow(templateId);
         DocumentTemplateVersion version = findVersionOrThrow(templateId, versionId);

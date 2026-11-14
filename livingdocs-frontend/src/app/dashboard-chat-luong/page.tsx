@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import {
   healthReportService,
@@ -387,6 +388,7 @@ function FormalPrintReportContent({
 }
 
 export default function QualityDashboardPage() {
+  const router = useRouter();
   const [loading, setLoading] = useState<boolean>(true);
   const [downloading, setDownloading] = useState<boolean>(false);
   const [repositories, setRepositories] = useState<RepoItem[]>([]);
@@ -457,6 +459,18 @@ export default function QualityDashboardPage() {
     const found = repositories.find((r) => String(r.repositoryId) === selectedRepoId);
     return found ? found.repoFullName || found.repoName : `Kho #${selectedRepoId}`;
   }, [selectedRepoId, repositories]);
+
+  // ponytail: Kiểm tra kho lưu trữ chưa có dữ liệu hoặc chưa kết nối MCP
+  const isRepoNotConfigured = useMemo(() => {
+    const r = healthReport as any;
+    if (!r) return false;
+    return Boolean(
+      r.readyForScan === false ||
+      r.compliance?.rating === "NOT_CONFIGURED" ||
+      (r.scannedClassesAndFunctions === 0 && (r.totalDocuments ?? 0) === 0) ||
+      (selectedRepoId !== "all" && (r.totalScannedEntities ?? 0) === 0 && (r.totalDocuments ?? 0) === 0)
+    );
+  }, [healthReport, selectedRepoId]);
 
   // Xử lý xuất báo cáo Markdown
   const handleExportMarkdown = async () => {
@@ -673,21 +687,25 @@ export default function QualityDashboardPage() {
               <div className="my-3">
                 <div className="flex items-baseline gap-2">
                   <span className="text-3xl font-extrabold text-slate-900">
-                    {healthReport ? `${healthReport.coveragePercent.toFixed(1)}%` : "—"}
+                    {isRepoNotConfigured ? "—" : healthReport ? `${healthReport.coveragePercent.toFixed(1)}%` : "—"}
                   </span>
                   <span className="text-xs font-medium text-slate-500">
-                    ({healthReport?.documentedEntities ?? 0}/{healthReport?.totalScannedEntities ?? 0} thực thể)
+                    {isRepoNotConfigured
+                      ? "(0/0 thực thể)"
+                      : `(${healthReport?.documentedEntities ?? 0}/${healthReport?.totalScannedEntities ?? 0} thực thể)`}
                   </span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-2 mt-2.5 overflow-hidden">
                   <div
-                    className="bg-emerald-500 h-2 rounded-full transition-all duration-500"
-                    style={{ width: `${Math.min(100, healthReport?.coveragePercent ?? 0)}%` }}
+                    className={`${isRepoNotConfigured ? "bg-slate-300" : "bg-emerald-500"} h-2 rounded-full transition-all duration-500`}
+                    style={{ width: `${isRepoNotConfigured ? 0 : Math.min(100, healthReport?.coveragePercent ?? 0)}%` }}
                   />
                 </div>
               </div>
               <p className="text-[11px] text-slate-500">
-                {coverageGaps?.totalMissing ?? 0} hàm/lớp còn thiếu liên kết doc_code_links
+                {isRepoNotConfigured
+                  ? "Chưa có dữ liệu mã nguồn tải lên"
+                  : `${coverageGaps?.totalMissing ?? 0} hàm/lớp còn thiếu liên kết doc_code_links`}
               </p>
             </div>
 
@@ -702,20 +720,30 @@ export default function QualityDashboardPage() {
               <div className="my-3">
                 <div className="flex items-baseline gap-2">
                   <span className="text-3xl font-extrabold text-slate-900">
-                    {healthReport?.compliance?.overallScore !== undefined
+                    {isRepoNotConfigured
+                      ? "—"
+                      : healthReport?.compliance?.overallScore !== undefined
                       ? `${healthReport.compliance.overallScore}`
                       : "—"}
                   </span>
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200">
-                    {healthReport?.compliance?.rating || "CHƯA XẾP HẠNG"}
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-md border ${
+                    isRepoNotConfigured
+                      ? "bg-amber-50 text-amber-700 border-amber-200"
+                      : "bg-indigo-50 text-indigo-700 border-indigo-200"
+                  }`}>
+                    {isRepoNotConfigured ? "Chưa cấu hình" : healthReport?.compliance?.rating || "CHƯA XẾP HẠNG"}
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 mt-2 line-clamp-2">
-                  {healthReport?.compliance?.summary || "Đánh giá dựa trên bao phủ, độ mới và sai lệch."}
+                  {isRepoNotConfigured
+                    ? "Kho lưu trữ chưa có dữ liệu mã nguồn hoặc chưa kết nối tài liệu qua MCP."
+                    : healthReport?.compliance?.summary || "Đánh giá dựa trên bao phủ, độ mới và sai lệch."}
                 </p>
               </div>
               <div className="text-[11px] text-slate-500">
-                Trọng số: 40% Coverage + 35% Freshness + 25% Drift
+                {isRepoNotConfigured
+                  ? "Cần tải dữ liệu hoặc kết nối MCP để tính điểm"
+                  : "Trọng số: 40% Coverage + 35% Freshness + 25% Drift"}
               </div>
             </div>
 
@@ -730,21 +758,25 @@ export default function QualityDashboardPage() {
               <div className="my-3">
                 <div className="flex items-baseline gap-2">
                   <span className="text-3xl font-extrabold text-slate-900">
-                    {healthReport ? `${healthReport.freshnessPercent.toFixed(1)}%` : "—"}
+                    {isRepoNotConfigured ? "—" : healthReport ? `${healthReport.freshnessPercent.toFixed(1)}%` : "—"}
                   </span>
                   <span className="text-xs font-medium text-slate-500">
-                    ({healthReport?.freshDocuments ?? 0}/{healthReport?.totalDocuments ?? 0} tài liệu)
+                    {isRepoNotConfigured
+                      ? "(0/0 tài liệu)"
+                      : `(${healthReport?.freshDocuments ?? 0}/${healthReport?.totalDocuments ?? 0} tài liệu)`}
                   </span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-2 mt-2.5 overflow-hidden">
                   <div
-                    className="bg-amber-500 h-2 rounded-full transition-all duration-500"
-                    style={{ width: `${Math.min(100, healthReport?.freshnessPercent ?? 0)}%` }}
+                    className={`${isRepoNotConfigured ? "bg-slate-300" : "bg-amber-500"} h-2 rounded-full transition-all duration-500`}
+                    style={{ width: `${isRepoNotConfigured ? 0 : Math.min(100, healthReport?.freshnessPercent ?? 0)}%` }}
                   />
                 </div>
               </div>
               <p className="text-[11px] text-slate-500 truncate">
-                {healthReport?.latestCommitAt
+                {isRepoNotConfigured
+                  ? "Chưa kết nối tài liệu qua MCP"
+                  : healthReport?.latestCommitAt
                   ? `Commit mới nhất: ${new Date(healthReport.latestCommitAt).toLocaleDateString("vi-VN")}`
                   : "Chưa ghi nhận commit"}
               </p>
@@ -761,19 +793,21 @@ export default function QualityDashboardPage() {
               <div className="my-3">
                 <div className="flex items-baseline gap-2">
                   <span className="text-3xl font-extrabold text-slate-900">
-                    {healthReport?.totalOpenDriftAlerts ?? 0}
+                    {isRepoNotConfigured ? "0" : healthReport?.totalOpenDriftAlerts ?? 0}
                   </span>
-                  <span className="text-xs font-medium text-slate-500">cảnh báo cần xử lý</span>
+                  <span className="text-xs font-medium text-slate-500">
+                    {isRepoNotConfigured ? "chưa kích hoạt quét" : "cảnh báo cần xử lý"}
+                  </span>
                 </div>
                 <div className="flex items-center gap-2 text-[11px] font-semibold mt-2">
                   <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-700">
-                    {healthReport?.openAlertsBySeverity?.CRITICAL ?? 0} CRITICAL
+                    {isRepoNotConfigured ? 0 : healthReport?.openAlertsBySeverity?.CRITICAL ?? 0} CRITICAL
                   </span>
                   <span className="px-1.5 py-0.5 rounded bg-orange-100 text-orange-700">
-                    {healthReport?.openAlertsBySeverity?.HIGH ?? 0} HIGH
+                    {isRepoNotConfigured ? 0 : healthReport?.openAlertsBySeverity?.HIGH ?? 0} HIGH
                   </span>
                   <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
-                    {healthReport?.openAlertsBySeverity?.MEDIUM ?? 0} MED
+                    {isRepoNotConfigured ? 0 : healthReport?.openAlertsBySeverity?.MEDIUM ?? 0} MED
                   </span>
                 </div>
               </div>
@@ -1037,8 +1071,14 @@ export default function QualityDashboardPage() {
               {/* Thông báo số lượng kết quả */}
               <div className="flex items-center justify-between text-xs text-slate-500 px-1">
                 <span>
-                  Tìm thấy <strong>{viewMode === "tree" ? filteredPackages.reduce((s, p) => s + p.totalMissing, 0) : filteredItems.length}</strong> khoảng trống tài liệu
-                  {selectedRepoId !== "all" && ` trong kho "${selectedRepoName}"`}
+                  {isRepoNotConfigured ? (
+                    <>Kho lưu trữ đang ở trạng thái <strong className="text-amber-700">Chưa cấu hình</strong> (chưa có mã nguồn hoặc tài liệu MCP)</>
+                  ) : (
+                    <>
+                      Tìm thấy <strong>{viewMode === "tree" ? filteredPackages.reduce((s, p) => s + p.totalMissing, 0) : filteredItems.length}</strong> khoảng trống tài liệu
+                      {selectedRepoId !== "all" && ` trong kho "${selectedRepoName}"`}
+                    </>
+                  )}
                 </span>
                 <span className="text-[11px] text-slate-400">
                   Nhấn &ldquo;⚡ Sinh tài liệu bằng AI&rdquo; để tự động điền thông tin và mở trình tạo tài liệu
@@ -1169,6 +1209,32 @@ export default function QualityDashboardPage() {
                         </div>
                       );
                     })
+                  ) : isRepoNotConfigured ? (
+                    <div className="bg-white rounded-2xl border border-dashed border-amber-300 p-12 text-center">
+                      <FolderGit2 className="w-12 h-12 text-amber-500 mx-auto mb-3" />
+                      <h4 className="text-base font-bold text-slate-900">
+                        Chưa có dữ liệu mã nguồn hoặc tài liệu cho kho lưu trữ này
+                      </h4>
+                      <p className="text-xs text-slate-500 mt-2 max-w-lg mx-auto leading-relaxed">
+                        Kho lưu trữ này chưa tải lên mã nguồn hoặc chưa kết nối tài liệu qua MCP. Vui lòng tải lên tài liệu/mã nguồn hoặc kết nối MCP để bắt đầu quét và kiểm tra khoảng trống tài liệu.
+                      </p>
+                      <div className="flex items-center justify-center gap-3 mt-5">
+                        <button
+                          type="button"
+                          onClick={() => router.push("/tai-lieu-cua-toi")}
+                          className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition shadow-xs cursor-pointer"
+                        >
+                          Tải lên tài liệu
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => router.push("/tai-lieu-cua-toi?tab=mcp")}
+                          className="px-4 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl text-xs font-bold transition cursor-pointer"
+                        >
+                          Kết nối MCP
+                        </button>
+                      </div>
+                    </div>
                   ) : (
                     <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
                       <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
@@ -1244,6 +1310,36 @@ export default function QualityDashboardPage() {
                               </td>
                             </tr>
                           ))
+                        ) : isRepoNotConfigured ? (
+                          <tr>
+                            <td colSpan={7} className="px-4 py-12 text-center">
+                              <div className="max-w-md mx-auto">
+                                <FolderGit2 className="w-8 h-8 text-amber-500 mx-auto mb-2" />
+                                <p className="text-xs font-bold text-slate-800">
+                                  Chưa có dữ liệu mã nguồn hoặc tài liệu cho kho lưu trữ này
+                                </p>
+                                <p className="text-[11px] text-slate-500 mt-1">
+                                  Kho lưu trữ này chưa tải lên mã nguồn hoặc chưa kết nối tài liệu qua MCP. Vui lòng tải lên tài liệu/mã nguồn hoặc kết nối MCP để bắt đầu quét.
+                                </p>
+                                <div className="flex items-center justify-center gap-2 mt-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => router.push("/tai-lieu-cua-toi")}
+                                    className="px-3 py-1 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 cursor-pointer"
+                                  >
+                                    Tải lên tài liệu
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => router.push("/tai-lieu-cua-toi?tab=mcp")}
+                                    className="px-3 py-1 bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-200 cursor-pointer"
+                                  >
+                                    Kết nối MCP
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
                         ) : (
                           <tr>
                             <td colSpan={7} className="px-4 py-12 text-center text-slate-500">

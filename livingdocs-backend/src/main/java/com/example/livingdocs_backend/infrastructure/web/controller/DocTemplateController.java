@@ -118,6 +118,13 @@ public class DocTemplateController {
         return ResponseEntity.ok(docTemplateService.updateVersion(id, versionId, request));
     }
 
+    @PostMapping("/{id}/versions/{versionId}/rollback")
+    @Operation(summary = "Khôi phục phiên bản mẫu", description = "Khôi phục cấu trúc và quy tắc từ phiên bản chỉ định và tạo bản ghi phiên bản mới.")
+    public ResponseEntity<TemplateVersionResponse> rollbackVersion(@PathVariable Long id,
+                                                                   @PathVariable Long versionId) {
+        return ResponseEntity.ok(docTemplateService.rollbackVersion(id, versionId));
+    }
+
     @DeleteMapping("/{id}/versions/{versionId}")
     @Operation(summary = "Xóa một phiên bản")
     public ResponseEntity<Void> deleteVersion(@PathVariable Long id, @PathVariable Long versionId) {

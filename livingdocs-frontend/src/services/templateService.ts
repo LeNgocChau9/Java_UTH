@@ -69,6 +69,30 @@ export interface DriftAlertSummaryResponse {
   recentAlerts: DriftAlertNotificationItem[];
 }
 
+export interface TemplateVersionDto {
+  versionId: number;
+  templateId: number;
+  versionNum: number;
+  structureJson: string;
+  rulesJson: string;
+  createdBy?: number;
+  createdAt: string;
+}
+
+export interface TemplatePreviewRequest {
+  targetPath?: string;
+  targetPackage?: string;
+  targetClass?: string;
+  targetMethods?: string[];
+}
+
+export interface TemplatePreviewResponse {
+  templateId: number;
+  templateName: string;
+  templateType: string;
+  markdown: string;
+}
+
 export const templateService = {
   async getTemplates(): Promise<DocTemplateDto[]> {
     const res = await apiClient.get<DocTemplateDto[]>("/api/templates");
@@ -77,6 +101,21 @@ export const templateService = {
 
   async getTemplateById(id: number): Promise<DocTemplateDto> {
     const res = await apiClient.get<DocTemplateDto>(`/api/templates/${id}`);
+    return res.data;
+  },
+
+  async listVersions(templateId: number): Promise<TemplateVersionDto[]> {
+    const res = await apiClient.get<TemplateVersionDto[]>(`/api/templates/${templateId}/versions`);
+    return res.data;
+  },
+
+  async rollbackVersion(templateId: number, versionId: number): Promise<TemplateVersionDto> {
+    const res = await apiClient.post<TemplateVersionDto>(`/api/templates/${templateId}/versions/${versionId}/rollback`);
+    return res.data;
+  },
+
+  async previewTemplate(templateId: number, req: TemplatePreviewRequest): Promise<TemplatePreviewResponse> {
+    const res = await apiClient.post<TemplatePreviewResponse>(`/api/templates/${templateId}/preview`, req);
     return res.data;
   },
 

@@ -31,14 +31,10 @@ from app.core.gemini_retry import (
 
 logger = logging.getLogger(__name__)
 
-# Danh sách model Gemini có cơ chế xoay vòng và fallback tự động (Pro -> Flash)
+# Danh sách model Gemini có cơ chế xoay vòng và fallback tự động
 REWRITE_MODELS = [
-    "gemini-2.5-pro",
     "gemini-2.5-flash",
     "gemini-2.0-flash",
-    "gemini-1.5-flash",
-    "gemini-3.5-flash-lite",
-    "gemini-flash-lite-latest",
 ]
 
 
@@ -160,17 +156,33 @@ Trả về DUY NHẤT một JSON object hợp lệ (không kèm markdown code fe
                 model_used="smart-diff-analyzer",
             )
 
-        # Trích xuất các dòng thêm/xóa trong diff
+        # Trích xuất các dòng thêm/xóa trong diff (hoặc toàn bộ dòng nếu là code snippet trực tiếp)
         added_lines = [l[1:].strip() for l in code_diff.splitlines() if l.startswith("+") and not l.startswith("+++")]
         removed_lines = [l[1:].strip() for l in code_diff.splitlines() if l.startswith("-") and not l.startswith("---")]
+        source_lines = added_lines if added_lines else [l.strip() for l in code_diff.splitlines() if l.strip()]
 
         # Tìm tên hàm/phương thức mới hoặc thay đổi
         changed_signatures = []
-        for line in added_lines:
-            if re.search(r"\b(public|private|protected|def|async|function)\b", line) or "(" in line:
+        for line in source_lines:
+            if re.search(r"\b(public|private|protected|def|async|function|export|class|interface)\b", line) or "(" in line:
                 clean_sig = line.strip().rstrip("{;").strip()
                 if clean_sig and not clean_sig.startswith(("//", "#", "/*")):
                     changed_signatures.append(clean_sig)
+
+        # Xác định ngôn ngữ code fence theo file_path
+        fp_lower = (request.file_path or "").lower()
+        if fp_lower.endswith(".tsx"):
+            fence_lang = "tsx"
+        elif fp_lower.endswith(".ts"):
+            fence_lang = "ts"
+        elif fp_lower.endswith(".jsx") or fp_lower.endswith(".js"):
+            fence_lang = "javascript"
+        elif fp_lower.endswith(".py"):
+            fence_lang = "python"
+        elif fp_lower.endswith(".sql"):
+            fence_lang = "sql"
+        else:
+            fence_lang = "java"
 
         # Tách tài liệu hiện tại thành các section
         doc_lines = current_doc.splitlines(keepends=True)
@@ -205,54 +217,91 @@ Trả về DUY NHẤT một JSON object hợp lệ (không kèm markdown code fe
                 if any(aff.lower() in s["title"].lower() or s["title"].lower() in aff.lower() for aff in request.affected_sections):
                     target_sections.append(s)
 
-        if not target_sections:
-            # Tìm section theo tên entity hoặc từ khóa liên quan
+        if not target_sections and request.entity_name:
             for s in sections:
-                if entity_name.lower() in s["title"].lower() or any(w in s["title"].lower() for w in ["phương thức", "method", "api", "chi tiết"]):
+                if entity_name.lower() in s["title"].lower():
                     target_sections.append(s)
 
-        if not target_sections and sections:
-            # Mặc định lấy section thứ 2 nếu có (thường là phần chi tiết kỹ thuật)
-            target_sections.append(sections[1] if len(sections) > 1 else sections[0])
+        if not target_sections and not request.entity_name:
+            for s in sections:
+                if any(w in s["title"].lower() for w in ["phương thức", "method", "api", "chi tiết"]):
+                    target_sections.append(s)
+            if not target_sections and sections:
+                target_sections.append(sections[1] if len(sections) > 1 else sections[0])
 
         section_diffs: List[DocSectionDiffItem] = []
         updated_doc = current_doc
 
-        for sec in target_sections:
-            sec_title = sec["title"]
-            old_c = sec["content"]
+        if not target_sections:
+            # Chưa có section cho entity_name trong current_doc -> Tạo section Markdown chuẩn cho entity_name
+            sig_display = changed_signatures[0] if changed_signatures else (source_lines[0] if source_lines else entity_name)
+            snippet_clean = "\n".join(
+                l[1:] if (l.startswith("+") and not l.startswith("+++")) else l
+                for l in code_diff.splitlines()
+                if not l.startswith("---") and not l.startswith("+++") and not l.startswith("@@")
+            ).strip()
+            new_sec_lines = [
+                f"### {entity_name}",
+                "",
+                f"- **Thực thể mã nguồn:** `{entity_name}`" + (f" (Tệp: `{request.file_path}`)" if request.file_path else ""),
+                f"- **Chữ ký (Signature):** `{sig_display}`",
+                f"- **Mô tả kỹ thuật:** Thực thể `{entity_name}` thực thi xử lý nghiệp vụ theo định nghĩa mã nguồn mới nhất.",
+            ]
+            if request.instruction and request.instruction.strip():
+                new_sec_lines.append(f"- **Ghi chú cập nhật:** {request.instruction.strip()}")
+            if snippet_clean:
+                new_sec_lines.append(f"\n```{fence_lang}\n{snippet_clean}\n```")
 
-            # Xây dựng nội dung mới phản ánh các thay đổi trong diff
-            reason_parts = []
-            suggested_lines = [old_c]
-
-            if changed_signatures:
-                suggested_lines.append("\n\n#### Cập nhật chữ ký & hành vi mới (Theo Code Diff):")
-                for sig in changed_signatures[:3]:
-                    suggested_lines.append(f"- Chữ ký phương thức mới: `{sig}`")
-                reason_parts.append(f"Cập nhật {len(changed_signatures)} chữ ký hàm mới theo thay đổi code.")
-
-            if added_lines:
-                new_params = [l for l in added_lines if "param" in l.lower() or "@param" in l]
-                if new_params:
-                    suggested_lines.append("- Tham số bổ sung: " + ", ".join(f"`{p}`" for p in new_params[:3]))
-                    reason_parts.append("Bổ sung mô tả các tham số mới.")
-
-            reason = " ".join(reason_parts) if reason_parts else f"Cập nhật tài liệu mục '{sec_title}' cho phù hợp với code diff mới nhất của {entity_name}."
-            suggested_c = "\n".join(suggested_lines)
-
+            suggested_c = "\n".join(new_sec_lines)
             diff_item = DocSectionDiffItem(
-                section_title=sec_title,
+                section_title=entity_name,
                 status="MODIFIED",
-                old_content=old_c,
+                old_content="",
                 suggested_content=suggested_c,
-                reason=reason,
+                reason=f"Tạo mới/cập nhật mục tài liệu kỹ thuật cho {entity_name} từ mã nguồn.",
             )
             section_diffs.append(diff_item)
+            updated_doc = (current_doc.rstrip() + "\n\n" + suggested_c + "\n").lstrip() if current_doc.strip() else suggested_c
+        else:
+            for sec in target_sections:
+                sec_title = sec["title"]
+                old_c = sec["content"]
 
-            # Cập nhật vào bản tài liệu hoàn chỉnh
-            if old_c in updated_doc:
-                updated_doc = updated_doc.replace(old_c, suggested_c, 1)
+                # Xây dựng nội dung mới phản ánh các thay đổi trong diff
+                reason_parts = []
+                suggested_lines = [old_c]
+
+                if changed_signatures:
+                    suggested_lines.append("\n\n#### Cập nhật chữ ký & hành vi mới (Theo Code Diff):")
+                    for sig in changed_signatures[:3]:
+                        suggested_lines.append(f"- Chữ ký phương thức mới: `{sig}`")
+                    reason_parts.append(f"Cập nhật {len(changed_signatures)} chữ ký hàm mới theo thay đổi code.")
+
+                if source_lines:
+                    new_params = [l for l in source_lines if "param" in l.lower() or "@param" in l]
+                    if new_params:
+                        suggested_lines.append("- Tham số bổ sung: " + ", ".join(f"`{p}`" for p in new_params[:3]))
+                        reason_parts.append("Bổ sung mô tả các tham số mới.")
+
+                if request.instruction and request.instruction.strip():
+                    suggested_lines.append(f"- **Ghi chú cập nhật:** {request.instruction.strip()}")
+                    reason_parts.append("Áp dụng chỉ dẫn cập nhật bổ sung.")
+
+                reason = " ".join(reason_parts) if reason_parts else f"Cập nhật tài liệu mục '{sec_title}' cho phù hợp với code diff mới nhất của {entity_name}."
+                suggested_c = "\n".join(suggested_lines)
+
+                diff_item = DocSectionDiffItem(
+                    section_title=sec_title,
+                    status="MODIFIED",
+                    old_content=old_c,
+                    suggested_content=suggested_c,
+                    reason=reason,
+                )
+                section_diffs.append(diff_item)
+
+                # Cập nhật vào bản tài liệu hoàn chỉnh
+                if old_c in updated_doc:
+                    updated_doc = updated_doc.replace(old_c, suggested_c, 1)
 
         summary = f"Cập nhật {len(section_diffs)} mục tài liệu bị ảnh hưởng theo thay đổi mã nguồn mới của {entity_name}."
 
@@ -331,9 +380,9 @@ Trả về DUY NHẤT một JSON object hợp lệ (không kèm markdown code fe
 
                 parsed = execute_with_gemini_retry(
                     action=_call_gemini_rewrite,
-                    max_retries=3,
-                    initial_delay=1.0,
-                    backoff_factor=2.0,
+                    max_retries=1,
+                    initial_delay=0.5,
+                    backoff_factor=1.5,
                     action_name=f"DocRewrite ({model_name})",
                 )
                 used_model = model_name

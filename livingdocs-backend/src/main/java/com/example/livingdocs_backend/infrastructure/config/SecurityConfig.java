@@ -85,6 +85,7 @@ public class SecurityConfig {
                     "/api/ci/**",
                     "/api/drift-alerts",
                     "/api/drift-alerts/**",
+                    "/api/v1/ai/**",
                     "/api/dashboard",
                     "/api/dashboard/**"
                 ).permitAll()

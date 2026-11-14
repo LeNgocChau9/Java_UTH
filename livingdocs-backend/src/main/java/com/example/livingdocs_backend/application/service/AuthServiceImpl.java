@@ -4,17 +4,25 @@ import com.example.livingdocs_backend.application.dto.AuthResponse;
 import com.example.livingdocs_backend.application.dto.GitHubProfileRequest;
 import com.example.livingdocs_backend.application.dto.LoginRequest;
 import com.example.livingdocs_backend.application.dto.RegisterRequest;
+import com.example.livingdocs_backend.application.dto.UpdateProfileRequest;
+import com.example.livingdocs_backend.application.dto.UserNotificationPreferencesDto;
 import com.example.livingdocs_backend.application.dto.UserProfileResponse;
 import com.example.livingdocs_backend.application.port.AuditServicePort;
 import com.example.livingdocs_backend.application.port.AuthServicePort;
 import com.example.livingdocs_backend.domain.exception.AuthenticationException;
 import com.example.livingdocs_backend.domain.exception.EmailAlreadyExistsException;
+import com.example.livingdocs_backend.domain.model.AuditAction;
 import com.example.livingdocs_backend.domain.model.User;
 import com.example.livingdocs_backend.domain.repository.UserRepositoryPort;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.UserNotificationPreferenceEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataUserNotificationPreferenceRepository;
 import com.example.livingdocs_backend.infrastructure.security.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+
+import java.time.Instant;
 
 @Service
 @RequiredArgsConstructor
@@ -25,6 +33,13 @@ public class AuthServiceImpl implements AuthServicePort {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository gitHubConnectionRepository;
+
+    @Autowired(required = false)
+    private SpringDataUserNotificationPreferenceRepository notificationPreferenceRepository;
+
+    public void setNotificationPreferenceRepository(SpringDataUserNotificationPreferenceRepository notificationPreferenceRepository) {
+        this.notificationPreferenceRepository = notificationPreferenceRepository;
+    }
 
     @Override
     public AuthResponse register(RegisterRequest request) {
@@ -218,18 +233,22 @@ public class AuthServiceImpl implements AuthServicePort {
 
     @Override
     @org.springframework.transaction.annotation.Transactional
-    public UserProfileResponse updateProfile(String email, com.example.livingdocs_backend.application.dto.UpdateProfileRequest request) {
+    public UserProfileResponse updateProfile(String email, UpdateProfileRequest request) {
         User user = userRepositoryPort.findByEmail(email.toLowerCase().trim())
                 .orElseThrow(() -> new AuthenticationException("Không tìm thấy thông tin người dùng"));
+
+        java.util.List<String> changedFields = new java.util.ArrayList<>();
 
         // 1. Cập nhật họ tên nếu có
         if (request.getFullName() != null && !request.getFullName().isBlank()) {
             user.setFullName(request.getFullName().trim());
+            changedFields.add("fullName");
         }
 
         // 2. Cập nhật avatar nếu có
         if (request.getAvatarUrl() != null) {
             user.setAvatarUrl(request.getAvatarUrl().trim());
+            changedFields.add("avatarUrl");
         }
 
         // 3. Đổi mật khẩu nếu có yêu cầu
@@ -241,10 +260,159 @@ public class AuthServiceImpl implements AuthServicePort {
                 }
             }
             user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+            changedFields.add("password");
         }
 
         User updatedUser = userRepositoryPort.save(user);
+
+        // 4. Cập nhật tùy chọn nhận thông báo nếu có gửi kèm trong request
+        if (request.getNotificationPreferences() != null) {
+            saveNotificationPreferencesForUser(updatedUser.getUserId(), request.getNotificationPreferences());
+            changedFields.add("notificationPreferences");
+        }
+
+        if (!changedFields.isEmpty() && auditServicePort != null) {
+            auditServicePort.recordSecurityAction(
+                    updatedUser.getUserId(),
+                    AuditAction.USER_UPDATED,
+                    "USER",
+                    String.valueOf(updatedUser.getUserId()),
+                    "Cập nhật hồ sơ cá nhân: " + String.join(", ", changedFields)
+            );
+        }
+
         return toProfileResponse(updatedUser);
+    }
+
+    @Override
+    public UserNotificationPreferencesDto getNotificationPreferences(String email) {
+        User user = userRepositoryPort.findByEmail(email.toLowerCase().trim())
+                .orElseThrow(() -> new AuthenticationException("Không tìm thấy thông tin người dùng"));
+        return loadOrDefaultNotificationPreferences(user.getUserId());
+    }
+
+    @Override
+    @org.springframework.transaction.annotation.Transactional
+    public UserNotificationPreferencesDto updateNotificationPreferences(String email, UserNotificationPreferencesDto request) {
+        User user = userRepositoryPort.findByEmail(email.toLowerCase().trim())
+                .orElseThrow(() -> new AuthenticationException("Không tìm thấy thông tin người dùng"));
+
+        UserNotificationPreferencesDto saved = saveNotificationPreferencesForUser(user.getUserId(), request);
+
+        if (auditServicePort != null) {
+            auditServicePort.recordSecurityAction(
+                    user.getUserId(),
+                    AuditAction.USER_UPDATED,
+                    "USER_NOTIFICATION_PREFERENCES",
+                    String.valueOf(user.getUserId()),
+                    String.format(
+                            "Cập nhật tùy chọn thông báo: review=%s, driftAlert=%s, githubTokenIssue=%s, email=%s",
+                            saved.getReviewEnabled(),
+                            saved.getDriftAlertEnabled(),
+                            saved.getGithubTokenIssueEnabled(),
+                            saved.getEmailEnabled()
+                    )
+            );
+        }
+        return saved;
+    }
+
+    private UserNotificationPreferencesDto loadOrDefaultNotificationPreferences(Long userId) {
+        if (userId == null) {
+            return defaultNotificationPreferences(null);
+        }
+        if (notificationPreferenceRepository != null) {
+            try {
+                java.util.Optional<UserNotificationPreferenceEntity> opt = notificationPreferenceRepository.findById(userId);
+                if (opt.isPresent()) {
+                    return toNotificationPreferencesDto(opt.get());
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return defaultNotificationPreferences(userId);
+    }
+
+    private UserNotificationPreferencesDto saveNotificationPreferencesForUser(Long userId, UserNotificationPreferencesDto request) {
+        if (userId == null) {
+            throw new AuthenticationException("Không xác định được người dùng để lưu tùy chọn thông báo");
+        }
+        UserNotificationPreferenceEntity entity = null;
+        if (notificationPreferenceRepository != null) {
+            try {
+                entity = notificationPreferenceRepository.findById(userId).orElse(null);
+            } catch (Exception ignored) {
+            }
+        }
+        if (entity == null) {
+            entity = UserNotificationPreferenceEntity.builder()
+                    .userId(userId)
+                    .emailEnabled(true)
+                    .reviewEnabled(true)
+                    .documentEnabled(true)
+                    .githubEnabled(true)
+                    .updatedAt(Instant.now())
+                    .build();
+        }
+
+        if (request != null) {
+            if (request.getEmailEnabled() != null) {
+                entity.setEmailEnabled(request.getEmailEnabled());
+            }
+            if (request.getReviewEnabled() != null) {
+                entity.setReviewEnabled(request.getReviewEnabled());
+            }
+            // Ưu tiên driftAlertEnabled, nếu null thì đọc documentEnabled
+            Boolean driftOrDoc = request.getDriftAlertEnabled() != null
+                    ? request.getDriftAlertEnabled()
+                    : request.getDocumentEnabled();
+            if (driftOrDoc != null) {
+                entity.setDocumentEnabled(driftOrDoc);
+            }
+            // Ưu tiên githubTokenIssueEnabled, nếu null thì đọc githubEnabled
+            Boolean githubTokenOrGithub = request.getGithubTokenIssueEnabled() != null
+                    ? request.getGithubTokenIssueEnabled()
+                    : request.getGithubEnabled();
+            if (githubTokenOrGithub != null) {
+                entity.setGithubEnabled(githubTokenOrGithub);
+            }
+        }
+
+        entity.setUpdatedAt(Instant.now());
+        if (notificationPreferenceRepository != null) {
+            entity = notificationPreferenceRepository.save(entity);
+        }
+        return toNotificationPreferencesDto(entity);
+    }
+
+    private UserNotificationPreferencesDto toNotificationPreferencesDto(UserNotificationPreferenceEntity entity) {
+        boolean emailEnabled = entity.getEmailEnabled() == null || entity.getEmailEnabled();
+        boolean reviewEnabled = entity.getReviewEnabled() == null || entity.getReviewEnabled();
+        boolean documentEnabled = entity.getDocumentEnabled() == null || entity.getDocumentEnabled();
+        boolean githubEnabled = entity.getGithubEnabled() == null || entity.getGithubEnabled();
+
+        return UserNotificationPreferencesDto.builder()
+                .userId(entity.getUserId())
+                .emailEnabled(emailEnabled)
+                .reviewEnabled(reviewEnabled)
+                .driftAlertEnabled(documentEnabled)
+                .documentEnabled(documentEnabled)
+                .githubTokenIssueEnabled(githubEnabled)
+                .githubEnabled(githubEnabled)
+                .updatedAt(entity.getUpdatedAt())
+                .build();
+    }
+
+    private UserNotificationPreferencesDto defaultNotificationPreferences(Long userId) {
+        return UserNotificationPreferencesDto.builder()
+                .userId(userId)
+                .emailEnabled(true)
+                .reviewEnabled(true)
+                .driftAlertEnabled(true)
+                .documentEnabled(true)
+                .githubTokenIssueEnabled(true)
+                .githubEnabled(true)
+                .build();
     }
 
     private UserProfileResponse toProfileResponse(User user) {
@@ -269,6 +437,7 @@ public class AuthServiceImpl implements AuthServicePort {
                 .roles(roleStrings)
                 .githubUsername(githubUsername)
                 .createdAt(user.getCreatedAt())
+                .notificationPreferences(loadOrDefaultNotificationPreferences(user.getUserId()))
                 .build();
     }
 }

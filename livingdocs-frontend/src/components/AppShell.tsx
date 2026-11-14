@@ -79,7 +79,7 @@ interface NavItem {
   label: string;
   icon: React.ReactNode;
   roles: AppRole[];
-  children?: { href: string; label: string }[];
+  children?: { href: string; label: string; roles?: AppRole[] }[];
 }
 
 const NAV: NavItem[] = [
@@ -91,15 +91,13 @@ const NAV: NavItem[] = [
   },
   {
     href: "/nhat-ky-thay-doi",
-    label: "Nhật ký thay đổi",
+    label: "Nhật Ký",
     icon: <History size={16} />,
     roles: ["DEVELOPER", "STAFF", "MANAGER", "TECH_LEAD", "ADMIN"],
-  },
-  {
-    href: "/nhat-ky-he-thong",
-    label: "Nhật ký kiểm toán",
-    icon: <History size={16} />,
-    roles: ["TECH_LEAD", "ADMIN"],
+    children: [
+      { href: "/nhat-ky-thay-doi", label: "Nhật ký thay đổi", roles: ["DEVELOPER", "STAFF", "MANAGER", "TECH_LEAD", "ADMIN"] },
+      { href: "/nhat-ky-he-thong", label: "Nhật ký kiểm toán", roles: ["TECH_LEAD", "ADMIN"] },
+    ],
   },
   {
     href: "/kho-luu-tru",
@@ -117,19 +115,21 @@ const NAV: NavItem[] = [
     href: "/tai-lieu-cua-toi",
     label: "Tài liệu",
     icon: <FileText size={16} />,
-    roles: ["DEVELOPER"],
+    roles: ["DEVELOPER", "TECH_LEAD"],
+    children: [
+      { href: "/tai-lieu-cua-toi", label: "Tất cả tài liệu" },
+      { href: "/khoang-trong-tai-lieu", label: "Tài Liệu Còn Trống" },
+    ],
   },
   {
     href: "/cay-ma-nguon",
-    label: "Cây thư mục",
+    label: "Mã Nguồn",
     icon: <GitFork size={16} />,
     roles: ["DEVELOPER", "TECH_LEAD"],
-  },
-  {
-    href: "/khoang-trong-tai-lieu",
-    label: "Khoảng trống tài liệu",
-    icon: <FileCode2 size={16} />,
-    roles: ["DEVELOPER", "TECH_LEAD"],
+    children: [
+      { href: "/cay-ma-nguon", label: "Cây thư mục", roles: ["DEVELOPER", "TECH_LEAD"] },
+      { href: "/do-thi-lien-ket", label: "Đồ thị liên kết", roles: ["TECH_LEAD"] },
+    ],
   },
   {
     href: "/yeu-cau-sinh-tai-lieu",
@@ -162,12 +162,6 @@ const NAV: NavItem[] = [
     roles: ["MANAGER", "ADMIN"],
   },
   {
-    href: "/uy-quyen-phe-duyet",
-    label: "Ủy quyền phê duyệt",
-    icon: <Users size={16} />,
-    roles: ["MANAGER", "ADMIN"],
-  },
-  {
     href: "/chinh-sach-phe-duyet",
     label: "Chính sách phê duyệt",
     icon: <Scroll size={16} />,
@@ -186,16 +180,14 @@ const NAV: NavItem[] = [
     roles: ["TECH_LEAD"],
   },
   {
-    href: "/do-thi-lien-ket",
-    label: "Đồ thị liên kết",
-    icon: <GitFork size={16} />,
-    roles: ["TECH_LEAD"],
-  },
-  {
     href: "/quan-tri-nguoi-dung",
-    label: "Người dùng",
+    label: "Người Dùng",
     icon: <Users size={16} />,
-    roles: ["ADMIN"],
+    roles: ["MANAGER", "ADMIN"],
+    children: [
+      { href: "/uy-quyen-phe-duyet", label: "Ủy quyền phê duyệt", roles: ["MANAGER", "ADMIN"] },
+      { href: "/quan-tri-nguoi-dung", label: "Người dùng", roles: ["ADMIN"] },
+    ],
   },
   {
     href: "/cai-dat",
@@ -214,14 +206,19 @@ const NAV: NavItem[] = [
 function SidebarNavItem({
   item,
   currentPath,
+  roleSet,
 }: {
   item: NavItem;
   currentPath: string;
+  roleSet?: Set<AppRole>;
 }) {
+  const visibleChildren = item.children?.filter((c) =>
+    c.roles && roleSet ? c.roles.some((r) => roleSet.has(r)) : true
+  );
   const isActive =
     currentPath === item.href ||
-    (item.children?.some((c) => c.href === currentPath) ?? false);
-  const hasChildren = item.children && item.children.length > 0;
+    (visibleChildren?.some((c) => c.href === currentPath) ?? false);
+  const hasChildren = visibleChildren && visibleChildren.length > 0;
   const [open, setOpen] = useState(isActive);
 
   const baseClass =
@@ -245,7 +242,7 @@ function SidebarNavItem({
         </button>
         {open && (
           <div className="ml-[22px] mt-1 border-l-2 border-[#e2e8f0] pl-2.5 space-y-1">
-            {item.children!.map((child) => (
+            {visibleChildren!.map((child) => (
               <Link
                 key={child.href}
                 href={child.href}
@@ -600,9 +597,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     {
       title: "Admin",
       role: "ADMIN",
-      items: NAV.filter((n) => n.roles.includes("ADMIN") && (!n.roles.includes("TECH_LEAD") || n.href === "/nhat-ky-he-thong")),
+      items: NAV.filter((n) => n.roles.includes("ADMIN") && !n.roles.includes("TECH_LEAD")),
     },
   ];
+
+  const seenHrefs = new Set<string>(["/dashboard", "/nhat-ky-thay-doi"]);
+  const filteredSections = sections
+    .filter((section) => roleSet.has(section.role))
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => {
+        if (seenHrefs.has(item.href)) return false;
+        seenHrefs.add(item.href);
+        return true;
+      }),
+    }))
+    .filter((section) => section.items.length > 0);
 
   const dashboardItem = NAV.find((n) => n.href === "/dashboard")!;
   const changelogItem = NAV.find((n) => n.href === "/nhat-ky-thay-doi");
@@ -690,22 +700,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <nav style={{ flex: 1, padding: "12px 10px", overflowY: "auto" }}>
         {ready && signedIn && (
           <div style={{ marginBottom: 6, display: "flex", flexDirection: "column", gap: 2 }}>
-            <SidebarNavItem item={dashboardItem} currentPath={pathname} />
-            {changelogItem && <SidebarNavItem item={changelogItem} currentPath={pathname} />}
+            <SidebarNavItem item={dashboardItem} currentPath={pathname} roleSet={roleSet} />
+            {changelogItem && <SidebarNavItem item={changelogItem} currentPath={pathname} roleSet={roleSet} />}
           </div>
         )}
 
-        {sections.map((section) => {
-          if (!roleSet.has(section.role)) return null;
-          if (!section.items.length) return null;
-          return (
-            <SidebarSection key={section.role} title={section.title}>
-              {section.items.map((item) => (
-                <SidebarNavItem key={item.href} item={item} currentPath={pathname} />
-              ))}
-            </SidebarSection>
-          );
-        })}
+        {filteredSections.map((section) => (
+          <SidebarSection key={section.role} title={section.title}>
+            {section.items.map((item) => (
+              <SidebarNavItem key={item.href} item={item} currentPath={pathname} roleSet={roleSet} />
+            ))}
+          </SidebarSection>
+        ))}
 
         {ready && !signedIn && (
           <div className="p-4 rounded-xl bg-[#f8fafc] border border-[#e2e8f0] text-center my-4">

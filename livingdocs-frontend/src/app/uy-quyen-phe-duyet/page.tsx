@@ -84,9 +84,6 @@ export default function DelegationPage() {
       <div className="mx-auto max-w-5xl space-y-5 p-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Ủy quyền phê duyệt</h1>
-          <p className="mt-1 max-w-3xl text-sm text-slate-500">
-            Khi đi công tác hoặc nghỉ phép, chọn một quản lý khác và khoảng ngày. Trong khoảng đó người được ủy quyền duyệt tài liệu thay bạn, và nhật ký kiểm toán ghi cả hai tên.
-          </p>
         </div>
 
         <form onSubmit={onSubmit} className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2">
