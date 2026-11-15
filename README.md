@@ -54,6 +54,12 @@ LivingDocs giải quyết vấn đề này bằng cách:
 
 LivingDocs gồm 3 phân hệ độc lập kết hợp cơ sở dữ liệu vector:
 
+<div align="center">
+  <a href="https://gitdiagram.com/lengocchau9/java_uth?utm_source=readme&utm_medium=picture">
+    <img src="https://gitdiagram.com/lengocchau9/java_uth/diagram.png" alt="Sơ đồ kiến trúc LivingDocs" width="900" />
+  </a>
+</div>
+
 - **Frontend** (Next.js, cổng 3000) giao tiếp với Backend qua REST và SSE, đồng thời gọi trực tiếp AI Engine cho chức năng chat và gợi ý viết lại.
 - **Backend** (Spring Boot, cổng 8080) điều phối toàn bộ nghiệp vụ, xác thực, phân quyền, đồng bộ GitHub, lưu trữ dữ liệu vào PostgreSQL và gọi AI Engine để bóc tách AST, sinh tài liệu, phân tích Drift.
 - **AI Engine** (FastAPI, cổng 8000) bóc tách AST, phân tích sai lệch và định tuyến yêu cầu AI giữa Google Gemini (Cloud) và Ollama (Local).
