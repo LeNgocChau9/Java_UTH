@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useCallback, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
+import { useSession } from "@/hooks/useSession";
 import { documentService } from "@/services/documentService";
 import { repoService, type RepoItem } from "@/services/repoService";
 import { templateService, type DocTemplateDto } from "@/services/templateService";
@@ -134,6 +135,8 @@ function highlightMatch(text: string | null | undefined, query: string): React.R
 function DocumentListPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { roles } = useSession();
+  const isStaffOnly = roles.includes("STAFF") && !roles.includes("DEVELOPER") && !roles.includes("TECH_LEAD") && !roles.includes("ADMIN");
   const initialCollectionId = searchParams.get("collectionId");
 
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
@@ -700,50 +703,76 @@ function DocumentListPageContent() {
       </div>
 
       {/* Thanh công cụ hành động phía dưới Document Workspace */}
-      <div
-        style={{
-          display: "flex",
-          gap: 10,
-          flexWrap: "wrap",
-          alignItems: "center",
-          marginBottom: 20,
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => setShowUploadModal(true)}
-          className="ld-btn ld-btn-primary"
-          style={{ background: "#0284c7", borderColor: "#0284c7" }}
-          title="Upload tài liệu (.docx, .md) từ máy tính"
-        >
-          <Upload size={15} />
-          <span>Upload tài liệu</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setShowMcpModal(true)}
-          className="ld-btn"
+      {isStaffOnly ? (
+        <div
           style={{
-            borderColor: "#6366f1",
-            color: "#4338ca",
-            background: "#eef2ff",
-            fontWeight: 500,
-            display: "inline-flex",
+            display: "flex",
+            gap: 10,
+            flexWrap: "wrap",
             alignItems: "center",
-            gap: 6,
+            justifyContent: "space-between",
+            marginBottom: 20,
+            padding: "10px 14px",
+            borderRadius: 8,
+            background: "#ecfdf5",
+            border: "1px solid #a7f3d0",
+            fontSize: 13,
+            color: "#065f46",
           }}
-          title="Kết nối đọc tài liệu từ Google Docs, Confluence hoặc Jira qua MCP"
         >
-          <Globe size={15} style={{ color: "#6366f1" }} />
-          <span>Kết nối MCP</span>
-        </button>
+          <span>
+            🛡️ <strong>Chế độ Thẩm định & Tra cứu (STAFF Read-only & Triage):</strong> Bạn có quyền xem toàn bộ tài liệu, kiểm tra toàn vẹn chuỗi băm SHA-256 và đối chiếu lịch sử phiên bản.
+          </span>
+          <Link href="/hang-doi-xem-xet" className="ld-btn ld-btn-primary ld-btn-sm">
+            <span>Mở Hàng đợi xem xét</span>
+          </Link>
+        </div>
+      ) : (
+        <div
+          style={{
+            display: "flex",
+            gap: 10,
+            flexWrap: "wrap",
+            alignItems: "center",
+            marginBottom: 20,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setShowUploadModal(true)}
+            className="ld-btn ld-btn-primary"
+            style={{ background: "#0284c7", borderColor: "#0284c7" }}
+            title="Upload tài liệu (.docx, .md) từ máy tính"
+          >
+            <Upload size={15} />
+            <span>Upload tài liệu</span>
+          </button>
 
-        <Link href="/tai-lieu-cua-toi/editor" className="ld-btn ld-btn-primary">
-          <Plus size={15} />
-          <span>Soạn thủ công</span>
-        </Link>
-      </div>
+          <button
+            type="button"
+            onClick={() => setShowMcpModal(true)}
+            className="ld-btn"
+            style={{
+              borderColor: "#6366f1",
+              color: "#4338ca",
+              background: "#eef2ff",
+              fontWeight: 500,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+            title="Kết nối đọc tài liệu từ Google Docs, Confluence hoặc Jira qua MCP"
+          >
+            <Globe size={15} style={{ color: "#6366f1" }} />
+            <span>Kết nối MCP</span>
+          </button>
+
+          <Link href="/tai-lieu-cua-toi/editor" className="ld-btn ld-btn-primary">
+            <Plus size={15} />
+            <span>Soạn thủ công</span>
+          </Link>
+        </div>
+      )}
 
       {/* DANH SÁCH BỘ SƯU TẬP (COLLECTIONS BAR) */}
       <div style={{ marginBottom: 20 }}>
@@ -773,15 +802,17 @@ function DocumentListPageContent() {
             </span>
           </div>
 
-          <button
-            type="button"
-            onClick={openCreateCollectionModal}
-            className="ld-btn ld-btn-ghost ld-btn-sm"
-            style={{ color: "var(--color-accent)", fontWeight: 500 }}
-          >
-            <FolderPlus size={14} />
-            <span>+ Tạo bộ sưu tập mới</span>
-          </button>
+          {!isStaffOnly && (
+            <button
+              type="button"
+              onClick={openCreateCollectionModal}
+              className="ld-btn ld-btn-ghost ld-btn-sm"
+              style={{ color: "var(--color-accent)", fontWeight: 500 }}
+            >
+              <FolderPlus size={14} />
+              <span>+ Tạo bộ sưu tập mới</span>
+            </button>
+          )}
         </div>
 
         {/* Thanh Cuộn Ngang Các Thẻ Bộ Sưu Tập */}
@@ -1612,36 +1643,38 @@ function DocumentListPageContent() {
 
                 {/* Các nút Hành động Nhanh */}
                 <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
-                  {/* Chọn nhanh Bộ sưu tập cho tài liệu */}
-                  <select
-                    value={doc.collectionId ?? ""}
-                    disabled={assigningDocId === doc.docId}
-                    onChange={(e) =>
-                      handleAssignDocToCollection(
-                        doc,
-                        e.target.value ? parseInt(e.target.value, 10) : null
-                      )
-                    }
-                    className="ld-select"
-                    style={{
-                      padding: "4px 8px",
-                      fontSize: 11,
-                      height: 30,
-                      maxWidth: 165,
-                      borderRadius: 6,
-                    }}
-                    title="Gán hoặc chuyển tài liệu vào Bộ sưu tập"
-                  >
-                    <option value="">-- Gán bộ sưu tập --</option>
-                    {collections.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        📁 {c.name}
-                      </option>
-                    ))}
-                  </select>
+                  {/* Chọn nhanh Bộ sưu tập cho tài liệu (ẩn với STAFF read-only) */}
+                  {!isStaffOnly && (
+                    <select
+                      value={doc.collectionId ?? ""}
+                      disabled={assigningDocId === doc.docId}
+                      onChange={(e) =>
+                        handleAssignDocToCollection(
+                          doc,
+                          e.target.value ? parseInt(e.target.value, 10) : null
+                        )
+                      }
+                      className="ld-select"
+                      style={{
+                        padding: "4px 8px",
+                        fontSize: 11,
+                        height: 30,
+                        maxWidth: 165,
+                        borderRadius: 6,
+                      }}
+                      title="Gán hoặc chuyển tài liệu vào Bộ sưu tập"
+                    >
+                      <option value="">-- Gán bộ sưu tập --</option>
+                      {collections.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          📁 {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
 
                   {/* Nút Gửi review nhanh nếu đang DRAFT */}
-                  {doc.status === "DRAFT" && (
+                  {!isStaffOnly && doc.status === "DRAFT" && (
                     <button
                       type="button"
                       onClick={() => handleQuickSubmitReview(doc)}
@@ -1665,26 +1698,41 @@ function DocumentListPageContent() {
                     <span>Lịch sử & Diff</span>
                   </Link>
 
-                  {/* Nút Soạn thảo (Mở Split-View Editor) */}
-                  <Link
-                    href={`/tai-lieu-cua-toi/editor?docId=${doc.docId}`}
-                    className="ld-btn ld-btn-secondary ld-btn-sm"
-                    title="Mở trình soạn thảo Markdown Split-View"
-                  >
-                    <Edit3 size={13} />
-                    <span>Soạn thảo</span>
-                  </Link>
+                  {/* Nút Xem / Soạn thảo */}
+                  {isStaffOnly ? (
+                    <Link
+                      href={doc.status === "UNDER_REVIEW_STAFF" ? `/hang-doi-xem-xet?docId=${doc.docId}` : `/tai-lieu-cua-toi/editor?docId=${doc.docId}`}
+                      className="ld-btn ld-btn-secondary ld-btn-sm"
+                      title={doc.status === "UNDER_REVIEW_STAFF" ? "Mở trong Hàng đợi thẩm định" : "Xem chi tiết tài liệu"}
+                    >
+                      <FileText size={13} />
+                      <span>{doc.status === "UNDER_REVIEW_STAFF" ? "Thẩm định" : "Xem chi tiết"}</span>
+                    </Link>
+                  ) : (
+                    <>
+                      <Link
+                        href={`/tai-lieu-cua-toi/editor?docId=${doc.docId}`}
+                        className="ld-btn ld-btn-secondary ld-btn-sm"
+                        title="Mở trình soạn thảo Markdown Split-View"
+                      >
+                        <Edit3 size={13} />
+                        <span>Soạn thảo</span>
+                      </Link>
 
-                  {/* Nút Xóa */}
-                  <button
-                    type="button"
-                    onClick={() => setDocToDelete(doc)}
-                    className="ld-btn ld-btn-ghost ld-btn-sm"
-                    style={{ color: "#ef4444" }}
-                    title="Xóa tài liệu"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                      {/* Nút Xóa (Chỉ cho phép xóa khi chưa PUBLISHED) */}
+                      {doc.status !== "PUBLISHED" && (
+                        <button
+                          type="button"
+                          onClick={() => setDocToDelete(doc)}
+                          className="ld-btn ld-btn-ghost ld-btn-sm"
+                          style={{ color: "#ef4444" }}
+                          title="Xóa tài liệu"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
             );

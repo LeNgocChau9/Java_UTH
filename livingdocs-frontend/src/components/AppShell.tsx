@@ -115,19 +115,20 @@ const NAV: NavItem[] = [
     href: "/tai-lieu-cua-toi",
     label: "Tài liệu",
     icon: <FileText size={16} />,
-    roles: ["DEVELOPER", "TECH_LEAD"],
+    roles: ["DEVELOPER", "STAFF", "TECH_LEAD"],
     children: [
-      { href: "/tai-lieu-cua-toi", label: "Tất cả tài liệu" },
-      { href: "/khoang-trong-tai-lieu", label: "Tài Liệu Còn Trống" },
+      { href: "/tai-lieu-cua-toi", label: "Tất cả tài liệu", roles: ["DEVELOPER", "STAFF", "TECH_LEAD"] },
+      { href: "/khoang-trong-tai-lieu", label: "Tài Liệu Còn Trống", roles: ["DEVELOPER", "STAFF", "TECH_LEAD"] },
+      { href: "/co-so-tri-thuc", label: "Cơ sở tri thức", roles: ["DEVELOPER", "STAFF", "TECH_LEAD", "ADMIN"] },
     ],
   },
   {
     href: "/cay-ma-nguon",
     label: "Mã Nguồn",
     icon: <GitFork size={16} />,
-    roles: ["DEVELOPER", "TECH_LEAD"],
+    roles: ["DEVELOPER", "STAFF", "TECH_LEAD"],
     children: [
-      { href: "/cay-ma-nguon", label: "Cây thư mục", roles: ["DEVELOPER", "TECH_LEAD"] },
+      { href: "/cay-ma-nguon", label: "Cây thư mục", roles: ["DEVELOPER", "STAFF", "TECH_LEAD"] },
       { href: "/do-thi-lien-ket", label: "Đồ thị liên kết", roles: ["TECH_LEAD"] },
     ],
   },
@@ -141,7 +142,7 @@ const NAV: NavItem[] = [
     href: "/canh-bao-sai-lech",
     label: "Cảnh báo",
     icon: <AlertTriangle size={16} />,
-    roles: ["DEVELOPER"],
+    roles: ["DEVELOPER", "STAFF"],
   },
   {
     href: "/hang-doi-xem-xet",
@@ -578,22 +579,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     {
       title: "Staff",
       role: "STAFF",
-      items: NAV.filter((n) => n.roles.includes("STAFF") && !n.roles.includes("DEVELOPER")),
+      items: NAV.filter((n) => n.roles.includes("STAFF") && n.href !== "/dashboard" && n.href !== "/nhat-ky-thay-doi"),
     },
     {
       title: "Manager",
       role: "MANAGER",
-      items: NAV.filter((n) => n.roles.includes("MANAGER") && !n.roles.includes("STAFF")),
+      items: NAV.filter((n) => n.roles.includes("MANAGER") && n.href !== "/dashboard" && n.href !== "/nhat-ky-thay-doi"),
     },
     {
       title: "Tech Lead",
       role: "TECH_LEAD",
-      items: NAV.filter((n) => n.roles.includes("TECH_LEAD") && !n.roles.includes("MANAGER")),
+      items: NAV.filter((n) => n.roles.includes("TECH_LEAD") && n.href !== "/dashboard" && n.href !== "/nhat-ky-thay-doi"),
     },
     {
       title: "Admin",
       role: "ADMIN",
-      items: NAV.filter((n) => n.roles.includes("ADMIN") && !n.roles.includes("TECH_LEAD")),
+      items: NAV.filter((n) => n.roles.includes("ADMIN") && n.href !== "/dashboard" && n.href !== "/nhat-ky-thay-doi"),
     },
   ];
 

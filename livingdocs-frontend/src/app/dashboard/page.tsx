@@ -7,6 +7,7 @@ import { useSession } from "@/hooks/useSession";
 import { documentService } from "@/services/documentService";
 import { repoService, RepoItem } from "@/services/repoService";
 import { dashboardService, DashboardStats } from "@/services/dashboardService";
+import { reviewService, ReviewQueueItem, ReviewHistoryItem } from "@/services/reviewService";
 import { apiClient } from "@/services/apiClient";
 import type { DocumentItem } from "@/types/document";
 import {
@@ -23,6 +24,8 @@ import {
   Code,
   ChevronRight,
   Edit3,
+  Inbox,
+  RotateCcw,
 } from "lucide-react";
 
 interface DriftAlertSummary {
@@ -57,29 +60,36 @@ function formatRelativeTime(isoString?: string | null): string {
 
 export default function DashboardPage() {
   const { roles } = useSession();
+  const isStaff = roles.includes("STAFF") && !roles.includes("ADMIN") && !roles.includes("TECH_LEAD") && !roles.includes("MANAGER");
 
   const [loading, setLoading] = useState(true);
   const [repositories, setRepositories] = useState<RepoItem[]>([]);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [driftAlerts, setDriftAlerts] = useState<DriftAlertSummary[]>([]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [staffQueue, setStaffQueue] = useState<ReviewQueueItem[]>([]);
+  const [reviewHistory, setReviewHistory] = useState<ReviewHistoryItem[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Tải toàn bộ dữ liệu thực tế từ cơ sở dữ liệu
   const loadRealData = useCallback(async () => {
     setLoading(true);
     try {
-      const [reposRes, docsRes, driftRes, statsRes] = await Promise.all([
+      const [reposRes, docsRes, driftRes, statsRes, staffQueueRes, historyRes] = await Promise.all([
         repoService.getRepositories().catch(() => [] as RepoItem[]),
         documentService.getDocuments().catch(() => [] as DocumentItem[]),
         apiClient.get<DriftAlertSummary[]>("/api/drift-alerts").then((r) => (Array.isArray(r.data) ? r.data : [])).catch(() => [] as DriftAlertSummary[]),
         dashboardService.getStats().catch(() => null),
+        reviewService.getStaffQueue().catch(() => [] as ReviewQueueItem[]),
+        reviewService.getReviewHistory().catch(() => [] as ReviewHistoryItem[]),
       ]);
 
       setRepositories(Array.isArray(reposRes) ? reposRes : []);
       setDocuments(Array.isArray(docsRes) ? docsRes : []);
       setDriftAlerts(Array.isArray(driftRes) ? driftRes : []);
       setStats(statsRes);
+      setStaffQueue(Array.isArray(staffQueueRes) ? staffQueueRes : []);
+      setReviewHistory(Array.isArray(historyRes) ? historyRes : []);
 
       setToastMessage("Đã đồng bộ dữ liệu mới nhất từ CSDL");
       setTimeout(() => setToastMessage(null), 3000);
@@ -98,6 +108,19 @@ export default function DashboardPage() {
   const publishedDocs = documents.filter((d) => d.status === "PUBLISHED" || d.status === "APPROVED");
   const pendingDocs = documents.filter((d) => d.status === "UNDER_REVIEW_STAFF" || d.status === "UNDER_REVIEW_MANAGER");
   const draftDocs = documents.filter((d) => d.status === "DRAFT");
+  const staffLevel1Docs = documents.filter((d) => d.status === "UNDER_REVIEW_STAFF");
+
+  // KPI dành riêng cho STAFF:
+  // 1) Hàng đợi cấp 1 (UNDER_REVIEW_STAFF)
+  const level1QueueCount = staffQueue.length > 0 ? staffQueue.length : staffLevel1Docs.length;
+  // 2) Tài liệu bị Manager trả về (returned / CHANGES_REQUESTED)
+  const returnedByManagerCount = reviewHistory.filter(
+    (h) => h.action === "returned" || (h.result && h.result.toUpperCase().includes("CHANGE"))
+  ).length;
+  // 3) Số tài liệu đã duyệt (approved)
+  const approvedDocsCount =
+    reviewHistory.filter((h) => h.action === "approved").length ||
+    documents.filter((d) => d.status === "UNDER_REVIEW_MANAGER" || d.status === "PUBLISHED" || d.status === "APPROVED").length;
 
   // Phân tích cảnh báo sai lệch
   const openAlerts = driftAlerts.filter((a) => !a.status || a.status.toUpperCase() === "OPEN");
@@ -135,7 +158,126 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        {/* 2. 4 THẺ CHỈ SỐ CỐT LÕI (DỮ LIỆU THẬT) */}
+        {/* 2. 4 THẺ CHỈ SỐ CỐT LÕI (DỮ LIỆU THẬT - THIẾT KẾ RIÊNG CHO STAFF HOẶC CHUNG) */}
+        {isStaff ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* KPI 1 (STAFF): Hàng đợi cấp 1 */}
+            <Link
+              href="/hang-doi-xem-xet"
+              className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:border-emerald-300 hover:shadow-md transition group flex flex-col justify-between"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                  Hàng đợi thẩm định cấp 1
+                </span>
+                <Inbox className="w-4 h-4 text-emerald-600" />
+              </div>
+              <div className="my-3">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-extrabold text-slate-900">
+                    {level1QueueCount}
+                  </span>
+                  <span className="text-xs font-medium text-slate-500">tài liệu chờ rà soát</span>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  Đang ở trạng thái UNDER_REVIEW_STAFF cần đối chiếu AST
+                </p>
+              </div>
+              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-emerald-700 font-semibold">
+                <span>Mở hàng đợi xem xét</span>
+                <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
+              </div>
+            </Link>
+
+            {/* KPI 2 (STAFF): Tài liệu bị Manager trả về */}
+            <Link
+              href="/hang-doi-xem-xet"
+              className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:border-amber-300 hover:shadow-md transition group flex flex-col justify-between"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                  Tài liệu Manager trả về
+                </span>
+                <RotateCcw className="w-4 h-4 text-amber-600" />
+              </div>
+              <div className="my-3">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-extrabold text-amber-700">
+                    {returnedByManagerCount}
+                  </span>
+                  <span className="text-xs font-medium text-slate-500">yêu cầu rà soát lại</span>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  Tài liệu được Quản lý cấp 2 phản hồi cần kiểm tra bổ sung
+                </p>
+              </div>
+              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-emerald-700 font-semibold">
+                <span>Xử lý tại hàng đợi xem xét</span>
+                <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
+              </div>
+            </Link>
+
+            {/* KPI 3 (STAFF): Số tài liệu đã duyệt */}
+            <Link
+              href="/hang-doi-xem-xet"
+              className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:border-emerald-300 hover:shadow-md transition group flex flex-col justify-between"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                  Số tài liệu đã duyệt
+                </span>
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              </div>
+              <div className="my-3">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-extrabold text-emerald-700">
+                    {approvedDocsCount}
+                  </span>
+                  <span className="text-xs font-medium text-slate-500">lượt thẩm định đạt</span>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  {publishedDocs.length} đã xuất bản · {reviewHistory.length} tổng lịch sử xem xét
+                </p>
+              </div>
+              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-emerald-700 font-semibold">
+                <span>Tiếp tục rà soát hàng đợi</span>
+                <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
+              </div>
+            </Link>
+
+            {/* KPI 4 (STAFF): Cảnh báo sai lệch cần Triage */}
+            <Link
+              href="/canh-bao-sai-lech"
+              className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:border-rose-300 hover:shadow-md transition group flex flex-col justify-between"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                  Cảnh báo sai lệch (Triage)
+                </span>
+                <AlertTriangle className="w-4 h-4 text-rose-600" />
+              </div>
+              <div className="my-3">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-extrabold text-slate-900">
+                    {openAlerts.length}
+                  </span>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                    openAlerts.length > 0 ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"
+                  }`}>
+                    {openAlerts.length > 0 ? `${criticalAlerts.length} nghiêm trọng` : "Đồng bộ 100%"}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  Kiểm tra sai lệch mã nguồn & đối chiếu đề xuất từ AI
+                </p>
+              </div>
+              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-emerald-700 font-semibold">
+                <span>Kiểm tra cảnh báo sai lệch</span>
+                <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
+              </div>
+            </Link>
+          </div>
+        ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Card 1: Kho lưu trữ */}
           <Link
@@ -257,6 +399,7 @@ export default function DashboardPage() {
             </div>
           </Link>
         </div>
+        )}
 
         {/* 3. KHU VỰC DỮ LIỆU CHÍNH: TÀI LIỆU KỸ THUẬT & KHO LƯU TRỮ */}
         <div className="space-y-6">
@@ -291,7 +434,7 @@ export default function DashboardPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <Link
-                          href={`/tai-lieu-cua-toi/editor?docId=${doc.docId}`}
+                          href={isStaff ? `/hang-doi-xem-xet?docId=${doc.docId}` : `/tai-lieu-cua-toi/editor?docId=${doc.docId}`}
                           className="font-bold text-sm text-slate-900 hover:text-emerald-700 transition truncate"
                         >
                           {doc.title}
@@ -325,9 +468,9 @@ export default function DashboardPage() {
                       </span>
 
                       <Link
-                        href={`/tai-lieu-cua-toi/editor?docId=${doc.docId}`}
+                        href={isStaff ? `/hang-doi-xem-xet?docId=${doc.docId}` : `/tai-lieu-cua-toi/editor?docId=${doc.docId}`}
                         className="p-1.5 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition"
-                        title="Mở trình soạn thảo Markdown"
+                        title={isStaff ? "Mở trong Hàng đợi xem xét" : "Mở trình soạn thảo Markdown"}
                       >
                         <Edit3 className="w-4 h-4" />
                       </Link>
