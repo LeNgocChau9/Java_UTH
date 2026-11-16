@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
+import { useSession } from "@/hooks/useSession";
 import {
   Sparkles,
   Layers,
@@ -32,6 +33,8 @@ import {
 function KhoangTrongTaiLieuContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { roles } = useSession();
+  const isStaffOnly = roles.includes("STAFF") && !roles.includes("DEVELOPER") && !roles.includes("TECH_LEAD") && !roles.includes("ADMIN");
   const initialRepoParam = searchParams.get("repo") || searchParams.get("repositoryId");
 
   // State kho lưu trữ
@@ -607,16 +610,27 @@ function KhoangTrongTaiLieuContent() {
                           </span>
                         </td>
 
-                        {/* 5. Nút một chạm: Sinh tài liệu */}
+                        {/* 5. Nút một chạm: Sinh tài liệu hoặc Đối chiếu AST (STAFF Read-only) */}
                         <td className="py-3.5 px-4 align-top text-right whitespace-nowrap">
-                          <button
-                            onClick={() => handleOneClickGenerate(item)}
-                            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 hover:shadow cursor-pointer active:scale-95"
-                            title="Tự động điền thông tin tệp, lớp và mở ngay trang tạo tài liệu"
-                          >
-                            <span>Sinh Tài Liệu</span>
-                            <ArrowRight size={12} className="text-emerald-100 group-hover:translate-x-0.5 transition-transform" />
-                          </button>
+                          {isStaffOnly ? (
+                            <Link
+                              href={`/cay-ma-nguon?repoId=${selectedRepoId !== "ALL" ? selectedRepoId : ""}&file=${encodeURIComponent(item.filePath || "")}`}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50 hover:text-emerald-700"
+                              title="Mở tệp nguồn trong Cây mã nguồn để kiểm tra"
+                            >
+                              <span>Kiểm tra AST</span>
+                              <ArrowRight size={12} />
+                            </Link>
+                          ) : (
+                            <button
+                              onClick={() => handleOneClickGenerate(item)}
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 hover:shadow cursor-pointer active:scale-95"
+                              title="Tự động điền thông tin tệp, lớp và mở ngay trang tạo tài liệu"
+                            >
+                              <span>Sinh Tài Liệu</span>
+                              <ArrowRight size={12} className="text-emerald-100 group-hover:translate-x-0.5 transition-transform" />
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );

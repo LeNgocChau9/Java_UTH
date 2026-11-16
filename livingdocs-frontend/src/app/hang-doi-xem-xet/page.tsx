@@ -106,6 +106,16 @@ export default function HangDoiXemXetStaffPage() {
       });
       setRepositories(repoMap);
 
+      // Nếu có docId trên URL (?docId=...), tự động chọn mở tài liệu đó để đối chiếu
+      if (!selectedDocId && typeof window !== "undefined") {
+        const urlDocId = new URLSearchParams(window.location.search).get("docId");
+        const parsedId = urlDocId ? parseInt(urlDocId, 10) : NaN;
+        if (!Number.isNaN(parsedId) && parsedId > 0) {
+          void handleSelectDoc(parsedId);
+          return;
+        }
+      }
+
       // Nếu tài liệu đang chọn không còn trong hàng đợi, reset selection
       if (selectedDocId && !staffQueue.some((d) => d.docId === selectedDocId)) {
         setSelectedDocId(null);

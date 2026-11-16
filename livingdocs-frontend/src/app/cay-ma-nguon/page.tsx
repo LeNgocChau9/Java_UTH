@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
+import { useSession } from "@/hooks/useSession";
 import {
   codeEntityService,
   CodeEntityDto,
@@ -49,6 +50,8 @@ interface FileTreeNode {
 }
 
 export default function SourceTreePage() {
+  const { roles } = useSession();
+  const isStaffOnly = roles.includes("STAFF") && !roles.includes("DEVELOPER") && !roles.includes("TECH_LEAD") && !roles.includes("ADMIN");
   const [repos, setRepos] = useState<RepoItem[]>([]);
   const [selectedRepo, setSelectedRepo] = useState<RepoItem | null>(null);
   const [selectedFile, setSelectedFile] = useState<string>("");
@@ -1172,37 +1175,39 @@ export default function SourceTreePage() {
                           )}
                         </div>
 
-                        {/* Vị trí dòng mã & Nút Tạo lại tài liệu cục bộ */}
+                        {/* Vị trí dòng mã & Nút Tạo lại tài liệu cục bộ (Ẩn nút sinh lại với STAFF read-only) */}
                         <div className="shrink-0 flex flex-row sm:flex-col items-center sm:items-end gap-2">
                           <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 text-[11px] font-mono text-slate-600  ">
                             <Hash size={12} />
                             Dòng {item.startLine} ➔ {item.endLine}
                           </span>
-                          <button
-                            type="button"
-                            disabled={isRegenerating}
-                            onClick={() => handleRegenerateEntityDoc(item)}
-                            title="Bóc tách lại cú pháp AST mới nhất và yêu cầu AI tạo lại riêng mục tài liệu cho thực thể này (lưu bản nháp DRAFT)"
-                            className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold shadow-xs transition cursor-pointer disabled:opacity-60 ${
-                              isOutdated
-                                ? "bg-amber-600 text-white hover:bg-amber-700"
-                                : isDocumented
-                                ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                                : "border border-emerald-600 bg-emerald-50 text-emerald-800 hover:bg-emerald-600 hover:text-white"
-                            }`}
-                          >
-                            {isRegenerating ? (
-                              <>
-                                <RefreshCw size={12} className="animate-spin" />
-                                <span>Đang tạo lại...</span>
-                              </>
-                            ) : (
-                              <>
-                                <Sparkles size={12} />
-                                <span>Tạo lại tài liệu</span>
-                              </>
-                            )}
-                          </button>
+                          {!isStaffOnly && (
+                            <button
+                              type="button"
+                              disabled={isRegenerating}
+                              onClick={() => handleRegenerateEntityDoc(item)}
+                              title="Bóc tách lại cú pháp AST mới nhất và yêu cầu AI tạo lại riêng mục tài liệu cho thực thể này (lưu bản nháp DRAFT)"
+                              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold shadow-xs transition cursor-pointer disabled:opacity-60 ${
+                                isOutdated
+                                  ? "bg-amber-600 text-white hover:bg-amber-700"
+                                  : isDocumented
+                                  ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                                  : "border border-emerald-600 bg-emerald-50 text-emerald-800 hover:bg-emerald-600 hover:text-white"
+                              }`}
+                            >
+                              {isRegenerating ? (
+                                <>
+                                  <RefreshCw size={12} className="animate-spin" />
+                                  <span>Đang tạo lại...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles size={12} />
+                                  <span>Tạo lại tài liệu</span>
+                                </>
+                              )}
+                            </button>
+                          )}
                         </div>
                       </div>
 

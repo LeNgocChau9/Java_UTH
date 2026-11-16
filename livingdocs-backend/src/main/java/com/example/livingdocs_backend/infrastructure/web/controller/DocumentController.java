@@ -92,7 +92,8 @@ public class DocumentController {
     }
 
     @PutMapping("/{docId}")
-    @Operation(summary = "Cập nhật tài liệu (tự tạo phiên bản mới)", description = "Cập nhật tài liệu và tự động sinh bản ghi phiên bản mới v(N+1) liên kết mã băm prev_hash với phiên bản v(N).")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
+    @Operation(summary = "Cập nhật tài liệu (tự tạo phiên bản mới)", description = "Cập nhật tài liệu và tự động sinh bản ghi phiên bản mới v(N+1) liên kết mã băm prev_hash với phiên bản v(N). Chặn ghi đè tài liệu đã PUBLISHED hoặc tự ý đổi raw status.")
     public ResponseEntity<DocumentResponse> updateDocument(
             @PathVariable Long docId,
             @Valid @RequestBody UpdateDocumentRequest request,
@@ -223,7 +224,8 @@ public class DocumentController {
     }
 
     @DeleteMapping("/{docId}")
-    @Operation(summary = "Xóa tài liệu", description = "Xóa tài liệu cùng toàn bộ lịch sử các phiên bản liên quan và ghi nhận audit log.")
+    @PreAuthorize("hasAnyRole('DEVELOPER','MANAGER','TECH_LEAD','ADMIN')")
+    @Operation(summary = "Xóa tài liệu", description = "Xóa tài liệu cùng toàn bộ lịch sử các phiên bản liên quan và ghi nhận audit log. Chặn xóa tài liệu đã PUBLISHED.")
     public ResponseEntity<Map<String, Object>> deleteDocument(
             @PathVariable Long docId,
             @AuthenticationPrincipal UserPrincipal userPrincipal) {

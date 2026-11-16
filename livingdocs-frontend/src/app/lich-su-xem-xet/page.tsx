@@ -1,9 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
-import { CheckCircle, XCircle, Clock, GitBranch, Eye, Search, RefreshCw, AlertCircle } from "lucide-react";
+import { CheckCircle, XCircle, Clock, GitBranch, Eye, Search, RefreshCw, AlertCircle, X, FileText, ArrowRight } from "lucide-react";
 import { reviewService, type ReviewHistoryItem } from "@/services/reviewService";
+import { documentService } from "@/services/documentService";
+import type { DocumentDetail } from "@/types/document";
+import { MarkdownViewer } from "@/components/shared/MarkdownViewer";
 
 const ACTION_META: Record<string, { label: string; icon: React.ReactNode; bg: string; color: string }> = {
   approved: { label: "Đã duyệt", icon: <CheckCircle size={12} />, bg: "#ecfdf5", color: "#059669" },
@@ -34,6 +38,23 @@ export default function LichSuXemXetPage() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "approved" | "rejected" | "returned">("all");
   const [search, setSearch] = useState("");
+  const [previewDoc, setPreviewDoc] = useState<DocumentDetail | null>(null);
+  const [previewHistoryItem, setPreviewHistoryItem] = useState<ReviewHistoryItem | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+
+  const openDocumentModal = async (item: ReviewHistoryItem) => {
+    setPreviewHistoryItem(item);
+    setLoadingPreview(true);
+    setPreviewDoc(null);
+    try {
+      const detail = await documentService.getDocumentById(item.docId || item.id);
+      setPreviewDoc(detail);
+    } catch {
+      setPreviewDoc(null);
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
 
   const loadHistory = async () => {
     setLoading(true);
@@ -183,9 +204,24 @@ export default function LichSuXemXetPage() {
                       </span>
                     </td>
                     <td>
-                      <a href={`/kho-luu-tru/${h.docId || h.id}`} className="ld-btn ld-btn-ghost ld-btn-sm" title="Xem tài liệu">
-                        <Eye size={13} />
-                      </a>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <button
+                          type="button"
+                          onClick={() => openDocumentModal(h)}
+                          className="ld-btn ld-btn-ghost ld-btn-sm"
+                          title="Mở modal đối chiếu tài liệu"
+                        >
+                          <Eye size={13} />
+                        </button>
+                        <Link
+                          href={`/hang-doi-xem-xet?docId=${h.docId || h.id}`}
+                          className="ld-btn ld-btn-ghost ld-btn-sm"
+                          title="Mở trong Hàng đợi xem xét"
+                          style={{ color: "#059669" }}
+                        >
+                          <ArrowRight size={13} />
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -194,6 +230,149 @@ export default function LichSuXemXetPage() {
           </tbody>
         </table>
       </div>
+
+      {/* Modal đối chiếu & xem chi tiết tài liệu */}
+      {previewHistoryItem && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15, 23, 42, 0.55)",
+            backdropFilter: "blur(3px)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+          onClick={() => setPreviewHistoryItem(null)}
+        >
+          <div
+            className="ld-card"
+            style={{
+              width: "100%",
+              maxWidth: 820,
+              maxHeight: "88vh",
+              display: "flex",
+              flexDirection: "column",
+              padding: 0,
+              overflow: "hidden",
+              background: "#ffffff",
+              borderRadius: 12,
+              boxShadow: "0 20px 45px rgba(15, 23, 42, 0.25)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                padding: "14px 20px",
+                borderBottom: "1px solid #e2e8f0",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                background: "#f8fafc",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <FileText size={18} style={{ color: "#059669" }} />
+                <div>
+                  <h3 style={{ fontSize: 15, fontWeight: 700, color: "#0f172a", margin: 0 }}>
+                    {previewDoc?.title || previewHistoryItem.title}
+                  </h3>
+                  <p style={{ fontSize: 12, color: "#64748b", margin: "2px 0 0" }}>
+                    Kho: {previewHistoryItem.repo} · Người xem xét: {previewHistoryItem.reviewer} · Lúc:{" "}
+                    {formatReviewedAt(previewHistoryItem.reviewedAt)}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewHistoryItem(null)}
+                className="ld-btn ld-btn-ghost ld-btn-sm"
+                title="Đóng"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{ padding: 20, overflowY: "auto", flex: 1 }}>
+              {previewHistoryItem.note && (
+                <div
+                  style={{
+                    marginBottom: 14,
+                    padding: "10px 14px",
+                    borderRadius: 8,
+                    background: "#ecfdf5",
+                    border: "1px solid #a7f3d0",
+                    fontSize: 12.5,
+                    color: "#065f46",
+                  }}
+                >
+                  <strong>Nhận xét thẩm định:</strong> {previewHistoryItem.note}
+                </div>
+              )}
+
+              {loadingPreview ? (
+                <div style={{ textAlign: "center", padding: "32px 0", color: "#64748b", fontSize: 13 }}>
+                  <RefreshCw size={18} className="animate-spin" style={{ margin: "0 auto 8px", color: "#059669" }} />
+                  Đang tải nội dung đối chiếu tài liệu...
+                </div>
+              ) : previewDoc?.latestVersion?.content ? (
+                <div
+                  style={{
+                    padding: 16,
+                    borderRadius: 8,
+                    border: "1px solid #e2e8f0",
+                    background: "#ffffff",
+                    fontSize: 13,
+                  }}
+                >
+                  <MarkdownViewer content={previewDoc.latestVersion.content} />
+                </div>
+              ) : (
+                <p style={{ fontSize: 13, color: "#64748b", textAlign: "center", padding: "24px 0" }}>
+                  Không tìm thấy nội dung chi tiết hoặc tài liệu đã bị gỡ.
+                </p>
+              )}
+            </div>
+
+            <div
+              style={{
+                padding: "12px 20px",
+                borderTop: "1px solid #e2e8f0",
+                background: "#f8fafc",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 10,
+              }}
+            >
+              <Link
+                href={`/tai-lieu-cua-toi/lich-su?docId=${previewHistoryItem.docId || previewHistoryItem.id}`}
+                className="ld-btn ld-btn-secondary ld-btn-sm"
+              >
+                Xem lịch sử phiên bản & Diff
+              </Link>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Link
+                  href={`/hang-doi-xem-xet?docId=${previewHistoryItem.docId || previewHistoryItem.id}`}
+                  className="ld-btn ld-btn-primary ld-btn-sm"
+                >
+                  <span>Mở trong Hàng đợi xem xét</span>
+                  <ArrowRight size={13} />
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setPreviewHistoryItem(null)}
+                  className="ld-btn ld-btn-secondary ld-btn-sm"
+                >
+                  Đóng
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }
