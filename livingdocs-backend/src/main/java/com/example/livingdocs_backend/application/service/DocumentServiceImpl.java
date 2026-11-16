@@ -194,6 +194,20 @@ public class DocumentServiceImpl implements DocumentServicePort {
         Document document = documentRepositoryPort.findById(docId)
                 .orElseThrow(() -> new DocumentNotFoundException(docId));
 
+        DocumentStatus currentStatus = document.getStatus() != null ? document.getStatus() : DocumentStatus.DRAFT;
+
+        // 1. Chặn tuyệt đối việc ghi đè tài liệu đã xuất bản (PUBLISHED) qua PUT /api/documents/{docId}
+        if (currentStatus == DocumentStatus.PUBLISHED) {
+            throw new com.example.livingdocs_backend.domain.exception.InvalidDocumentStatusTransitionException(
+                    "Không thể chỉnh sửa hoặc ghi đè trực tiếp tài liệu đã xuất bản (PUBLISHED). Vui lòng dùng luồng khôi phục phiên bản hoặc tạo bản nháp mới.");
+        }
+
+        // 2. Chặn việc tự ý đổi raw status trái phép qua PUT /api/documents/{docId}
+        if (request != null && request.getStatus() != null && request.getStatus() != currentStatus) {
+            throw new com.example.livingdocs_backend.domain.exception.InvalidDocumentStatusTransitionException(
+                    currentStatus, request.getStatus());
+        }
+
         ActorRole role = resolveActorRole(request.getActorRole(), actorRole);
         String triggerType = (request.getTriggerType() != null && !request.getTriggerType().isBlank())
                 ? request.getTriggerType()
@@ -233,7 +247,7 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 .build();
         DocumentVersion savedVersion = documentVersionRepositoryPort.save(nextVersion);
 
-        // Cập nhật thông tin Document cha
+        // Cập nhật thông tin Document cha (giữ nguyên trạng thái hợp lệ hiện tại, không cho phép tự ý đổi raw status)
         if (request.getTitle() != null && !request.getTitle().isBlank()) {
             document.setTitle(request.getTitle());
         }
@@ -242,9 +256,6 @@ public class DocumentServiceImpl implements DocumentServicePort {
         }
         if (request.getCollectionId() != null) {
             document.setCollectionId(request.getCollectionId());
-        }
-        if (request.getStatus() != null) {
-            document.setStatus(request.getStatus());
         }
         document.setCurrentVersion(nextVersionNum);
         document.setUpdatedAt(Instant.now());
@@ -685,8 +696,12 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @Override
     @Transactional
     public void deleteDocument(Long docId, Long actorId) {
-        if (!documentRepositoryPort.existsById(docId)) {
-            throw new DocumentNotFoundException(docId);
+        Document document = documentRepositoryPort.findById(docId)
+                .orElseThrow(() -> new DocumentNotFoundException(docId));
+
+        if (document.getStatus() == DocumentStatus.PUBLISHED) {
+            throw new com.example.livingdocs_backend.domain.exception.InvalidDocumentStatusTransitionException(
+                    "Không thể xóa tài liệu đã xuất bản chính thức (PUBLISHED) để bảo toàn chuỗi băm kiểm toán.");
         }
 
         // Xóa các phiên bản liên kết
