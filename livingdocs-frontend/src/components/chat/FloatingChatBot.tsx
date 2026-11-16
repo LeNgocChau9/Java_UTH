@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Sparkles,
   Send,
@@ -33,6 +34,15 @@ const SUGGESTIONS = [
 ];
 
 export function FloatingChatBot() {
+  return (
+    <Suspense fallback={null}>
+      <FloatingChatBotInner />
+    </Suspense>
+  );
+}
+
+function FloatingChatBotInner() {
+  const searchParams = useSearchParams();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([INITIAL_MESSAGE]);
   const [input, setInput] = useState("");
@@ -72,7 +82,23 @@ export function FloatingChatBot() {
     setLoading(true);
 
     try {
-      const res = await aiChatService.sendMessage(text, messages);
+      // Lan truyền ngữ cảnh repositoryId và docId hiện tại xuống Backend RAG (R8)
+      const paramRepo = searchParams?.get("repositoryId") || searchParams?.get("repoId");
+      const paramDoc = searchParams?.get("docId") || searchParams?.get("id");
+      let activeRepoId: number | undefined = paramRepo ? parseInt(paramRepo, 10) : undefined;
+      const activeDocId: number | undefined = paramDoc ? parseInt(paramDoc, 10) : undefined;
+
+      if (!activeRepoId && typeof window !== "undefined") {
+        const stored = localStorage.getItem("livingdocs_selected_repo_id") || localStorage.getItem("selected_repository_id");
+        if (stored) {
+          activeRepoId = parseInt(stored, 10);
+        }
+      }
+
+      const res = await aiChatService.sendMessage(text, messages, {
+        repositoryId: activeRepoId,
+        docId: activeDocId,
+      });
 
       const botMsg: ChatMessage = {
         id: "b-" + Date.now(),
@@ -80,6 +106,7 @@ export function FloatingChatBot() {
         content: res.reply,
         provider: res.provider,
         model: res.model,
+        citations: res.citations,
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
 
@@ -138,47 +165,46 @@ export function FloatingChatBot() {
             type="button"
             onClick={() => setIsOpen(true)}
             style={{
-              width: 52,
-              height: 52,
+              width: 54,
+              height: 54,
+              padding: 0,
               borderRadius: "50%",
-              background: "linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #b91c1c 100%)",
+              background: "#000000",
               color: "#ffffff",
-              border: "none",
+              border: "2.5px solid #000000",
               cursor: "pointer",
-              boxShadow: "0 10px 25px -3px rgba(220, 38, 38, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.05)",
+              boxShadow: "0 10px 25px -3px rgba(0, 0, 0, 0.55), 0 4px 8px -2px rgba(0, 0, 0, 0.3)",
               transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
               transform: "scale(1)",
-              display: "grid",
-              placeItems: "center",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
               position: "relative",
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = "scale(1.08)";
-              e.currentTarget.style.boxShadow = "0 14px 28px -3px rgba(220, 38, 38, 0.65)";
+              e.currentTarget.style.boxShadow = "0 14px 28px -3px rgba(0, 0, 0, 0.7)";
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = "scale(1)";
-              e.currentTarget.style.boxShadow = "0 10px 25px -3px rgba(220, 38, 38, 0.5)";
+              e.currentTarget.style.boxShadow = "0 10px 25px -3px rgba(0, 0, 0, 0.55)";
             }}
             title="Mở ZAZA AI"
           >
             <div
               style={{
-                position: "relative",
-                width: 44,
-                height: 44,
+                width: "100%",
+                height: "100%",
                 borderRadius: "50%",
                 overflow: "hidden",
-                display: "grid",
-                placeItems: "center",
-                backgroundColor: "#0b0f19",
+                backgroundColor: "#000000",
               }}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/logo-ai.png"
                 alt="ZAZA AI"
-                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
               />
             </div>
             <span
@@ -234,7 +260,7 @@ export function FloatingChatBot() {
             <div
               style={{
                 padding: "12px 16px",
-                background: "linear-gradient(135deg, #991b1b 0%, #dc2626 100%)",
+                background: "linear-gradient(135deg, #065f46 0%, #059669 100%)",
                 color: "#ffffff",
                 display: "flex",
                 alignItems: "center",
@@ -249,8 +275,8 @@ export function FloatingChatBot() {
                     height: 34,
                     borderRadius: "50%",
                     overflow: "hidden",
-                    border: "1.5px solid rgba(255, 255, 255, 0.6)",
-                    backgroundColor: "#0b0f19",
+                    border: "1.5px solid #000000",
+                    backgroundColor: "#000000",
                     display: "grid",
                     placeItems: "center",
                     flexShrink: 0,
@@ -337,10 +363,10 @@ export function FloatingChatBot() {
                         maxWidth: "88%",
                         padding: isUser ? "8px 12px" : "10px 14px",
                         borderRadius: isUser ? "14px 14px 2px 14px" : "14px 14px 14px 2px",
-                        backgroundColor: isUser ? "#dc2626" : "#ffffff",
+                        backgroundColor: isUser ? "#059669" : "#ffffff",
                         color: isUser ? "#ffffff" : "#0f172a",
                         boxShadow: isUser
-                          ? "0 2px 6px rgba(220, 38, 38, 0.25)"
+                          ? "0 2px 6px rgba(5, 150, 105, 0.25)"
                           : "0 1px 3px rgba(0, 0, 0, 0.08)",
                         border: isUser ? "none" : "1px solid #e2e8f0",
                         fontSize: 12.5,
@@ -353,6 +379,40 @@ export function FloatingChatBot() {
                       ) : (
                         <div>
                           <MarkdownViewer content={m.content} />
+                          {m.citations && m.citations.length > 0 && (
+                            <div
+                              style={{
+                                marginTop: 8,
+                                paddingTop: 6,
+                                borderTop: "1px dashed #e2e8f0",
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 4,
+                              }}
+                            >
+                              <span style={{ fontSize: 10, fontWeight: 700, color: "#047857" }}>
+                                📌 Trích dẫn nguồn xác thực:
+                              </span>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                                {m.citations.map((c, idx) => (
+                                  <span
+                                    key={idx}
+                                    style={{
+                                      fontSize: 10,
+                                      padding: "1px 6px",
+                                      borderRadius: 4,
+                                      background: "#ecfdf5",
+                                      color: "#065f46",
+                                      border: "1px solid #a7f3d0",
+                                      fontFamily: "monospace",
+                                    }}
+                                  >
+                                    [Nguồn: {c}]
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                           {m.provider && (
                             <div
                               style={{
@@ -509,7 +569,7 @@ export function FloatingChatBot() {
                   disabled={!input.trim() || loading}
                   style={{
                     border: "none",
-                    backgroundColor: input.trim() && !loading ? "#dc2626" : "#cbd5e1",
+                    backgroundColor: input.trim() && !loading ? "#059669" : "#cbd5e1",
                     color: "#ffffff",
                     borderRadius: 8,
                     width: 28,

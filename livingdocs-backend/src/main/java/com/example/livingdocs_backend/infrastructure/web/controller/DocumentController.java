@@ -343,6 +343,17 @@ public class DocumentController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/{docId}/reopen-draft")
+    @Operation(summary = "Mở lại bản nháp từ trạng thái REJECTED", description = "Chuyển trạng thái tài liệu từ REJECTED về DRAFT để tiếp tục chỉnh sửa.")
+    public ResponseEntity<DocumentResponse> reopenDraft(
+            @PathVariable Long docId,
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+        Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
+        String actorRole = extractRole(userPrincipal);
+        DocumentResponse response = documentServicePort.reopenDraft(docId, actorId, actorRole);
+        return ResponseEntity.ok(response);
+    }
+
     @GetMapping("/{docId}/changelogs")
     @Operation(summary = "Lấy danh sách nhật ký thay đổi của tài liệu", description = "Truy xuất danh sách changelogs được tự động ghi lại mỗi khi tài liệu được tạo mới, chỉnh sửa, duyệt hoặc khôi phục.")
     public ResponseEntity<List<ChangelogResponse>> getDocumentChangelogs(@PathVariable Long docId) {

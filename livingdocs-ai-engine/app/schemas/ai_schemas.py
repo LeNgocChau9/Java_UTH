@@ -79,8 +79,18 @@ class AstExtractResponse(BaseModel):
     total_entities: int
     entities: List[CodeEntityItem]
 
-class DocGenerateRequest(BaseModel):
-    model_config = {"extra": "ignore"}
+class AiRuntimeSettings(BaseModel):
+    """Cấu hình AI Runtime linh hoạt truyền từ Backend/Settings UI."""
+    model_config = {"extra": "ignore", "populate_by_name": True}
+
+    cloud_provider: Optional[str] = Field(default=None, alias="cloudProvider", description="Nhà cung cấp đám mây: gemini")
+    api_key: Optional[str] = Field(default=None, alias="apiKey", description="Khóa API Gemini")
+    local_ai_url: Optional[str] = Field(default=None, alias="localAiUrl", description="URL dịch vụ Ollama cục bộ")
+    local_model: Optional[str] = Field(default=None, alias="localModel", description="Mô hình Ollama cục bộ")
+    routing_mode: Optional[str] = Field(default=None, alias="routingMode", description="Chế độ định tuyến: auto, local_only, cloud_only")
+
+
+class DocGenerateRequest(AiRuntimeSettings):
 
     template_type: Optional[str] = Field(default="API_REFERENCE", description="Loại mẫu tài liệu: API_REFERENCE, README, MODULE_GUIDE, ADR")
     file_path: Optional[str] = Field(default="README.md", description="Đường dẫn file nguồn tương ứng")
@@ -187,7 +197,7 @@ class AstDiffResponse(BaseModel):
 # Schemas cho Endpoint /v1/drift/analyze — Phân tích sai lệch ngữ nghĩa (S4-09)
 # ---------------------------------------------------------------------------
 
-class DriftAnalyzeRequest(BaseModel):
+class DriftAnalyzeRequest(AiRuntimeSettings):
     """Dữ liệu đầu vào gửi Gemini phân tích sai lệch tài liệu."""
     code_diff: str = Field(
         ...,
@@ -314,7 +324,7 @@ class DocSectionDiffItem(BaseModel):
         return data
 
 
-class DocRewriteRequest(BaseModel):
+class DocRewriteRequest(AiRuntimeSettings):
     """Yêu cầu AI viết lại tài liệu dựa trên code diff mới."""
     current_doc: str = Field(
         ...,
@@ -387,10 +397,26 @@ class ChatMessageItem(BaseModel):
     content: str = Field(..., description="Nội dung tin nhắn")
 
 
-class ChatRequest(BaseModel):
+class ContextChunkItem(BaseModel):
+    model_config = {"extra": "ignore", "populate_by_name": True}
+    source_path: Optional[str] = Field(default=None, alias="sourcePath", description="Đường dẫn file tài liệu")
+    title: Optional[str] = Field(default=None, description="Tiêu đề mục hoặc heading")
+    content: str = Field(..., description="Nội dung trích đoạn ngữ cảnh")
+
+
+class ChatCodeEntityItem(BaseModel):
+    model_config = {"extra": "ignore", "populate_by_name": True}
+    file_path: Optional[str] = Field(default=None, alias="filePath", description="Đường dẫn file mã nguồn")
+    signature: Optional[str] = Field(default=None, description="Chữ ký hàm/lớp")
+    docstring: Optional[str] = Field(default=None, description="Tài liệu/comment của thực thể")
+
+
+class ChatRequest(AiRuntimeSettings):
     message: str = Field(..., description="Câu hỏi hoặc yêu cầu của người dùng")
     history: Optional[List[ChatMessageItem]] = Field(default=[], description="Lịch sử các tin nhắn trước")
     system_prompt: Optional[str] = Field(default=None, description="System prompt tùy chỉnh nếu có")
+    context_chunks: Optional[List[ContextChunkItem]] = Field(default=[], alias="contextChunks", description="Danh sách các đoạn tri thức Markdown")
+    code_entities: Optional[List[ChatCodeEntityItem]] = Field(default=[], alias="codeEntities", description="Danh sách các thực thể code AST")
 
 
 class ChatResponse(BaseModel):
@@ -398,4 +424,50 @@ class ChatResponse(BaseModel):
     reply: str = Field(..., description="Nội dung câu trả lời của trợ lý AI")
     provider: str = Field(default="gemini", description="Mô hình / dịch vụ AI xử lý: gemini, ollama, fallback")
     model: str = Field(default="gemini-2.5-flash", description="Tên mô hình cụ thể")
+    citations: List[str] = Field(default=[], description="Danh sách các nguồn tài liệu hoặc mã nguồn được trích dẫn")
+
+
+# ---------------------------------------------------------------------------
+# Schemas cho Endpoint /v1/embeddings — Vector Embedding 768 chiều (R1)
+# ---------------------------------------------------------------------------
+
+class EmbeddingRequest(AiRuntimeSettings):
+    text: str = Field(..., description="Văn bản cần tạo vector embedding")
+    provider: Optional[str] = Field(default="auto", description="Nhà cung cấp: auto, gemini, hoặc ollama")
+
+
+class EmbeddingResponse(BaseModel):
+    embedding: List[float] = Field(..., description="Vector embedding 768 chiều chuẩn hóa L2")
+    dimension: int = Field(default=768, description="Số chiều của vector")
+    provider: str = Field(..., description="Nhà cung cấp đã tạo embedding: gemini hoặc ollama")
+    model: str = Field(..., description="Tên mô hình đã sử dụng")
+
+
+# ---------------------------------------------------------------------------
+# Schemas cho Endpoint /v1/rag/chunk — Phân đoạn Markdown & Code AST (R1)
+# ---------------------------------------------------------------------------
+
+class RagChunkItem(BaseModel):
+    chunk_id: str = Field(..., description="ID định danh duy nhất của chunk")
+    title: str = Field(..., description="Tiêu đề mục hoặc chữ ký hàm/lớp")
+    chunk_type: str = Field(..., description="Loại chunk: HEADING hoặc CODE_ENTITY")
+    content: str = Field(..., description="Nội dung văn bản của chunk")
+    start_line: int = Field(default=1, description="Dòng bắt đầu")
+    end_line: int = Field(default=1, description="Dòng kết thúc")
+    char_count: int = Field(..., description="Số lượng ký tự")
+
+
+class RagChunkRequest(BaseModel):
+    model_config = {"extra": "ignore", "populate_by_name": True}
+
+    content: str = Field(..., description="Nội dung cần phân đoạn (Markdown hoặc Mã nguồn)")
+    content_type: str = Field(default="MARKDOWN", description="MARKDOWN hoặc CODE")
+    source_path: Optional[str] = Field(default="document.md", alias="sourcePath", description="Đường dẫn file nguồn")
+    max_chunk_size: int = Field(default=1500, alias="maxChunkSize", description="Kích thước tối đa mỗi chunk (ký tự)")
+
+
+class RagChunkResponse(BaseModel):
+    chunks: List[RagChunkItem] = Field(default=[], description="Danh sách các chunk sau khi phân đoạn")
+    total_chunks: int = Field(..., description="Tổng số chunk tạo thành")
+
 

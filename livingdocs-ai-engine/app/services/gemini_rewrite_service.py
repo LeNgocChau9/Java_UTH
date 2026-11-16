@@ -13,6 +13,7 @@ import os
 import re
 import json
 import logging
+import httpx
 from typing import List, Dict, Any, Optional
 from google import genai
 from google.genai import types as genai_types
@@ -51,19 +52,20 @@ class GeminiRewriteService:
 
     @staticmethod
     def _is_valid_google_api_key(key: Optional[str]) -> bool:
+        """Hỗ trợ linh hoạt cả khóa AIza truyền thống và định dạng AQ mới của Google AI Studio."""
         if not key:
             return False
         clean = key.strip().strip("'\"")
-        if not clean.startswith("AIzaSy"):
+        if len(clean) < 20:
             return False
-        if len(clean) < 35:
-            return False
-        if " " in clean or clean == "AIzaSy_YOUR_REAL_KEY_HERE":
+        if " " in clean or clean.startswith("AIzaSy_YOUR_REAL"):
             return False
         return True
 
     @staticmethod
-    def _build_client() -> genai.Client:
+    def _build_client(api_key: Optional[str] = None) -> genai.Client:
+        if api_key and GeminiRewriteService._is_valid_google_api_key(api_key):
+            return genai.Client(api_key=api_key.strip().strip("'\""))
         return GeminiKeyManager.get_active_client()
 
     @staticmethod
@@ -320,6 +322,81 @@ Trả về DUY NHẤT một JSON object hợp lệ (không kèm markdown code fe
         )
 
     @classmethod
+    def _call_ollama_rewrite(cls, request: DocRewriteRequest, prompt: str) -> Optional[DocRewriteResponse]:
+        """
+        Gọi mô hình AI Local (Ollama) với format='json' để viết lại tài liệu kỹ thuật
+        khi Gemini gặp lỗi hạn ngạch (429) hoặc chưa có API key.
+        """
+        settings = get_settings()
+        base_url = (request.local_ai_url or settings.ollama_base_url or "http://127.0.0.1:11434").rstrip("/")
+        model = request.local_model or settings.ollama_model or "qwen2.5-coder:7b"
+        generate_url = f"{base_url}/api/generate"
+
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "format": "json",
+            "stream": False,
+            "options": {
+                "temperature": 0.15,
+                "top_p": 0.9,
+                "num_predict": 4096,
+            },
+        }
+
+        try:
+            with httpx.Client(timeout=90.0) as client:
+                resp = client.post(generate_url, json=payload)
+                if resp.status_code != 200:
+                    logger.warning("[DocRewrite] Ollama trả về mã lỗi %s: %s", resp.status_code, resp.text)
+                    return None
+                data = resp.json()
+        except Exception as ex:
+            logger.warning("[DocRewrite] Gọi Ollama thất bại (%s)", ex)
+            return None
+
+        raw_resp = data.get("response", "{}")
+        try:
+            parsed = _parse_gemini_json(raw_resp)
+        except Exception as ex:
+            logger.warning("[DocRewrite] Không thể phân tích JSON từ Ollama: %s", ex)
+            return None
+
+        updated_doc = parsed.get("updated_doc", "").strip() or request.current_doc
+        summary = parsed.get("summary_of_changes", "Tài liệu đã được cập nhật bởi mô hình AI Local (Ollama).")
+        raw_diffs = parsed.get("section_diffs", [])
+
+        section_diffs = []
+        for d in raw_diffs:
+            if isinstance(d, dict) and d.get("section_title"):
+                section_diffs.append(
+                    DocSectionDiffItem(
+                        section_title=d.get("section_title", "Mục cập nhật"),
+                        status=d.get("status", "MODIFIED"),
+                        old_content=d.get("old_content", ""),
+                        suggested_content=d.get("suggested_content", ""),
+                        reason=d.get("reason", "Cập nhật theo code diff mới"),
+                    )
+                )
+
+        mod_count = len(section_diffs)
+        total_sections = max(1, mod_count + 1)
+
+        return DocRewriteResponse(
+            status="success",
+            mode="ollama-local",
+            original_doc_length=len(request.current_doc),
+            rewritten_doc_length=len(updated_doc),
+            updated_doc=updated_doc,
+            summary_of_changes=summary,
+            modified_sections_count=mod_count,
+            unchanged_sections_count=max(0, total_sections - mod_count),
+            section_diffs=section_diffs,
+            suggestions=section_diffs,
+            model_used=f"{model} (Ollama Local)",
+        )
+
+    @classmethod
     def rewrite_document(cls, request: DocRewriteRequest) -> DocRewriteResponse:
         """
         Thực thi phân tích và viết lại tài liệu bằng Google Gemini API.
@@ -341,12 +418,24 @@ Trả về DUY NHẤT một JSON object hợp lệ (không kèm markdown code fe
                 model_used="static-analysis",
             )
 
-        active_key = GeminiKeyManager.get_active_api_key()
-        if not cls._is_valid_google_api_key(active_key):
-            logger.info("[DocRewrite] Sử dụng bộ phân tích Smart Rewrite do API Key chưa cấu hình hoặc không hợp lệ.")
+        prompt = cls._build_prompt(request)
+        routing = (request.routing_mode or "").lower()
+
+        # 1. Nếu chỉ định rõ ràng local_only
+        if routing == "local_only":
+            logger.info("[DocRewrite] Chế độ routing local_only: Ưu tiên gọi AI Local (Ollama)...")
+            ollama_res = cls._call_ollama_rewrite(request, prompt)
+            if ollama_res:
+                return ollama_res
             return cls._smart_rewrite_fallback(request)
 
-        prompt = cls._build_prompt(request)
+        active_key = request.api_key or GeminiKeyManager.get_active_api_key()
+        if not cls._is_valid_google_api_key(active_key):
+            logger.info("[DocRewrite] Khóa Gemini chưa cấu hình hoặc không hợp lệ. Kích hoạt Ollama failover...")
+            ollama_res = cls._call_ollama_rewrite(request, prompt)
+            if ollama_res:
+                return ollama_res
+            return cls._smart_rewrite_fallback(request)
 
         logger.info(
             "[DocRewrite] Bắt đầu AI viết lại tài liệu — entity='%s', file='%s', doc_len=%d, diff_len=%d, affected_sections=%s",
@@ -364,7 +453,7 @@ Trả về DUY NHẤT một JSON object hợp lệ (không kèm markdown code fe
         for model_name in REWRITE_MODELS:
             try:
                 def _call_gemini_rewrite():
-                    client = cls._build_client()
+                    client = cls._build_client(request.api_key)
                     resp = client.models.generate_content(
                         model=model_name,
                         contents=prompt,
@@ -395,9 +484,12 @@ Trả về DUY NHẤT một JSON object hợp lệ (không kèm markdown code fe
                 logger.warning("[DocRewrite] Thử model %s thất bại: %s. Thử model tiếp theo...", model_name, ex)
                 last_error = ex
 
-        # Nếu tất cả model Gemini đều không khả dụng, kích hoạt Smart Fallback
+        # Nếu tất cả model Gemini đều không khả dụng, kích hoạt Ollama failover trước khi fallback
         if parsed is None:
-            logger.warning("[DocRewrite] Tất cả model Gemini gặp sự cố (%s). Chuyển sang Smart Rewrite Fallback.", last_error)
+            logger.warning("[DocRewrite] Tất cả model Gemini gặp sự cố (%s). Chuyển sang Ollama Local failover...", last_error)
+            ollama_res = cls._call_ollama_rewrite(request, prompt)
+            if ollama_res:
+                return ollama_res
             return cls._smart_rewrite_fallback(request)
 
         updated_doc = parsed.get("updated_doc", "").strip()

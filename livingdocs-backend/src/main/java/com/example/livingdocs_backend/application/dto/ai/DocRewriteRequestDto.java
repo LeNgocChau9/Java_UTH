@@ -18,5 +18,12 @@ public class DocRewriteRequestDto {
     private String entity_name;
     private String commit_hash;
     private String instruction;
+
+    // Cấu hình AI Runtime lan truyền sang AI Engine (R4)
+    private String cloudProvider;
+    private String apiKey;
+    private String localAiUrl;
+    private String localModel;
+    private String routingMode;
 }
 

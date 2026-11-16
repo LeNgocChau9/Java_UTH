@@ -336,7 +336,7 @@ a {
 .ld-app-content {
   background: var(--color-bg);
   color: var(--color-text-primary);
-  padding: 30px clamp(18px, 3vw, 40px);
+  padding: 16px 20px;
 }
 
 .ld-app-content :is(button, a, input, select, textarea) {

@@ -50,6 +50,8 @@ import {
   Plus,
   AlertTriangle,
   Wand2,
+  GitBranch,
+  RotateCcw,
 } from "lucide-react";
 import {
   templateService,
@@ -161,25 +163,11 @@ const saveDraft = async (payload) => {
 > **Lưu ý**: Sau khi hoàn thiện nội dung bản nháp, hãy nhấn nút **"Gửi để review"** ở góc trên bên phải để chuyển tài liệu vào hàng đợi kiểm duyệt của Staff Reviewer.
 `;
 
-const TEMPLATES: { name: string; content: string }[] = [
-  {
-    name: "API Reference Guide",
-    content: `# [Tên API Service] - Tài liệu Đặc tả REST API\n\n## 1. Mục đích\nMô tả chi tiết các endpoint, tham số request và response cho service.\n\n## 2. Thông tin cơ bản\n- **Base URL**: \`/api/v1/...\`\n- **Xác thực**: Bearer JWT Token\n- **Định dạng dữ liệu**: \`application/json\`\n\n## 3. Danh sách Endpoint\n### GET /api/...\n**Mô tả**: Lấy danh sách tài nguyên.\n\n**Response 200 OK**:\n\`\`\`json\n{\n  "success": true,\n  "data": []\n}\n\`\`\`\n`,
-  },
-  {
-    name: "Kiến trúc Module / Thiết kế Kỹ thuật",
-    content: `# Tài liệu Thiết kế Kỹ thuật (Technical Design Doc)\n\n## 1. Bối cảnh & Vấn đề cần giải quyết\nNêu tóm tắt bài toán kỹ thuật hiện tại.\n\n## 2. Giải pháp đề xuất\nPhân tích kiến trúc tổng thể, mô hình dữ liệu và các tương tác.\n\n## 3. Rủi ro & Giải pháp dự phòng\n- Rủi ro 1: ...\n- Phương án xử lý: ...\n`,
-  },
-  {
-    name: "Changelog & Hướng dẫn Triển khai",
-    content: `# Release Notes & Deployment Guide\n\n## Phiên bản [vX.Y.Z] - Ngày phát hành: [DD/MM/YYYY]\n\n### Tính năng mới (New Features)\n- [x] Tính năng 1\n- [x] Tính năng 2\n\n### Hướng dẫn nâng cấp CSDL\n\`\`\`sql\n-- Migration script\n\`\`\`\n`,
-  },
-];
 
 function EditorContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const docIdParam = searchParams.get("docId");
+  const docIdParam = searchParams.get("docId") || searchParams.get("id");
 
   const [docId, setDocId] = useState<number | null>(docIdParam ? parseInt(docIdParam, 10) : null);
   const [title, setTitle] = useState("Tài liệu mới không tiêu đề");
@@ -228,6 +216,71 @@ function EditorContent() {
   const [runningCrossCheck, setRunningCrossCheck] = useState(false);
   const [crossCheckTab, setCrossCheckTab] = useState<"template" | "code" | "suggestions">("template");
   const [showOptionModal, setShowOptionModal] = useState(false);
+
+  // Workflow states (Mở lại bản nháp & Xuất bản lên GitHub)
+  const [reopeningDraft, setReopeningDraft] = useState(false);
+  const [showPublishGitHubModal, setShowPublishGitHubModal] = useState(false);
+  const [githubToken, setGithubToken] = useState("");
+  const [commitMessage, setCommitMessage] = useState("");
+  const [publishingGitHub, setPublishingGitHub] = useState(false);
+
+  const handleReopenDraft = async () => {
+    if (!docId) return;
+    try {
+      setReopeningDraft(true);
+      await documentService.reopenDraft(docId);
+      setStatus("DRAFT");
+      notify("success", "Đã mở lại bản nháp thành công!");
+    } catch (err: any) {
+      notify("error", "Không thể mở lại bản nháp: " + (err.response?.data?.message || err.message));
+    } finally {
+      setReopeningDraft(false);
+    }
+  };
+
+  const handlePublishToGitHub = async () => {
+    if (!docId) return;
+    try {
+      setPublishingGitHub(true);
+      const res = await documentService.publishToGitHub(docId, {
+        githubToken: githubToken.trim() || undefined,
+        commitMessage: commitMessage.trim() || `docs: update ${targetPath || title}`,
+      });
+      setShowPublishGitHubModal(false);
+      notify("success", res.message || "Đã xuất bản tài liệu lên GitHub thành công!");
+    } catch (err: any) {
+      notify("error", "Xuất bản lên GitHub thất bại: " + (err.response?.data?.message || err.message));
+    } finally {
+      setPublishingGitHub(false);
+    }
+  };
+
+  const handleApplyTemplate = async (tpl: DocTemplateDto) => {
+    try {
+      const preview = await templateService.previewTemplate(tpl.id, { targetPath: targetPath || undefined });
+      if (preview && preview.markdown) {
+        setContent(preview.markdown);
+      } else {
+        throw new Error("No preview content");
+      }
+    } catch {
+      try {
+        const parsed = JSON.parse(tpl.structureJson || "{}");
+        const sections = parsed.sections || parsed.headings || [];
+        if (sections.length > 0) {
+          const generated = sections.map((s: any) => `# ${s.title || s.name || s}\n\n`).join("");
+          setContent(generated);
+        } else {
+          setContent(`# ${tpl.name}\n\n## 1. Tổng quan\n\n## 2. Chi tiết kỹ thuật\n`);
+        }
+      } catch {
+        setContent(`# ${tpl.name}\n\n## 1. Tổng quan\n\n## 2. Chi tiết kỹ thuật\n`);
+      }
+    }
+    setIsDirty(true);
+    setShowTemplateDropdown(false);
+    notify("info", `Đã tải mẫu: ${tpl.name}`);
+  };
 
   // Xem nội dung file mã nguồn được chọn từ Explorer (VS Code File Inspector)
   const handleOpenFilePreview = async (filePath: string) => {
@@ -345,28 +398,12 @@ function EditorContent() {
         });
         setOpenFolders(initialOpen);
       } else {
-        const fallback = [
-          "src/main/java/com/example/controller/DocumentController.java",
-          "src/main/java/com/example/service/DocumentService.java",
-          "src/main/java/com/example/entity/DocumentEntity.java",
-          "src/main/java/com/example/repository/DocumentRepository.java",
-          "docs/architecture.md",
-          "docs/api-specification.md",
-          "README.md",
-        ];
-        setGitTreeFiles(fallback);
-        setOpenFolders({ src: true, "src/main": true, docs: true });
+        setGitTreeFiles([]);
+        setOpenFolders({});
       }
     } catch {
-      const fallback = [
-        "src/main/java/com/example/controller/DocumentController.java",
-        "src/main/java/com/example/service/DocumentService.java",
-        "src/main/java/com/example/entity/DocumentEntity.java",
-        "docs/architecture.md",
-        "README.md",
-      ];
-      setGitTreeFiles(fallback);
-      setOpenFolders({ src: true, docs: true });
+      setGitTreeFiles([]);
+      setOpenFolders({});
     } finally {
       setLoadingTree(false);
     }
@@ -881,12 +918,12 @@ function EditorContent() {
         style={{
           display: "flex",
           flexDirection: "column",
-          gap: 12,
-          marginBottom: 16,
+          gap: 10,
+          marginBottom: 8,
           background: "#ffffff",
-          padding: "16px 20px",
-          borderRadius: 8,
-          border: "1px solid var(--color-border)",
+          padding: "12px 16px",
+          borderRadius: 0,
+          borderBottom: "1px solid var(--color-border)",
         }}
       >
         <div
@@ -965,12 +1002,16 @@ function EditorContent() {
                 background:
                   status === "DRAFT"
                     ? "#f1f5f9"
+                    : status === "REJECTED"
+                    ? "#fef2f2"
                     : status === "UNDER_REVIEW_STAFF" || status === "UNDER_REVIEW_MANAGER"
                     ? "#fffbeb"
                     : "#ecfdf5",
                 color:
                   status === "DRAFT"
                     ? "#475569"
+                    : status === "REJECTED"
+                    ? "#dc2626"
                     : status === "UNDER_REVIEW_STAFF" || status === "UNDER_REVIEW_MANAGER"
                     ? "#b45309"
                     : "#059669",
@@ -978,6 +1019,8 @@ function EditorContent() {
             >
               {status === "DRAFT"
                 ? "Bản nháp"
+                : status === "REJECTED"
+                ? "Bị từ chối"
                 : status === "UNDER_REVIEW_STAFF"
                 ? "Chờ Staff duyệt"
                 : status === "UNDER_REVIEW_MANAGER"
@@ -1022,6 +1065,45 @@ function EditorContent() {
               <Upload size={14} />
               <span>{importingDocx ? "Đang nạp file..." : "Nạp Word (.docx)"}</span>
             </button>
+
+            {/* NÚT MỞ LẠI BẢN NHÁP KHI BỊ TỪ CHỐI */}
+            {status === "REJECTED" && docId && (
+              <button
+                type="button"
+                onClick={handleReopenDraft}
+                disabled={reopeningDraft}
+                className="ld-btn"
+                style={{
+                  background: "#fef2f2",
+                  color: "#dc2626",
+                  border: "1px solid #fecaca",
+                  fontWeight: 600,
+                  fontSize: 12,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                }}
+                title="Chuyển trạng thái tài liệu về DRAFT để tiếp tục chỉnh sửa"
+              >
+                <RotateCcw size={14} />
+                <span>{reopeningDraft ? "Đang mở..." : "Mở lại bản nháp"}</span>
+              </button>
+            )}
+
+            {/* NÚT XUẤT BẢN LÊN GITHUB */}
+            {docId && (
+              <button
+                type="button"
+                onClick={() => setShowPublishGitHubModal(true)}
+                disabled={saving || publishingGitHub}
+                className="ld-btn ld-btn-ghost"
+                style={{ color: "#0f172a", fontWeight: 500, display: "inline-flex", alignItems: "center", gap: 5 }}
+                title="Xuất bản tài liệu hiện tại lên GitHub repository"
+              >
+                <GitBranch size={14} />
+                <span>Xuất bản lên GitHub</span>
+              </button>
+            )}
 
             {/* NÚT LƯU NHÁP */}
             <button
@@ -1214,7 +1296,8 @@ function EditorContent() {
               : !leftSidebarOpen && rightSidebarOpen
               ? "minmax(0, 1fr) 350px"
               : "minmax(0, 1fr)",
-          gap: 16,
+          gap: 10,
+          padding: "0 8px 8px 0",
           alignItems: "start",
         }}
       >
@@ -1224,7 +1307,8 @@ function EditorContent() {
             style={{
               background: "#ffffff",
               border: "1px solid var(--color-border)",
-              borderRadius: 8,
+              borderLeft: "none",
+              borderRadius: "0 8px 8px 0",
               display: "flex",
               flexDirection: "column",
               height: "calc(100vh - 180px)",
@@ -1722,36 +1806,39 @@ function EditorContent() {
                   borderRadius: 6,
                   border: "1px solid var(--color-border)",
                   boxShadow: "0 4px 14px rgba(0,0,0,0.1)",
-                  minWidth: 220,
-                  overflow: "hidden",
+                  minWidth: 240,
+                  maxHeight: 280,
+                  overflowY: "auto",
                 }}
               >
-                {TEMPLATES.map((tpl, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => {
-                      setContent(tpl.content);
-                      setIsDirty(true);
-                      setShowTemplateDropdown(false);
-                      notify("info", `Đã tải mẫu: ${tpl.name}`);
-                    }}
-                    style={{
-                      width: "100%",
-                      padding: "8px 12px",
-                      textAlign: "left",
-                      fontSize: 12,
-                      background: "transparent",
-                      border: "none",
-                      cursor: "pointer",
-                      borderBottom: i < TEMPLATES.length - 1 ? "1px solid #f1f5f9" : "none",
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = "#f8fafc")}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                  >
-                    {tpl.name}
-                  </button>
-                ))}
+                {availableTemplates.length === 0 ? (
+                  <div style={{ padding: "10px 12px", fontSize: 12, color: "#94a3b8" }}>
+                    Chưa có mẫu tài liệu nào
+                  </div>
+                ) : (
+                  availableTemplates.map((tpl, i) => (
+                    <button
+                      key={tpl.id}
+                      type="button"
+                      onClick={() => handleApplyTemplate(tpl)}
+                      style={{
+                        width: "100%",
+                        padding: "8px 12px",
+                        textAlign: "left",
+                        fontSize: 12,
+                        background: "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        borderBottom: i < availableTemplates.length - 1 ? "1px solid #f1f5f9" : "none",
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "#f8fafc")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <div style={{ fontWeight: 600, color: "#0f172a" }}>{tpl.name}</div>
+                      <div style={{ fontSize: 10, color: "#64748b" }}>{tpl.type}</div>
+                    </button>
+                  ))
+                )}
               </div>
             )}
           </div>
@@ -2426,6 +2513,133 @@ function EditorContent() {
               >
                 <Send size={14} />
                 <span>Xác nhận gửi review</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ MODAL XÁC NHẬN "XUẤT BẢN LÊN GITHUB" ═══ */}
+      {showPublishGitHubModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15, 23, 42, 0.5)",
+            backdropFilter: "blur(2px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: 16,
+          }}
+        >
+          <div
+            className="ld-card"
+            style={{
+              maxWidth: 500,
+              width: "100%",
+              padding: 24,
+              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.2)",
+              animation: "fadeIn 150ms ease",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  background: "#eff6ff",
+                  color: "#2563eb",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <GitBranch size={20} />
+              </div>
+              <div>
+                <h3 style={{ fontSize: 16, fontWeight: 600, color: "var(--color-text-primary)", margin: 0 }}>
+                  Xuất bản tài liệu lên GitHub
+                </h3>
+                <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: 0 }}>
+                  Commit và đồng bộ tài liệu Markdown vào repository
+                </p>
+              </div>
+            </div>
+
+            <div
+              style={{
+                fontSize: 13,
+                lineHeight: 1.6,
+                color: "var(--color-text-secondary)",
+                background: "var(--color-muted)",
+                padding: "12px 16px",
+                borderRadius: 6,
+                marginBottom: 16,
+              }}
+            >
+              <p style={{ margin: "0 0 6px 0" }}>
+                <strong>Tệp đích:</strong> <code style={{ color: "#087f5b" }}>{targetPath || "docs/README.md"}</code>
+              </p>
+              <p style={{ margin: 0, fontSize: 12, color: "#64748b" }}>
+                Lưu ý: Thao tác này chỉ thực hiện khi bạn bấm xác nhận bên dưới. Không có lệnh git tự động nào chạy ngầm.
+              </p>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 4 }}>
+                  Commit Message
+                </label>
+                <input
+                  type="text"
+                  value={commitMessage}
+                  onChange={(e) => setCommitMessage(e.target.value)}
+                  placeholder={`docs: update ${targetPath || title}`}
+                  className="ld-input"
+                  style={{ width: "100%", fontSize: 13 }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 4 }}>
+                  GitHub Personal Access Token (tùy chọn)
+                </label>
+                <input
+                  type="password"
+                  value={githubToken}
+                  onChange={(e) => setGithubToken(e.target.value)}
+                  placeholder="ghp_••••••••••••••••••••••••••••••••••••"
+                  className="ld-input"
+                  style={{ width: "100%", fontSize: 13 }}
+                />
+                <span style={{ fontSize: 11, color: "#94a3b8", marginTop: 2, display: "block" }}>
+                  Để trống nếu sử dụng token OAuth đã liên kết trong hệ thống.
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => setShowPublishGitHubModal(false)}
+                disabled={publishingGitHub}
+                className="ld-btn ld-btn-secondary"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handlePublishToGitHub}
+                disabled={publishingGitHub}
+                className="ld-btn ld-btn-primary"
+                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+              >
+                <GitBranch size={14} />
+                <span>{publishingGitHub ? "Đang xuất bản..." : "Xác nhận xuất bản"}</span>
               </button>
             </div>
           </div>

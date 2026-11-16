@@ -65,6 +65,9 @@ public class CodeIndexService implements CodeIndexServicePort {
     @Autowired(required = false)
     private DocumentVersionRepositoryPort documentVersionRepositoryPort;
 
+    @Autowired(required = false)
+    private AiRuntimeConfigService aiRuntimeConfigService;
+
     @Autowired
     public CodeIndexService(
             CodeEntityRepositoryPort codeEntityRepository,
@@ -901,14 +904,22 @@ public class CodeIndexService implements CodeIndexServicePort {
                         ? customInstruction
                         : "Viết lại chính xác mục tài liệu kỹ thuật cho thực thể `" + targetName
                                 + "` với chữ ký mới `" + entity.getSignature() + "`.";
-                DocRewriteRequestDto req = DocRewriteRequestDto.builder()
+                var reqBuilder = DocRewriteRequestDto.builder()
                         .current_doc(StringUtils.hasText(currentFullMarkdown) ? currentFullMarkdown : "")
                         .code_diff(sourceSnippet)
                         .file_path(entity.getFilePath())
                         .entity_name(targetName)
                         .commit_hash(entity.getCommitHash())
-                        .instruction(promptInstruction)
-                        .build();
+                        .instruction(promptInstruction);
+                if (aiRuntimeConfigService != null) {
+                    var settings = aiRuntimeConfigService.getRawSettings();
+                    reqBuilder.cloudProvider(settings.cloudProvider())
+                            .apiKey(settings.apiKey())
+                            .localAiUrl(settings.localAiUrl())
+                            .localModel(settings.localModel())
+                            .routingMode(settings.routingMode());
+                }
+                DocRewriteRequestDto req = reqBuilder.build();
 
                 DocRewriteResponseDto aiResp = restClient.post()
                         .uri("/v1/docs/rewrite-suggestion")

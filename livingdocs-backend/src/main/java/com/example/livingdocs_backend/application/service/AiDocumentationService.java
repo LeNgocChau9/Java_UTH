@@ -63,6 +63,9 @@ public class AiDocumentationService implements AiDocumentationServicePort {
     @Autowired(required = false)
     private SpringDataAdminSettingRepository adminSettingRepository;
 
+    @Autowired(required = false)
+    private AiRuntimeConfigService aiRuntimeConfigService;
+
     public AiDocumentationService(
             @Value("${ai.engine.url:http://localhost:8000}") String aiEngineUrl
     ) {
@@ -466,26 +469,11 @@ public class AiDocumentationService implements AiDocumentationServicePort {
         fastApiPayload.put("class_name", context.primaryName);
         fastApiPayload.put("source_code", context.sourceCode);
         fastApiPayload.put("entities", limitedEntities != null ? limitedEntities : Collections.emptyList());
-        String effectiveProvider = provider;
-        if (!StringUtils.hasText(effectiveProvider) && adminSettingRepository != null) {
-            try {
-                var opt = adminSettingRepository.findById("ai_configuration");
-                if (opt.isPresent() && opt.get().getSettingValue() != null) {
-                    String json = opt.get().getSettingValue();
-                    if (json.contains("\"routingMode\":\"local_only\"") || json.contains("\"routingMode\": \"local_only\"")
-                            || json.contains("\"provider\":\"ollama\"") || json.contains("\"provider\": \"ollama\"")) {
-                        effectiveProvider = "ollama";
-                    } else if (json.contains("\"routingMode\":\"cloud_only\"") || json.contains("\"routingMode\": \"cloud_only\"")
-                            || json.contains("\"provider\":\"gemini\"") || json.contains("\"provider\": \"gemini\"")) {
-                        effectiveProvider = "gemini";
-                    } else {
-                        effectiveProvider = "auto";
-                    }
-                }
-            } catch (Exception ignored) {}
+        if (aiRuntimeConfigService != null) {
+            aiRuntimeConfigService.applyRuntimeSettings(fastApiPayload);
         }
-        if (StringUtils.hasText(effectiveProvider)) {
-            fastApiPayload.put("provider", effectiveProvider.trim());
+        if (StringUtils.hasText(provider)) {
+            fastApiPayload.put("provider", provider.trim());
         }
 
         log.info("[AiDocService] Gửi yêu cầu sinh tài liệu sang AI Engine (/v1/docs/generate) [scope={}, target={}]",

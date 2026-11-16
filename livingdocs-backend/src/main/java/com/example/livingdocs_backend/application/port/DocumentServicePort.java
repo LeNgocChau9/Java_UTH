@@ -148,4 +148,14 @@ public interface DocumentServicePort {
      * tự động tạo phiên bản v1 và liên kết với các thực thể code trong repo.
      */
     DocumentResponse importExternalDocument(com.example.livingdocs_backend.application.dto.ImportExternalDocRequest request, Long actorId, String actorRole);
+
+    /**
+     * Mở lại bản nháp: Chuyển trạng thái tài liệu từ REJECTED về DRAFT (R6).
+     */
+    DocumentResponse reopenDraft(Long docId, Long actorId, String actorRole);
+
+    /**
+     * Tái lập chỉ mục RAG (chunking & embeddings) cho toàn bộ tài liệu PUBLISHED và thực thể code của repo (R2).
+     */
+    int reindexRepository(Long repoId);
 }

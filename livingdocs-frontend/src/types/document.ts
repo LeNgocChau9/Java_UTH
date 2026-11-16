@@ -36,6 +36,8 @@ export interface DocumentItem {
   sourceUrl?: string | null;
   structureWarning?: boolean;
   missingHeadings?: string[];
+  snippet?: string | null;
+  similarityScore?: number | null;
 }
 
 export interface ImportExternalDocPayload {

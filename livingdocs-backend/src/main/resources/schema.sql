@@ -614,6 +614,9 @@ ALTER TABLE IF EXISTS public.knowledge_chunks
 CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_repository
     ON public.knowledge_chunks(repository_id);
 
+CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_embedding_hnsw
+    ON public.knowledge_chunks USING hnsw (embedding vector_cosine_ops);
+
 ALTER TABLE IF EXISTS public.manager_approval_delegations
     ADD CONSTRAINT manager_approval_delegations_delegate_id_fkey FOREIGN KEY (delegate_id)
     REFERENCES public.users (user_id) MATCH SIMPLE

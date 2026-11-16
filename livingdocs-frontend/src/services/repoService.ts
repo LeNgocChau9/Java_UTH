@@ -154,4 +154,9 @@ export const repoService = {
     });
     return res.data;
   },
+
+  async reindexRepository(id: number): Promise<{ status: string; repositoryId: number; indexedCount: number; message: string }> {
+    const res = await apiClient.post<{ status: string; repositoryId: number; indexedCount: number; message: string }>(`/api/repos/${id}/reindex`);
+    return res.data;
+  },
 };

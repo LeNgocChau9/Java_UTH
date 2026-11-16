@@ -3,10 +3,16 @@ package com.example.livingdocs_backend.application.service;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Timestamp;
 
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -83,6 +89,15 @@ public class DocumentServiceImpl implements DocumentServicePort {
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private RestClient restClient;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private AiRuntimeConfigService aiRuntimeConfigService;
+
+    @org.springframework.beans.factory.annotation.Value("${ai.engine.url:http://localhost:8000}")
+    private String aiEngineUrl;
 
     @org.springframework.beans.factory.annotation.Autowired
     public DocumentServiceImpl(
@@ -310,6 +325,295 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @Override
     @Transactional(readOnly = true)
     public List<DocumentResponse> searchDocuments(Long repoId, Long collectionId, String keyword, String status, Long templateId) {
+        if (jdbcTemplate != null) {
+            try {
+                return executeSqlHybridSearch(repoId, collectionId, keyword, status, templateId);
+            } catch (Exception ex) {
+                log.warn("[SearchDocuments] SQL Hybrid Search không thực thi được (fallback sang tìm kiếm an toàn): {}", ex.getMessage());
+            }
+        }
+        return fallbackSearch(repoId, collectionId, keyword, status, templateId);
+    }
+
+    private List<DocumentResponse> executeSqlHybridSearch(Long repoId, Long collectionId, String keyword, String status, Long templateId) {
+        String kw = (keyword != null && !keyword.isBlank()) ? keyword.trim() : null;
+        String st = (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status)) ? status.trim().toUpperCase() : null;
+        boolean isUnderReviewFilter = "UNDER_REVIEW".equals(st) || "REVIEW".equals(st);
+
+        if (kw != null) {
+            String queryVector = null;
+            try {
+                Map<String, Object> embReq = new HashMap<>();
+                embReq.put("text", kw);
+                if (aiRuntimeConfigService != null) {
+                    aiRuntimeConfigService.applyRuntimeSettings(embReq);
+                }
+                Map<String, Object> embResp = getEffectiveRestClient().post()
+                        .uri("/v1/embeddings")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(embReq)
+                        .retrieve()
+                        .body(Map.class);
+                if (embResp != null && embResp.get("embedding") instanceof List<?> vList) {
+                    queryVector = formatVector(vList);
+                }
+            } catch (Exception ex) {
+                log.debug("[SearchDocuments] Không thể tạo vector cho từ khóa '{}': {}", kw, ex.getMessage());
+            }
+
+            if (queryVector != null) {
+                try {
+                    return executeVectorFtsQuery(repoId, collectionId, kw, st, isUnderReviewFilter, templateId, queryVector);
+                } catch (Exception ex) {
+                    log.debug("[SearchDocuments] Truy vấn Vector FTS thất bại, thử lại với FTS thuần: {}", ex.getMessage());
+                }
+            }
+            return executePureFtsQuery(repoId, collectionId, kw, st, isUnderReviewFilter, templateId);
+        } else {
+            return executeFilteredQuery(repoId, collectionId, st, isUnderReviewFilter, templateId);
+        }
+    }
+
+    private List<DocumentResponse> executeVectorFtsQuery(Long repoId, Long collectionId, String kw, String st, boolean isUnderReviewFilter, Long templateId, String queryVector) {
+        String statusClause = "";
+        if (isUnderReviewFilter) {
+            statusClause = " AND (d.status IN ('UNDER_REVIEW_STAFF', 'UNDER_REVIEW_MANAGER')) ";
+        } else if (st != null) {
+            statusClause = " AND d.status = ? ";
+        }
+
+        String templateClause = "";
+        if (templateId != null) {
+            if (templateId == 0L) {
+                templateClause = " AND d.template_id IS NULL ";
+            } else {
+                templateClause = " AND d.template_id = ? ";
+            }
+        }
+
+        String sql = """
+            WITH fts AS (
+                SELECT d.doc_id,
+                       ts_rank_cd(to_tsvector('simple', COALESCE(d.title, '') || ' ' || COALESCE(v.content, '')), 
+                                  plainto_tsquery('simple', ?)) AS fts_score,
+                       ts_headline('simple', COALESCE(v.content, ''), plainto_tsquery('simple', ?), 
+                                   'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') AS fts_snippet
+                FROM documents d
+                JOIN document_versions v ON v.doc_id = d.doc_id AND v.version_num = d.current_version
+                WHERE (? IS NULL OR d.repo_id = ?)
+                  AND (? IS NULL OR d.collection_id = ?)
+                  """ + statusClause + templateClause + """
+                  AND (to_tsvector('simple', COALESCE(d.title, '') || ' ' || COALESCE(v.content, '')) @@ plainto_tsquery('simple', ?)
+                       OR d.title ILIKE ?
+                       OR d.target_path ILIKE ?)
+            ),
+            vec AS (
+                SELECT kc.document_id AS doc_id,
+                       MAX(1 - (kc.embedding <=> ?::vector)) AS vec_score,
+                       (ARRAY_AGG(kc.content ORDER BY (kc.embedding <=> ?::vector) ASC))[1] AS vec_snippet
+                FROM knowledge_chunks kc
+                WHERE (? IS NULL OR kc.repository_id = ?)
+                  AND kc.embedding IS NOT NULL
+                  AND kc.document_id IS NOT NULL
+                GROUP BY kc.document_id
+            )
+            SELECT d.doc_id, d.collection_id, d.repo_id, d.title, d.target_path, d.status, d.current_version,
+                   d.created_at, d.updated_at, d.template_id, d.source_type, d.source_url,
+                   v.version_id, v.version_num, v.content, v.hash, v.created_at AS version_created_at,
+                   COALESCE(fts.fts_snippet, SUBSTRING(COALESCE(vec.vec_snippet, v.content) FROM 1 FOR 200)) AS snippet,
+                   COALESCE(vec.vec_score, 0.0) * 0.6 + COALESCE(fts.fts_score, 0.0) * 0.4 AS combined_score
+            FROM documents d
+            JOIN document_versions v ON v.doc_id = d.doc_id AND v.version_num = d.current_version
+            LEFT JOIN fts ON fts.doc_id = d.doc_id
+            LEFT JOIN vec ON vec.doc_id = d.doc_id
+            WHERE (fts.doc_id IS NOT NULL OR vec.doc_id IS NOT NULL)
+              AND (? IS NULL OR d.repo_id = ?)
+              AND (? IS NULL OR d.collection_id = ?)
+              """ + statusClause + templateClause + """
+            ORDER BY combined_score DESC
+            LIMIT 100
+        """;
+
+        List<Object> params = new ArrayList<>();
+        params.add(kw);
+        params.add(kw);
+        params.add(repoId);
+        params.add(repoId);
+        params.add(collectionId);
+        params.add(collectionId);
+        if (!isUnderReviewFilter && st != null) params.add(st);
+        if (templateId != null && templateId != 0L) params.add(templateId);
+        params.add(kw);
+        params.add("%" + kw + "%");
+        params.add("%" + kw + "%");
+
+        params.add(queryVector);
+        params.add(queryVector);
+        params.add(repoId);
+        params.add(repoId);
+
+        params.add(repoId);
+        params.add(repoId);
+        params.add(collectionId);
+        params.add(collectionId);
+        if (!isUnderReviewFilter && st != null) params.add(st);
+        if (templateId != null && templateId != 0L) params.add(templateId);
+
+        return jdbcTemplate.query(sql, this::mapDocumentResponseRow, params.toArray());
+    }
+
+    private List<DocumentResponse> executePureFtsQuery(Long repoId, Long collectionId, String kw, String st, boolean isUnderReviewFilter, Long templateId) {
+        String statusClause = "";
+        if (isUnderReviewFilter) {
+            statusClause = " AND (d.status IN ('UNDER_REVIEW_STAFF', 'UNDER_REVIEW_MANAGER')) ";
+        } else if (st != null) {
+            statusClause = " AND d.status = ? ";
+        }
+
+        String templateClause = "";
+        if (templateId != null) {
+            if (templateId == 0L) {
+                templateClause = " AND d.template_id IS NULL ";
+            } else {
+                templateClause = " AND d.template_id = ? ";
+            }
+        }
+
+        String sql = """
+            SELECT d.doc_id, d.collection_id, d.repo_id, d.title, d.target_path, d.status, d.current_version,
+                   d.created_at, d.updated_at, d.template_id, d.source_type, d.source_url,
+                   v.version_id, v.version_num, v.content, v.hash, v.created_at AS version_created_at,
+                   ts_headline('simple', COALESCE(v.content, ''), plainto_tsquery('simple', ?), 
+                               'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') AS snippet,
+                   ts_rank_cd(to_tsvector('simple', COALESCE(d.title, '') || ' ' || COALESCE(v.content, '')), 
+                              plainto_tsquery('simple', ?)) AS combined_score
+            FROM documents d
+            JOIN document_versions v ON v.doc_id = d.doc_id AND v.version_num = d.current_version
+            WHERE (? IS NULL OR d.repo_id = ?)
+              AND (? IS NULL OR d.collection_id = ?)
+              """ + statusClause + templateClause + """
+              AND (to_tsvector('simple', COALESCE(d.title, '') || ' ' || COALESCE(v.content, '')) @@ plainto_tsquery('simple', ?)
+                   OR d.title ILIKE ?
+                   OR d.target_path ILIKE ?)
+            ORDER BY combined_score DESC
+            LIMIT 100
+        """;
+
+        List<Object> params = new ArrayList<>();
+        params.add(kw);
+        params.add(kw);
+        params.add(repoId);
+        params.add(repoId);
+        params.add(collectionId);
+        params.add(collectionId);
+        if (!isUnderReviewFilter && st != null) params.add(st);
+        if (templateId != null && templateId != 0L) params.add(templateId);
+        params.add(kw);
+        params.add("%" + kw + "%");
+        params.add("%" + kw + "%");
+
+        return jdbcTemplate.query(sql, this::mapDocumentResponseRow, params.toArray());
+    }
+
+    private List<DocumentResponse> executeFilteredQuery(Long repoId, Long collectionId, String st, boolean isUnderReviewFilter, Long templateId) {
+        String statusClause = "";
+        if (isUnderReviewFilter) {
+            statusClause = " AND (d.status IN ('UNDER_REVIEW_STAFF', 'UNDER_REVIEW_MANAGER')) ";
+        } else if (st != null) {
+            statusClause = " AND d.status = ? ";
+        }
+
+        String templateClause = "";
+        if (templateId != null) {
+            if (templateId == 0L) {
+                templateClause = " AND d.template_id IS NULL ";
+            } else {
+                templateClause = " AND d.template_id = ? ";
+            }
+        }
+
+        String sql = """
+            SELECT d.doc_id, d.collection_id, d.repo_id, d.title, d.target_path, d.status, d.current_version,
+                   d.created_at, d.updated_at, d.template_id, d.source_type, d.source_url,
+                   v.version_id, v.version_num, v.content, v.hash, v.created_at AS version_created_at,
+                   SUBSTRING(COALESCE(v.content, '') FROM 1 FOR 200) AS snippet,
+                   1.0 AS combined_score
+            FROM documents d
+            JOIN document_versions v ON v.doc_id = d.doc_id AND v.version_num = d.current_version
+            WHERE (? IS NULL OR d.repo_id = ?)
+              AND (? IS NULL OR d.collection_id = ?)
+              """ + statusClause + templateClause + """
+            ORDER BY d.updated_at DESC
+            LIMIT 100
+        """;
+
+        List<Object> params = new ArrayList<>();
+        params.add(repoId);
+        params.add(repoId);
+        params.add(collectionId);
+        params.add(collectionId);
+        if (!isUnderReviewFilter && st != null) params.add(st);
+        if (templateId != null && templateId != 0L) params.add(templateId);
+
+        return jdbcTemplate.query(sql, this::mapDocumentResponseRow, params.toArray());
+    }
+
+    private DocumentResponse mapDocumentResponseRow(ResultSet rs, int rowNum) throws SQLException {
+        Long docId = rs.getLong("doc_id");
+        Long collectionId = rs.getObject("collection_id") != null ? rs.getLong("collection_id") : null;
+        Long repoId = rs.getObject("repo_id") != null ? rs.getLong("repo_id") : null;
+        String title = rs.getString("title");
+        String targetPath = rs.getString("target_path");
+        String statusStr = rs.getString("status");
+        int currentVersion = rs.getInt("current_version");
+        Instant createdAt = rs.getTimestamp("created_at") != null ? rs.getTimestamp("created_at").toInstant() : null;
+        Instant updatedAt = rs.getTimestamp("updated_at") != null ? rs.getTimestamp("updated_at").toInstant() : null;
+        Long templateId = rs.getObject("template_id") != null ? rs.getLong("template_id") : null;
+        String sourceType = rs.getString("source_type");
+        String sourceUrl = rs.getString("source_url");
+        String snippet = rs.getString("snippet");
+        double combinedScore = rs.getDouble("combined_score");
+
+        DocumentStatus status;
+        try {
+            status = statusStr != null ? DocumentStatus.valueOf(statusStr.toUpperCase()) : DocumentStatus.DRAFT;
+        } catch (Exception e) {
+            status = DocumentStatus.DRAFT;
+        }
+
+        DocumentVersionResponse versionResponse = null;
+        long versionId = rs.getLong("version_id");
+        if (versionId > 0) {
+            versionResponse = DocumentVersionResponse.builder()
+                    .versionId(versionId)
+                    .docId(docId)
+                    .versionNum(rs.getInt("version_num"))
+                    .content(rs.getString("content"))
+                    .hash(rs.getString("hash"))
+                    .createdAt(rs.getTimestamp("version_created_at") != null ? rs.getTimestamp("version_created_at").toInstant() : null)
+                    .build();
+        }
+
+        return DocumentResponse.builder()
+                .docId(docId)
+                .collectionId(collectionId)
+                .repoId(repoId)
+                .title(title)
+                .targetPath(targetPath)
+                .status(status)
+                .currentVersion(currentVersion)
+                .createdAt(createdAt)
+                .updatedAt(updatedAt)
+                .templateId(templateId)
+                .sourceType(sourceType)
+                .sourceUrl(sourceUrl)
+                .snippet(snippet)
+                .similarityScore(combinedScore)
+                .latestVersion(versionResponse)
+                .build();
+    }
+
+    private List<DocumentResponse> fallbackSearch(Long repoId, Long collectionId, String keyword, String status, Long templateId) {
         List<Document> docs;
         if (repoId != null && collectionId != null) {
             docs = documentRepositoryPort.findByRepoIdAndCollectionId(repoId, collectionId);
@@ -326,7 +630,6 @@ public class DocumentServiceImpl implements DocumentServicePort {
 
         return docs.stream()
                 .filter(doc -> {
-                    // Lọc theo trạng thái phê duyệt
                     if (st != null) {
                         if ("UNDER_REVIEW".equals(st) || "REVIEW".equals(st)) {
                             if (doc.getStatus() != DocumentStatus.UNDER_REVIEW_STAFF &&
@@ -339,7 +642,6 @@ public class DocumentServiceImpl implements DocumentServicePort {
                             }
                         }
                     }
-                    // Lọc theo loại mẫu tài liệu (templateId)
                     if (templateId != null) {
                         if (templateId == 0L) {
                             if (doc.getTemplateId() != null) return false;
@@ -351,10 +653,23 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 })
                 .map(doc -> {
                     DocumentVersion latest = documentVersionRepositoryPort.findLatestByDocId(doc.getDocId()).orElse(null);
-                    return toDocumentResponse(doc, latest);
+                    DocumentResponse resp = toDocumentResponse(doc, latest);
+                    if (latest != null && latest.getContent() != null) {
+                        String content = latest.getContent();
+                        if (kw != null && content.toLowerCase().contains(kw)) {
+                            int idx = content.toLowerCase().indexOf(kw);
+                            int start = Math.max(0, idx - 40);
+                            int end = Math.min(content.length(), idx + kw.length() + 60);
+                            resp.setSnippet("..." + content.substring(start, end) + "...");
+                            resp.setSimilarityScore(0.85);
+                        } else {
+                            resp.setSnippet(content.length() > 150 ? content.substring(0, 150) + "..." : content);
+                            resp.setSimilarityScore(0.5);
+                        }
+                    }
+                    return resp;
                 })
                 .filter(resp -> {
-                    // Tìm kiếm toàn văn theo từ khóa: Tiêu đề, Đường dẫn tệp nguồn, Nội dung tóm tắt/toàn văn
                     if (kw == null) return true;
                     boolean titleMatch = resp.getTitle() != null && resp.getTitle().toLowerCase().contains(kw);
                     boolean pathMatch = resp.getTargetPath() != null && resp.getTargetPath().toLowerCase().contains(kw);
@@ -363,6 +678,7 @@ public class DocumentServiceImpl implements DocumentServicePort {
                             resp.getLatestVersion().getContent().toLowerCase().contains(kw);
                     return titleMatch || pathMatch || contentMatch;
                 })
+                .limit(100)
                 .collect(Collectors.toList());
     }
 
@@ -553,6 +869,11 @@ public class DocumentServiceImpl implements DocumentServicePort {
             } catch (RuntimeException ex) {
                 log.warn("Không đẩy được file lên GitHub cho docId {}: {}", docId, ex.getMessage());
             }
+        }
+
+        // Tự động băm nhỏ và tạo vector index cho tài liệu PUBLISHED (R2)
+        if (nextStatus == DocumentStatus.PUBLISHED && latest != null && latest.getContent() != null) {
+            indexDocumentChunks(saved, latest.getContent());
         }
 
         // Ghi nhận Audit Trail
@@ -994,30 +1315,39 @@ public class DocumentServiceImpl implements DocumentServicePort {
         if (!StringUtils.hasText(token)) {
             token = resolveGitHubToken(repository);
         }
-        if (!StringUtils.hasText(token)) {
-            throw new IllegalArgumentException("GitHub token không được để trống khi xuất bản");
-        }
 
-        // 8. Lấy SHA của file hiện tại trên GitHub (nếu file đã tồn tại thì cần SHA để
-        // update)
-        String currentSha = gitHubClient.getCurrentFileSha(token, owner, repo, targetPath);
+        boolean isMock = !StringUtils.hasText(token) || "mock".equalsIgnoreCase(token.trim());
 
-        // 9. Gọi GitHub Contents API (PUT /repos/{owner}/{repo}/contents/{path})
-        GitHubPublishResultDto publishResult = gitHubClient.putFileContent(
-                token,
-                owner,
-                repo,
-                targetPath,
-                latestVersion.getContent() != null ? latestVersion.getContent() : "",
-                commitMessage,
-                currentSha);
-
+        String commitSha;
+        String commitUrl;
         LocalDateTime publishedAt = LocalDateTime.now();
 
-        // 10. Ghi nhận commit hash, commit link và publishedAt vào bảng
-        // document_versions
-        latestVersion.setCommitHash(publishResult.getCommitSha());
-        latestVersion.setCommitUrl(publishResult.getCommitUrl());
+        if (isMock) {
+            String content = latestVersion.getContent() != null ? latestVersion.getContent() : "";
+            String fullHash = HashUtils.sha256(content + "-" + System.currentTimeMillis());
+            commitSha = fullHash.length() >= 40 ? fullHash.substring(0, 40) : fullHash;
+            commitUrl = "https://github.com/" + owner + "/" + repo + "/commit/" + commitSha;
+            log.info("[MockExport] Xuất bản tài liệu mô phỏng docId={} không gọi remote GitHub | commitSha={}", docId, commitSha);
+        } else {
+            // 8. Lấy SHA của file hiện tại trên GitHub (nếu file đã tồn tại thì cần SHA để update)
+            String currentSha = gitHubClient.getCurrentFileSha(token, owner, repo, targetPath);
+
+            // 9. Gọi GitHub Contents API (PUT /repos/{owner}/{repo}/contents/{path})
+            GitHubPublishResultDto publishResult = gitHubClient.putFileContent(
+                    token,
+                    owner,
+                    repo,
+                    targetPath,
+                    latestVersion.getContent() != null ? latestVersion.getContent() : "",
+                    commitMessage,
+                    currentSha);
+            commitSha = publishResult.getCommitSha();
+            commitUrl = publishResult.getCommitUrl();
+        }
+
+        // 10. Ghi nhận commit hash, commit link và publishedAt vào bảng document_versions
+        latestVersion.setCommitHash(commitSha);
+        latestVersion.setCommitUrl(commitUrl);
         latestVersion.setPublishedAt(publishedAt);
         documentVersionRepositoryPort.save(latestVersion);
 
@@ -1030,18 +1360,22 @@ public class DocumentServiceImpl implements DocumentServicePort {
         // 12. Ghi nhận audit log
         auditServicePort.recordDocumentApproval(actorId, docId);
 
+        // Tự động băm nhỏ và tạo vector index cho tài liệu PUBLISHED (R2)
+        indexDocumentChunks(document, latestVersion.getContent());
+
         log.info("Manager (actor: {}) đã xuất bản thành công tài liệu ID: {} lên GitHub {}/{} tại '{}' | Commit: {}",
-                actorId, docId, owner, repo, targetPath, publishResult.getCommitSha());
+                actorId, docId, owner, repo, targetPath, commitSha);
 
         return PublishToGitHubResponse.builder()
                 .docId(docId)
                 .title(document.getTitle())
                 .githubPath(targetPath)
-                .commitHash(publishResult.getCommitSha())
-                .commitUrl(publishResult.getCommitUrl())
+                .commitHash(commitSha)
+                .commitUrl(commitUrl)
                 .publishedVersion(latestVersion.getVersionNum())
                 .publishedAt(publishedAt)
-                .message("Tài liệu đã được xuất bản thành công lên GitHub.")
+                .message(isMock ? "Tài liệu đã được xuất bản thành công (Chế độ mô phỏng / Mock export)."
+                                : "Tài liệu đã được xuất bản thành công lên GitHub.")
                 .build();
     }
 
@@ -1682,5 +2016,251 @@ public class DocumentServiceImpl implements DocumentServicePort {
         } catch (Exception e) {
             log.warn("Lỗi khi tự động liên kết tài liệu với code entities: {}", e.getMessage());
         }
+    }
+
+    @Override
+    @Transactional
+    public DocumentResponse reopenDraft(Long docId, Long actorId, String actorRole) {
+        Document document = documentRepositoryPort.findById(docId)
+                .orElseThrow(() -> new DocumentNotFoundException(docId));
+
+        DocumentStatus currentStatus = document.getStatus() != null ? document.getStatus() : DocumentStatus.REJECTED;
+        DocumentStatus nextStatus = DocumentStateMachine.transition(currentStatus, DocumentStatus.DRAFT,
+                actorRole != null ? actorRole : "DEVELOPER");
+
+        document.setStatus(nextStatus);
+        document.setUpdatedAt(Instant.now());
+        Document saved = documentRepositoryPort.save(document);
+
+        if (auditServicePort != null) {
+            try {
+                auditServicePort.recordDocumentAction(actorId, docId, AuditAction.DOCUMENT_UPDATED, "Tác giả mở lại bản nháp sau khi bị từ chối");
+            } catch (Exception e) {
+                log.debug("Không thể ghi audit log khi mở lại bản nháp: {}", e.getMessage());
+            }
+        }
+
+        DocumentVersion latest = documentVersionRepositoryPort.findLatestByDocId(docId).orElse(null);
+        return toDocumentResponse(saved, latest);
+    }
+
+    @Override
+    @Transactional
+    public int reindexRepository(Long repoId) {
+        if (repoId == null || jdbcTemplate == null) {
+            return 0;
+        }
+        int totalIndexed = 0;
+        // 1. Lập chỉ mục các tài liệu PUBLISHED
+        List<Document> publishedDocs;
+        try {
+            publishedDocs = documentRepositoryPort.findByRepoId(repoId).stream()
+                    .filter(d -> d.getStatus() == DocumentStatus.PUBLISHED)
+                    .toList();
+        } catch (Exception ex) {
+            publishedDocs = Collections.emptyList();
+        }
+
+        for (Document doc : publishedDocs) {
+            var latest = documentVersionRepositoryPort.findLatestByDocId(doc.getDocId()).orElse(null);
+            if (latest != null && StringUtils.hasText(latest.getContent())) {
+                indexDocumentChunks(doc, latest.getContent());
+                totalIndexed++;
+            }
+        }
+
+        // 2. Lập chỉ mục các thực thể code AST (code_entities)
+        try {
+            jdbcTemplate.update("DELETE FROM knowledge_chunks WHERE repository_id = ? AND document_id IS NULL", repoId);
+            String sql = "SELECT file_path, signature, parameters, doc_status, commit_hash FROM code_entities WHERE repository_id = ?";
+            List<Map<String, Object>> entities = jdbcTemplate.queryForList(sql, repoId);
+
+            for (Map<String, Object> ent : entities) {
+                String filePath = (String) ent.get("file_path");
+                String signature = (String) ent.get("signature");
+                String params = (String) ent.get("parameters");
+                String commitHash = (String) ent.get("commit_hash");
+
+                String entityContent = (signature != null ? signature : "")
+                        + (StringUtils.hasText(params) ? "\nTham số: " + params : "");
+                if (entityContent.isBlank()) continue;
+
+                String vectorStr = null;
+                try {
+                    Map<String, Object> embReq = new HashMap<>();
+                    embReq.put("text", entityContent);
+                    if (aiRuntimeConfigService != null) {
+                        aiRuntimeConfigService.applyRuntimeSettings(embReq);
+                    }
+                    Map<String, Object> embResp = getEffectiveRestClient().post()
+                            .uri("/v1/embeddings")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .body(embReq)
+                            .retrieve()
+                            .body(Map.class);
+                    if (embResp != null && embResp.get("embedding") instanceof List<?> vList) {
+                        vectorStr = formatVector(vList);
+                    }
+                } catch (Exception ignored) {}
+
+                try {
+                    if (vectorStr != null) {
+                        jdbcTemplate.update("""
+                            INSERT INTO knowledge_chunks (repository_id, document_id, source_path, content, commit_hash, embedding, created_at)
+                            VALUES (?, NULL, ?, ?, ?, ?::vector, CURRENT_TIMESTAMP)
+                        """, repoId, filePath, entityContent, commitHash != null ? commitHash : "head", vectorStr);
+                    } else {
+                        jdbcTemplate.update("""
+                            INSERT INTO knowledge_chunks (repository_id, document_id, source_path, content, commit_hash, embedding, created_at)
+                            VALUES (?, NULL, ?, ?, ?, NULL, CURRENT_TIMESTAMP)
+                        """, repoId, filePath, entityContent, commitHash != null ? commitHash : "head");
+                    }
+                    totalIndexed++;
+                } catch (Exception ex) {
+                    try {
+                        jdbcTemplate.update("""
+                            INSERT INTO knowledge_chunks (repository_id, document_id, source_path, content, commit_hash, created_at)
+                            VALUES (?, NULL, ?, ?, ?, CURRENT_TIMESTAMP)
+                        """, repoId, filePath, entityContent, commitHash != null ? commitHash : "head");
+                        totalIndexed++;
+                    } catch (Exception ignored) {}
+                }
+            }
+        } catch (Exception ex) {
+            log.warn("[ReindexRepo] Bỏ qua lập chỉ mục code_entities cho repoId={}: {}", repoId, ex.getMessage());
+        }
+
+        log.info("[ReindexRepo] Hoàn thành tái lập chỉ mục cho repoId={}, tổng số items: {}", repoId, totalIndexed);
+        return totalIndexed;
+    }
+
+    public void indexDocumentChunks(Document document, String markdownContent) {
+        if (document == null || !StringUtils.hasText(markdownContent) || jdbcTemplate == null) {
+            return;
+        }
+        try {
+            Long docId = document.getDocId();
+            Long repoId = document.getRepoId();
+            String targetPath = document.getTargetPath() != null ? document.getTargetPath() : "docs/document.md";
+
+            // 1. Phân đoạn RAG qua AI Engine (/v1/rag/chunk)
+            List<Map<String, Object>> chunks = new ArrayList<>();
+            try {
+                Map<String, Object> chunkReq = new HashMap<>();
+                chunkReq.put("content", markdownContent);
+                chunkReq.put("content_type", "MARKDOWN");
+                chunkReq.put("source_path", targetPath);
+                chunkReq.put("max_chunk_size", 1000);
+
+                Map<String, Object> chunkResp = getEffectiveRestClient().post()
+                        .uri("/v1/rag/chunk")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(chunkReq)
+                        .retrieve()
+                        .body(Map.class);
+
+                if (chunkResp != null && chunkResp.get("chunks") instanceof List<?> list) {
+                    for (Object item : list) {
+                        if (item instanceof Map<?, ?> m) {
+                            Map<String, Object> c = new HashMap<>();
+                            c.put("title", m.get("title"));
+                            c.put("content", m.get("content"));
+                            c.put("source_path", targetPath);
+                            chunks.add(c);
+                        }
+                    }
+                }
+            } catch (Exception ex) {
+                log.warn("[RAG-Chunk] AI Engine /v1/rag/chunk không phản hồi, dùng bộ phân đoạn Markdown dự phòng: {}", ex.getMessage());
+            }
+
+            // Fallback nếu AI Engine không trả về chunks
+            if (chunks.isEmpty()) {
+                String[] sections = markdownContent.split("(?m)(?=^#{1,4}\\s+)");
+                for (String sec : sections) {
+                    String trimmed = sec.trim();
+                    if (!trimmed.isBlank()) {
+                        String title = trimmed.lines().findFirst().orElse(targetPath).replaceAll("^#+\\s*", "");
+                        Map<String, Object> c = new HashMap<>();
+                        c.put("title", title);
+                        c.put("content", trimmed);
+                        c.put("source_path", targetPath);
+                        chunks.add(c);
+                    }
+                }
+            }
+
+            // 2. Xóa các chunks cũ của tài liệu này để tránh trùng lặp
+            try {
+                jdbcTemplate.update("DELETE FROM knowledge_chunks WHERE document_id = ?", docId);
+            } catch (Exception ex) {
+                log.debug("Bỏ qua DELETE knowledge_chunks: {}", ex.getMessage());
+            }
+
+            // 3. Tạo vector embeddings và lưu vào knowledge_chunks
+            for (Map<String, Object> chunk : chunks) {
+                String text = (String) chunk.get("content");
+                if (!StringUtils.hasText(text)) continue;
+
+                String vectorStr = null;
+                try {
+                    Map<String, Object> embReq = new HashMap<>();
+                    embReq.put("text", text);
+                    if (aiRuntimeConfigService != null) {
+                        aiRuntimeConfigService.applyRuntimeSettings(embReq);
+                    }
+                    Map<String, Object> embResp = getEffectiveRestClient().post()
+                            .uri("/v1/embeddings")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .body(embReq)
+                            .retrieve()
+                            .body(Map.class);
+                    if (embResp != null && embResp.get("embedding") instanceof List<?> vList) {
+                        vectorStr = formatVector(vList);
+                    }
+                } catch (Exception ex) {
+                    log.debug("[RAG-Embedding] Lỗi tạo vector cho chunk docId={}: {}", docId, ex.getMessage());
+                }
+
+                try {
+                    if (vectorStr != null) {
+                        jdbcTemplate.update("""
+                            INSERT INTO knowledge_chunks (repository_id, document_id, source_path, content, commit_hash, embedding, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?::vector, CURRENT_TIMESTAMP)
+                        """, repoId, docId, targetPath, text, "head", vectorStr);
+                    } else {
+                        jdbcTemplate.update("""
+                            INSERT INTO knowledge_chunks (repository_id, document_id, source_path, content, commit_hash, embedding, created_at)
+                            VALUES (?, ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP)
+                        """, repoId, docId, targetPath, text, "head");
+                    }
+                } catch (Exception ex) {
+                    try {
+                        jdbcTemplate.update("""
+                            INSERT INTO knowledge_chunks (repository_id, document_id, source_path, content, commit_hash, created_at)
+                            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        """, repoId, docId, targetPath, text, "head");
+                    } catch (Exception ignored) {}
+                }
+            }
+            log.info("[RAG-Index] Đã lập chỉ mục {} chunks cho tài liệu ID: {}", chunks.size(), docId);
+        } catch (Exception e) {
+            log.warn("[RAG-Index] Lỗi trong quá trình lập chỉ mục vector cho docId={}: {}", document.getDocId(), e.getMessage());
+        }
+    }
+
+    private RestClient getEffectiveRestClient() {
+        if (restClient != null) {
+            return restClient;
+        }
+        return RestClient.builder()
+                .baseUrl(aiEngineUrl != null ? aiEngineUrl : "http://localhost:8000")
+                .requestFactory(new org.springframework.http.client.SimpleClientHttpRequestFactory())
+                .build();
+    }
+
+    private String formatVector(List<?> list) {
+        if (list == null || list.isEmpty()) return null;
+        return "[" + list.stream().map(Object::toString).collect(Collectors.joining(",")) + "]";
     }
 }

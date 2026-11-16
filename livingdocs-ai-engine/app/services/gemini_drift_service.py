@@ -17,6 +17,7 @@ import os
 import json
 import logging
 import re
+import httpx
 from typing import List, Optional, Tuple
 from google import genai
 from google.genai import types as genai_types
@@ -294,10 +295,92 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ (không kèm markdown fence,
         return prompt
 
     @classmethod
+    def _call_ollama_drift(cls, request: DriftAnalyzeRequest, prompt: str) -> Optional[DriftAnalyzeResponse]:
+        """
+        Gọi mô hình AI Local (Ollama) với format='json' để phân tích sai lệch ngữ nghĩa
+        khi Gemini gặp lỗi hạn ngạch (429) hoặc chưa có API key.
+        """
+        settings = get_settings()
+        base_url = (request.local_ai_url or settings.ollama_base_url or "http://127.0.0.1:11434").rstrip("/")
+        model = request.local_model or settings.ollama_model or "qwen2.5-coder:7b"
+        generate_url = f"{base_url}/api/generate"
+
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "format": "json",
+            "stream": False,
+            "options": {
+                "temperature": 0.1,
+                "top_p": 0.9,
+                "num_predict": 2500,
+            },
+        }
+
+        try:
+            with httpx.Client(timeout=90.0) as client:
+                resp = client.post(generate_url, json=payload)
+                if resp.status_code != 200:
+                    logger.warning("[DriftAnalysis] Ollama trả về mã lỗi %s: %s", resp.status_code, resp.text)
+                    return None
+                data = resp.json()
+        except Exception as ex:
+            logger.warning("[DriftAnalysis] Gọi Ollama thất bại (%s)", ex)
+            return None
+
+        raw_resp = data.get("response", "{}")
+        try:
+            parsed = _parse_gemini_json(raw_resp)
+        except Exception as ex:
+            logger.warning("[DriftAnalysis] Không thể phân tích JSON từ Ollama: %s", ex)
+            return None
+
+        drift_score = float(parsed.get("drift_score", 0.0))
+        drift_score = max(0.0, min(1.0, drift_score))
+        explanation = parsed.get("explanation", "Phát hiện sai lệch giữa mã nguồn mới và tài liệu kỹ thuật.")
+        raw_class = parsed.get("classification")
+        classification = _normalize_classification(raw_class, explanation)
+        severity = _get_severity_by_score(drift_score)
+        is_drifted = bool(parsed.get("is_drifted", drift_score >= 0.25))
+        affected_secs = parsed.get("affected_sections", [])
+        raw_suggs = parsed.get("suggestions", [])
+
+        suggestions = [
+            DriftSuggestion(
+                section=s.get("section", "Chung"),
+                old_text=s.get("old_text", ""),
+                suggested_text=s.get("suggested_text", ""),
+                reason=s.get("reason", ""),
+            )
+            for s in raw_suggs
+            if isinstance(s, dict)
+        ]
+
+        logger.info(
+            "[DriftAnalysis] Hoàn tất qua AI Local (Ollama) — model=%s, score=%.4f, severity=%s, classification=%s, is_drifted=%s",
+            model, drift_score, severity, classification, is_drifted,
+        )
+
+        return DriftAnalyzeResponse(
+            status="success",
+            mode="ollama-local",
+            entity_name=request.entity_name,
+            entity_type=request.entity_type,
+            drift_score=round(drift_score, 4),
+            severity=severity,
+            classification=classification,
+            is_drifted=is_drifted,
+            explanation=explanation,
+            affected_sections=affected_secs,
+            suggestions=suggestions,
+            model_used=f"{model} (Ollama Local)",
+        )
+
+    @classmethod
     def analyze(cls, request: DriftAnalyzeRequest) -> DriftAnalyzeResponse:
         """
         Phân tích sai lệch tài liệu ngữ nghĩa bằng Google Gemini API.
-        Tự động xoay API Key khi gặp hạn mức Quota (429) và fallback sang Smart Diff nếu mất kết nối.
+        Tự động xoay API Key khi gặp hạn mức Quota (429) và failover sang Ollama Local trước khi rơi về Smart Diff.
         """
         if not request.code_diff or not request.code_diff.strip():
             return DriftAnalyzeResponse(
@@ -315,12 +398,26 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ (không kèm markdown fence,
                 model_used="static-analysis",
             )
 
-        active_key = GeminiKeyManager.get_active_api_key()
-        if not cls._is_valid_google_api_key(active_key):
-            logger.info("[DriftAnalysis] Sử dụng bộ phân tích Smart Diff do API Key chưa hợp lệ.")
+        prompt = cls._build_prompt(request)
+        routing = (request.routing_mode or "").lower()
+
+        # 1. Nếu chỉ định chạy local_only qua Ollama
+        if routing == "local_only":
+            logger.info("[DriftAnalysis] Routing local_only: ưu tiên gọi AI Local (Ollama)...")
+            ollama_res = cls._call_ollama_drift(request, prompt)
+            if ollama_res:
+                return ollama_res
             return cls._fallback_smart_diff_analysis(request)
 
-        prompt = cls._build_prompt(request)
+        # 2. Kiểm tra khóa Gemini
+        active_key = request.api_key or GeminiKeyManager.get_active_api_key()
+        if not cls._is_valid_google_api_key(active_key):
+            logger.info("[DriftAnalysis] Khóa API Gemini chưa hợp lệ hoặc thiếu. Kích hoạt Ollama failover...")
+            ollama_res = cls._call_ollama_drift(request, prompt)
+            if ollama_res:
+                return ollama_res
+            return cls._fallback_smart_diff_analysis(request)
+
         logger.info(
             "[DriftAnalysis] Bắt đầu phân tích drift — entity='%s', doc_len=%d, diff_len=%d",
             request.entity_name or "N/A",
@@ -329,7 +426,10 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ (không kèm markdown fence,
         )
 
         def _call_gemini_drift():
-            client = GeminiKeyManager.get_active_client()
+            if request.api_key and cls._is_valid_google_api_key(request.api_key):
+                client = genai.Client(api_key=request.api_key.strip().strip("'\""))
+            else:
+                client = GeminiKeyManager.get_active_client()
             last_err = None
 
             for model_name in DRIFT_MODELS:
@@ -412,5 +512,9 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ (không kèm markdown fence,
             )
 
         except Exception as ex:
-            logger.warning(f"[DriftAnalysis] Chuyển sang bộ phân tích Smart Diff dự phòng do lỗi Gemini: {ex}")
+            logger.warning(f"[DriftAnalysis] Lỗi khi gọi Gemini: {ex}. Kích hoạt Ollama failover...")
+            ollama_res = cls._call_ollama_drift(request, prompt)
+            if ollama_res:
+                return ollama_res
+            logger.warning("[DriftAnalysis] Chuyển sang bộ phân tích Smart Diff dự phòng.")
             return cls._fallback_smart_diff_analysis(request)

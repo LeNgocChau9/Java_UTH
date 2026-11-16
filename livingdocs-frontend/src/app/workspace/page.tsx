@@ -120,7 +120,67 @@ interface FileTreeNode {
   children?: FileTreeNode[];
 }
 
-function buildFileTree(paths: string[]): FileTreeNode[] {
+function buildFileTree(paths: string[], scopedFolder?: string | null): FileTreeNode[] {
+  function sortNodes(nodes: FileTreeNode[]) {
+    nodes.sort((a, b) => {
+      if (a.isFolder === b.isFolder) {
+        return a.name.localeCompare(b.name);
+      }
+      return a.isFolder ? -1 : 1;
+    });
+    nodes.forEach((n) => {
+      if (n.children) sortNodes(n.children);
+    });
+  }
+
+  const cleanScope = scopedFolder ? scopedFolder.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "") : null;
+
+  if (cleanScope) {
+    const scopedChildren: FileTreeNode[] = [];
+    paths.forEach((p) => {
+      const cleanPath = p.replace(/\\/g, "/").replace(/^\/+/, "");
+      if (!cleanPath.startsWith(cleanScope)) return;
+      if (cleanPath === cleanScope) return;
+
+      const relPath = cleanPath.slice(cleanScope.length).replace(/^\/+/, "");
+      if (!relPath) return;
+
+      const parts = relPath.split("/").filter(Boolean);
+      let currentArr = scopedChildren;
+      parts.forEach((part, idx) => {
+        const isFile = idx === parts.length - 1;
+        const subRelPath = parts.slice(0, idx + 1).join("/");
+        const fullPath = `${cleanScope}/${subRelPath}`;
+        let existing = currentArr.find((n) => n.name === part);
+        if (!existing) {
+          existing = {
+            id: fullPath,
+            name: part,
+            fullPath,
+            isFolder: !isFile,
+            children: isFile ? undefined : [],
+          };
+          currentArr.push(existing);
+        }
+        if (!isFile && existing.children) {
+          currentArr = existing.children;
+        }
+      });
+    });
+
+    sortNodes(scopedChildren);
+
+    return [
+      {
+        id: cleanScope,
+        name: cleanScope,
+        fullPath: cleanScope,
+        isFolder: true,
+        children: scopedChildren,
+      },
+    ];
+  }
+
   const root: FileTreeNode[] = [];
   paths.forEach((p) => {
     const cleanPath = p.replace(/\\/g, "/");
@@ -146,17 +206,6 @@ function buildFileTree(paths: string[]): FileTreeNode[] {
     });
   });
 
-  function sortNodes(nodes: FileTreeNode[]) {
-    nodes.sort((a, b) => {
-      if (a.isFolder === b.isFolder) {
-        return a.name.localeCompare(b.name);
-      }
-      return a.isFolder ? -1 : 1;
-    });
-    nodes.forEach((n) => {
-      if (n.children) sortNodes(n.children);
-    });
-  }
   sortNodes(root);
   return root;
 }
@@ -192,7 +241,7 @@ Hệ thống cho phép nạp tài liệu Word (.docx), phân tích AST các lớ
 function WorkspaceContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const docIdParam = searchParams.get("docId");
+  const docIdParam = searchParams.get("docId") || searchParams.get("id");
 
   const [docId, setDocId] = useState<number | null>(docIdParam ? parseInt(docIdParam, 10) : null);
   const [title, setTitle] = useState("Tài liệu Workspace");
@@ -318,7 +367,7 @@ function WorkspaceContent() {
     return files;
   }, [gitTreeFiles, scopedFolder, searchTree]);
 
-  const treeNodes = useMemo(() => buildFileTree(filteredTreeFiles), [filteredTreeFiles]);
+  const treeNodes = useMemo(() => buildFileTree(filteredTreeFiles, scopedFolder), [filteredTreeFiles, scopedFolder]);
 
   const toggleFolder = (folderId: string) => {
     setOpenFolders((prev) => ({ ...prev, [folderId]: !prev[folderId] }));
@@ -384,29 +433,47 @@ function WorkspaceContent() {
     fetchTree();
   }, [repoId]);
 
-  // Nạp chi tiết tài liệu nếu có docId
+  // Đồng bộ reactive docId và nạp chi tiết tài liệu khi docIdParam thay đổi
   useEffect(() => {
-    if (!docId) return;
-    const fetchDoc = async () => {
-      try {
-        const doc = await documentService.getDocumentById(docId);
-        setTitle(doc.title);
-        setRepoId(doc.repoId);
-        if (doc.collectionId) setCollectionId(doc.collectionId);
-        setTargetPath(doc.targetPath || "");
-        setStatus(doc.status);
-        setCurrentVersion(doc.currentVersion);
-        if (doc.latestVersion?.content) {
-          setContent(doc.latestVersion.content);
-          handleRunCrossCheck(doc.latestVersion.content, doc.repoId, doc.targetPath || undefined);
+    if (!docIdParam) {
+      setDocId(null);
+      setTitle("");
+      setContent("");
+      setTargetPath("");
+      setCurrentVersion(1);
+      setStatus("DRAFT");
+      setIsDirty(false);
+      setCrossCheckResult(null);
+      setSelectedTemplateId(null);
+      return;
+    }
+
+    const parsedId = parseInt(docIdParam, 10);
+    if (!isNaN(parsedId)) {
+      setDocId(parsedId);
+      const fetchDoc = async () => {
+        try {
+          const doc = await documentService.getDocumentById(parsedId);
+          setTitle(doc.title);
+          setRepoId(doc.repoId);
+          if (doc.collectionId) setCollectionId(doc.collectionId);
+          setTargetPath(doc.targetPath || "");
+          setStatus(doc.status);
+          setCurrentVersion(doc.currentVersion);
+          if (doc.latestVersion?.content) {
+            setContent(doc.latestVersion.content);
+            handleRunCrossCheck(doc.latestVersion.content, doc.repoId, doc.targetPath || undefined);
+          } else {
+            setContent("");
+          }
+          setIsDirty(false);
+        } catch (err: any) {
+          notify("error", "Không thể nạp tài liệu: " + (err.response?.data?.message || err.message));
         }
-        setIsDirty(false);
-      } catch (err: any) {
-        notify("error", "Không thể nạp tài liệu: " + (err.response?.data?.message || err.message));
-      }
-    };
-    fetchDoc();
-  }, [docId, notify]);
+      };
+      fetchDoc();
+    }
+  }, [docIdParam, notify]);
 
   // Quét đối chiếu 2 chiều (Cross-Check với Template & Mã nguồn)
   const handleRunCrossCheck = async (
@@ -646,9 +713,9 @@ function WorkspaceContent() {
   // Render Tree Node đệ quy
   const renderTreeNode = (node: FileTreeNode, depth = 0) => {
     const isFolder = node.isFolder;
-    const isOpen = openFolders[node.id];
-    const isSelected = selectedRepoFile === node.fullPath;
     const isScoped = scopedFolder === node.fullPath;
+    const isOpen = openFolders[node.id] !== undefined ? openFolders[node.id] : (isScoped || node.id === scopedFolder);
+    const isSelected = selectedRepoFile === node.fullPath;
 
     return (
       <div key={node.id} style={{ display: "flex", flexDirection: "column" }}>
@@ -698,6 +765,7 @@ function WorkspaceContent() {
                   notify("info", "Đã quay về phạm vi toàn bộ Repository.");
                 } else {
                   setScopedFolder(node.fullPath);
+                  setOpenFolders((prev) => ({ ...prev, [node.fullPath]: true }));
                   notify("success", `Đã giới hạn Workspace vào thư mục: "${node.fullPath}"`);
                 }
               }}

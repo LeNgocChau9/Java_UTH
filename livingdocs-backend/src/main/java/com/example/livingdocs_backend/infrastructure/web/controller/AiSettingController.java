@@ -23,63 +23,23 @@ import java.util.*;
 @RequiredArgsConstructor
 public class AiSettingController {
 
-    private final SpringDataAdminSettingRepository adminSettingRepository;
+    private final com.example.livingdocs_backend.application.service.AiRuntimeConfigService aiRuntimeConfigService;
     private final ObjectMapper objectMapper;
     public static final String AI_SETTING_KEY = "ai_configuration";
 
     @GetMapping("/ai")
     public ResponseEntity<AiSettingDto> getAiSettings() {
-        return adminSettingRepository.findById(AI_SETTING_KEY)
-                .map(entity -> {
-                    try {
-                        Map<String, Object> map = objectMapper.readValue(entity.getSettingValue(), Map.class);
-                        return ResponseEntity.ok(AiSettingDto.builder()
-                                .cloudProvider((String) map.getOrDefault("cloudProvider", "gemini"))
-                                .apiKey((String) map.getOrDefault("apiKey", ""))
-                                .localAiUrl((String) map.getOrDefault("localAiUrl", "http://127.0.0.1:11434"))
-                                .localModel((String) map.getOrDefault("localModel", "qwen2.5-coder:7b"))
-                                .routingMode((String) map.getOrDefault("routingMode", "auto"))
-                                .build());
-                    } catch (Exception e) {
-                        log.warn("Lỗi đọc cấu hình AI từ admin_settings: {}", e.getMessage());
-                        return ResponseEntity.ok(defaultSettings());
-                    }
-                })
-                .orElseGet(() -> ResponseEntity.ok(defaultSettings()));
+        return ResponseEntity.ok(aiRuntimeConfigService.getMaskedSettings());
     }
 
     @PostMapping("/ai")
     public ResponseEntity<AiSettingDto> saveAiSettings(@RequestBody AiSettingDto dto) {
-        try {
-            Map<String, Object> map = new HashMap<>();
-            map.put("cloudProvider", StringUtils.hasText(dto.cloudProvider()) ? dto.cloudProvider().trim() : "gemini");
-            map.put("apiKey", dto.apiKey() != null ? dto.apiKey().trim() : "");
-            map.put("localAiUrl", StringUtils.hasText(dto.localAiUrl()) ? dto.localAiUrl().trim() : "http://127.0.0.1:11434");
-            map.put("localModel", StringUtils.hasText(dto.localModel()) ? dto.localModel().trim() : "qwen2.5-coder:7b");
-            map.put("routingMode", StringUtils.hasText(dto.routingMode()) ? dto.routingMode().trim() : "auto");
+        return ResponseEntity.ok(aiRuntimeConfigService.saveSettings(dto));
+    }
 
-            String json = objectMapper.writeValueAsString(map);
-
-            AdminSettingEntity entity = adminSettingRepository.findById(AI_SETTING_KEY)
-                    .map(existing -> {
-                        existing.setSettingValue(json);
-                        existing.setUpdatedAt(Instant.now());
-                        return existing;
-                    })
-                    .orElseGet(() -> AdminSettingEntity.builder()
-                            .settingKey(AI_SETTING_KEY)
-                            .settingValue(json)
-                            .updatedAt(Instant.now())
-                            .build());
-
-            adminSettingRepository.save(entity);
-            log.info("[AiSettingController] Đã lưu cấu hình AI: cloudProvider={}, routingMode={}, localModel={}",
-                    map.get("cloudProvider"), map.get("routingMode"), map.get("localModel"));
-            return ResponseEntity.ok(dto);
-        } catch (Exception e) {
-            log.error("Lỗi lưu cấu hình AI vào admin_settings: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+    @PutMapping("/ai")
+    public ResponseEntity<AiSettingDto> updateAiSettings(@RequestBody AiSettingDto dto) {
+        return ResponseEntity.ok(aiRuntimeConfigService.saveSettings(dto));
     }
 
     @GetMapping("/ai/scan-local-models")

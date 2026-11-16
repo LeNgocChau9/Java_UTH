@@ -349,7 +349,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   const [notifOpen, setNotifOpen] = useState(false);
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
 
   // Cảnh báo sai lệch (Drift Alerts) cho chuông thông báo
   const [driftSummary, setDriftSummary] = useState<{
@@ -466,7 +465,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setShowSwitchPassword(false);
     setSwitchError(null);
     setShowDetailModal(false);
-    setUserMenuOpen(false);
     setShowSwitchAccountModal(true);
   };
 
@@ -529,7 +527,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setProfileSuccessMsg(null);
     setProfileErrorMsg(null);
     setShowProfileModal(true);
-    setUserMenuOpen(false);
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -566,7 +563,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const handleLogout = useCallback(() => {
     clearSession();
-    setUserMenuOpen(false);
     setShowSessionModal(false);
     router.push("/login");
   }, [clearSession, router]);
@@ -980,7 +976,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               type="button"
               onClick={() => {
                 setNotifOpen((v) => !v);
-                setUserMenuOpen(false);
                 if (!notifOpen) fetchDriftAlerts();
               }}
               className="ld-btn ld-btn-ghost"
@@ -1206,7 +1201,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <>
                   <button
                     type="button"
-                    onClick={() => { setShowDetailModal(true); setNotifOpen(false); setUserMenuOpen(false); }}
+                    onClick={() => { setShowDetailModal(true); setNotifOpen(false); }}
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -1253,120 +1248,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <ChevronDown size={14} className="text-[#64748b]" />
                   </button>
 
-                  {userMenuOpen && (
-                    <div
-                      style={{
-                        position: "absolute",
-                        top: "calc(100% + 8px)",
-                        right: 0,
-                        width: 220,
-                        background: "#ffffff",
-                        border: "1px solid #e2e8f0",
-                        borderRadius: 8,
-                        boxShadow: "0 10px 25px -5px rgba(0,0,0,0.08)",
-                        zIndex: 50,
-                        overflow: "hidden",
-                      }}
-                    >
-                      <div style={{ padding: "12px 16px", borderBottom: "1px solid #e2e8f0" }}>
-                        <p style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", margin: 0 }}>
-                          {user?.fullName || "Người dùng"}
-                        </p>
-                        <p style={{ fontSize: 12, color: "#64748b", margin: "2px 0 0" }}>
-                          {user?.email}
-                        </p>
 
-                        {/* Thông tin liên kết GitHub */}
-                        <div
-                          style={{
-                            marginTop: 10,
-                            padding: "8px 10px",
-                            borderRadius: 6,
-                            background: "#f8fafc",
-                            border: "1px solid #e2e8f0",
-                          }}
-                        >
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-                            <span style={{ fontSize: 11, fontWeight: 600, color: "#475569" }}>
-                              Tài khoản GitHub
-                            </span>
-                            {user?.githubUsername ? (
-                              <span style={{ fontSize: 11, fontWeight: 600, color: "#047857" }}>
-                                @{user.githubUsername}
-                              </span>
-                            ) : (
-                              <span style={{ fontSize: 11, color: "#94a3b8" }}>Chưa liên kết</span>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => { setShowGitHubModal(true); setUserMenuOpen(false); }}
-                            className="ld-btn ld-btn-secondary w-full"
-                            style={{
-                              fontSize: 11,
-                              padding: "4px 8px",
-                              height: 26,
-                              justifyContent: "center",
-                              marginTop: 4,
-                            }}
-                          >
-                            <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
-                              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
-                            </svg>
-                            {user?.githubUsername ? "Đổi tài khoản GitHub" : "Liên kết GitHub"}
-                          </button>
-                        </div>
-                      </div>
-                      <div style={{ padding: 6, display: "flex", flexDirection: "column", gap: 2 }}>
-                        <button
-                          type="button"
-                          onClick={() => { setShowDetailModal(true); setUserMenuOpen(false); }}
-                          className="ld-btn ld-btn-ghost w-full"
-                          style={{
-                            justifyContent: "flex-start",
-                            gap: 8,
-                            paddingLeft: 10,
-                            fontSize: 13,
-                            color: "#087f5b",
-                            fontWeight: 600,
-                          }}
-                        >
-                          <Eye size={14} className="text-[#087f5b]" />
-                          Xem thông tin cá nhân
-                        </button>
-                        <button
-                          type="button"
-                          onClick={openProfileModal}
-                          className="ld-btn ld-btn-ghost w-full"
-                          style={{
-                            justifyContent: "flex-start",
-                            gap: 8,
-                            paddingLeft: 10,
-                            fontSize: 13,
-                            color: "#334155",
-                          }}
-                        >
-                          <UserCog size={14} className="text-[#059669]" />
-                          Cài đặt tài khoản
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleLogout}
-                          className="ld-btn ld-btn-ghost w-full"
-                          style={{
-                            justifyContent: "flex-start",
-                            gap: 8,
-                            paddingLeft: 10,
-                            fontSize: 13,
-                            color: "#ef4444",
-                          }}
-                        >
-                          <LogOut size={14} />
-                          Đăng xuất
-                        </button>
-                      </div>
-                    </div>
-                  )}
                 </>
               ) : (
                 <Link
@@ -1384,18 +1266,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* Page content */}
         <main
-          className={pathname === "/workspace" ? "" : "ld-app-content"}
+          className={pathname === "/workspace" || pathname?.startsWith("/tai-lieu-cua-toi/editor") ? "" : "ld-app-content"}
           style={{
             flex: 1,
             overflowY: pathname === "/workspace" ? "hidden" : "auto",
             overflowX: pathname === "/workspace" ? "hidden" : undefined,
-            padding: pathname === "/workspace" ? 0 : undefined,
+            padding: pathname === "/workspace" || pathname?.startsWith("/tai-lieu-cua-toi/editor") ? 0 : undefined,
             display: pathname === "/workspace" ? "flex" : undefined,
             flexDirection: pathname === "/workspace" ? "column" : undefined,
             height: pathname === "/workspace" ? "calc(100% - 56px)" : undefined,
             minHeight: 0,
           }}
-          onClick={() => { setNotifOpen(false); setUserMenuOpen(false); }}
+          onClick={() => { setNotifOpen(false); }}
         >
           {children}
         </main>

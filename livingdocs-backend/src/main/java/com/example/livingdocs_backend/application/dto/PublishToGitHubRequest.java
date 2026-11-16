@@ -12,8 +12,8 @@ import lombok.Data;
 @Data
 public class PublishToGitHubRequest {
 
-    @NotBlank(message = "GitHub access token không được để trống")
-    @Schema(description = "GitHub Personal Access Token hoặc OAuth Token có quyền ghi repo",
+    // ponytail: Cho phép githubToken trống hoặc null để chạy chế độ simulated/mock export mà không bắt buộc token thật
+    @Schema(description = "GitHub Personal Access Token hoặc OAuth Token có quyền ghi repo (tùy chọn trong chế độ mock)",
             example = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
     private String githubToken;
 

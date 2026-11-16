@@ -103,8 +103,34 @@ public class DatabaseSchemaBootstrap implements ApplicationRunner {
                         )
                     """);
 
+            // ponytail: Khởi tạo extension vector, bảng knowledge_chunks và HNSW index an toàn
+            try {
+                jdbcTemplate.execute("CREATE EXTENSION IF NOT EXISTS vector");
+                jdbcTemplate.execute("""
+                    CREATE TABLE IF NOT EXISTS knowledge_chunks (
+                        chunk_id BIGSERIAL PRIMARY KEY,
+                        repository_id BIGINT,
+                        document_id BIGINT,
+                        source_path VARCHAR(500) NOT NULL,
+                        content TEXT NOT NULL,
+                        commit_hash VARCHAR(64),
+                        embedding vector(768),
+                        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                """);
+                jdbcTemplate.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_embedding_hnsw
+                    ON knowledge_chunks USING hnsw (embedding vector_cosine_ops)
+                """);
+                jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_repository ON knowledge_chunks(repository_id)");
+                jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_document ON knowledge_chunks(document_id)");
+                log.info("[DatabaseSchemaBootstrap] Đã kiểm tra và đồng bộ bảng knowledge_chunks và HNSW index.");
+            } catch (Exception ex) {
+                log.debug("[DatabaseSchemaBootstrap] Bỏ qua khởi tạo pgvector / knowledge_chunks (có thể database không hỗ trợ pgvector): {}", ex.getMessage());
+            }
+
             log.info(
-                    "[DatabaseSchemaBootstrap] Đã kiểm tra và đồng bộ doc_templates, document_versions, jobs, code_entities thành công.");
+                    "[DatabaseSchemaBootstrap] Đã kiểm tra và đồng bộ doc_templates, document_versions, jobs, code_entities, knowledge_chunks thành công.");
         } catch (Exception ex) {
             log.debug(
                     "[DatabaseSchemaBootstrap] Bỏ qua đồng bộ schema tự động (có thể đang chạy môi trường H2/Test): {}",

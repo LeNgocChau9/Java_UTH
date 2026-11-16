@@ -24,5 +24,12 @@ public class AiDriftAnalyzeRequestDto {
     private Long repository_id;
     private Integer pr_number;
     private String commit_hash;
+
+    // Cấu hình AI Runtime lan truyền sang AI Engine (R4)
+    private String cloudProvider;
+    private String apiKey;
+    private String localAiUrl;
+    private String localModel;
+    private String routingMode;
 }
 

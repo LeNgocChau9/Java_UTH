@@ -8,6 +8,7 @@ Dịch vụ Chatbot AI hỗ trợ người dùng toàn hệ thống LivingDocs:
 
 import json
 import logging
+import re
 from typing import List, Optional
 import httpx
 from google import genai
@@ -30,7 +31,7 @@ CHAT_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.0-flash",
     "gemini-1.5-flash",
-    "gemini-2.5-pro",
+    "gemini-1.5-pro",
 ]
 
 DEFAULT_SYSTEM_PROMPT = """Bạn là Trợ lý AI LivingDocs chuyên nghiệp, đồng hành cùng kỹ sư và người dùng trong hệ thống Tài liệu Kỹ thuật Tự động (LivingDocs AI Documentation).
@@ -52,6 +53,82 @@ Hãy trả lời người dùng ngắn gọn, súc tích, chuyên nghiệp bằn
 class ChatService:
 
     @classmethod
+    def _build_effective_system_prompt(cls, request: ChatRequest) -> str:
+        """
+        Nạp ngữ cảnh các đoạn trích tài liệu và thực thể mã nguồn vào prompt
+        kèm quy tắc bắt buộc gắn nhãn trích dẫn [Nguồn: <Tên tài liệu hoặc File code>].
+        """
+        base_instruction = request.system_prompt or DEFAULT_SYSTEM_PROMPT
+
+        has_context_chunks = bool(request.context_chunks)
+        has_code_entities = bool(request.code_entities)
+
+        if not has_context_chunks and not has_code_entities:
+            return base_instruction
+
+        context_parts = []
+
+        if has_context_chunks:
+            context_parts.append("### NGỮ CẢNH TÀI LIỆU HỆ THỐNG (SEMANTIC CONTEXT CHUNKS):")
+            for idx, chunk in enumerate(request.context_chunks, 1):
+                src = chunk.source_path or "Tài liệu hệ thống"
+                title = f" - {chunk.title}" if chunk.title else ""
+                context_parts.append(f"[{idx}] Nguồn: {src}{title}\n{chunk.content.strip()}\n")
+
+        if has_code_entities:
+            context_parts.append("### THỰC THỂ MÃ NGUỒN LIÊN QUAN (CODE ENTITIES):")
+            for idx, entity in enumerate(request.code_entities, 1):
+                fpath = entity.file_path or "Mã nguồn hệ thống"
+                sig = entity.signature or "Thành phần mã"
+                doc = f"\n  Mô tả: {entity.docstring.strip()}" if entity.docstring else ""
+                context_parts.append(f"[{idx}] File: {fpath}\n  Chữ ký: {sig}{doc}\n")
+
+        context_str = "\n".join(context_parts)
+
+        grounding_instruction = (
+            "\n### QUY TẮC BẮT BUỘC VỀ TRÍCH DẪN NGUỒN:\n"
+            "Khi sử dụng thông tin từ ngữ cảnh tài liệu hoặc mã nguồn, bạn BẮT BUỘC phải ghi link trích dẫn ở cuối câu hoặc ở phần cuối câu trả lời theo định dạng: [Nguồn: <Tên tài liệu hoặc File code>].\n"
+            "Chỉ trích dẫn chính xác các tài liệu/file xuất hiện trong danh sách ngữ cảnh trên.\n"
+        )
+
+        return f"{base_instruction}\n\n{context_str}\n{grounding_instruction}"
+
+    @classmethod
+    def _extract_citations(cls, reply_text: str, request: ChatRequest) -> List[str]:
+        """Trích xuất danh sách nguồn được trích dẫn trong câu trả lời."""
+        citations: List[str] = []
+
+        # 1. Tìm tag [Nguồn: ...]
+        raw_matches = re.findall(r"\[Nguồn:\s*([^\]]+)\]", reply_text, re.IGNORECASE)
+        for m in raw_matches:
+            c = m.strip()
+            if c and c not in citations:
+                citations.append(c)
+
+        # 2. Quét các file_path / source_path được nhắc đến trực tiếp
+        available_sources: List[str] = []
+        for chk in request.context_chunks or []:
+            if chk.source_path and chk.source_path not in available_sources:
+                available_sources.append(chk.source_path)
+        for ce in request.code_entities or []:
+            if ce.file_path and ce.file_path not in available_sources:
+                available_sources.append(ce.file_path)
+
+        for src in available_sources:
+            if src in reply_text and src not in citations:
+                citations.append(src)
+
+        return citations
+
+    @classmethod
+    def _format_reply_with_citations(cls, reply_text: str, citations: List[str]) -> str:
+        text = reply_text.strip()
+        if citations and "[Nguồn:" not in text:
+            source_tags = " ".join([f"[Nguồn: {c}]" for c in citations])
+            text = f"{text}\n\n**Nguồn trích dẫn:** {source_tags}"
+        return text
+
+    @classmethod
     async def chat(cls, request: ChatRequest) -> ChatResponse:
         """
         Điều phối chat:
@@ -59,42 +136,67 @@ class ChatService:
         2. Nếu Gemini hết hạn mức hoặc lỗi, tự động chuyển đổi dự phòng (failover) sang AI Local (Ollama).
         3. Nếu cả 2 đều không khả dụng, trả về câu trả lời hỗ trợ tích hợp sẵn.
         """
-        system_instruction = request.system_prompt or DEFAULT_SYSTEM_PROMPT
+        system_instruction = cls._build_effective_system_prompt(request)
+        routing = (request.routing_mode or "").lower()
+
+        # 0. NẾU CHỈ ĐỊNH LOCAL_ONLY
+        if routing == "local_only":
+            if OllamaDocService.is_available():
+                try:
+                    logger.info("[ChatService] Routing local_only: Điều phối câu hỏi sang AI Local (Ollama)...")
+                    ollama_reply, model_used = cls._call_ollama_chat(request, system_instruction)
+                    if ollama_reply and ollama_reply.strip():
+                        citations = cls._extract_citations(ollama_reply, request)
+                        return ChatResponse(
+                            status="success",
+                            reply=ollama_reply.strip(),
+                            provider="ollama",
+                            model=f"{model_used} (Local GPU)",
+                            citations=citations,
+                        )
+                except Exception as ex:
+                    logger.error(f"[ChatService] AI Local (Ollama) phản hồi lỗi: {ex}")
 
         # 1. THỬ GỌI GOOGLE GEMINI TRƯỚC TIÊN
         has_gemini_keys = False
         try:
-            active_key = GeminiKeyManager.get_active_api_key()
+            active_key = request.api_key or GeminiKeyManager.get_active_api_key()
             has_gemini_keys = GeminiDocService._is_valid_google_api_key(active_key)
         except Exception:
             has_gemini_keys = False
 
-        if has_gemini_keys:
+        if has_gemini_keys and routing != "local_only":
             try:
                 gemini_reply, model_used = cls._call_gemini_chat(request, system_instruction)
                 if gemini_reply and gemini_reply.strip():
+                    citations = cls._extract_citations(gemini_reply, request)
+                    formatted_reply = cls._format_reply_with_citations(gemini_reply, citations)
                     return ChatResponse(
                         status="success",
-                        reply=gemini_reply.strip(),
+                        reply=formatted_reply,
                         provider="gemini",
                         model=model_used,
+                        citations=citations,
                     )
             except (GeminiQuotaExceededError, GeminiServiceUnavailableError) as qe:
                 logger.warning(f"[ChatService] Gemini Quota cạn kiệt hoặc dịch vụ gián đoạn ({qe}). Kích hoạt AI Local (Ollama)...")
             except Exception as ex:
                 logger.warning(f"[ChatService] Lỗi khi gọi Gemini ({ex}). Chuyển đổi sang AI Local (Ollama)...")
 
-        # 2. FAILOVER SANG AI LOCAL (OLLAMA TRÊN GPU RTX 4060)
+        # 2. FAILOVER SANG AI LOCAL (OLLAMA TRÊN GPU CỤC BỘ)
         if OllamaDocService.is_available():
             try:
                 logger.info("[ChatService] Đang điều phối câu hỏi sang AI Local (Ollama)...")
                 ollama_reply, model_used = cls._call_ollama_chat(request, system_instruction)
                 if ollama_reply and ollama_reply.strip():
+                    citations = cls._extract_citations(ollama_reply, request)
+                    formatted_reply = cls._format_reply_with_citations(ollama_reply, citations)
                     return ChatResponse(
                         status="success",
-                        reply=ollama_reply.strip(),
+                        reply=formatted_reply,
                         provider="ollama",
                         model=f"{model_used} (Local GPU)",
+                        citations=citations,
                     )
             except Exception as ex:
                 logger.error(f"[ChatService] AI Local (Ollama) phản hồi lỗi: {ex}")
@@ -102,11 +204,14 @@ class ChatService:
         # 3. DỰ PHÒNG TÍCH HỢP (FALLBACK INTELLIGENT HELPER)
         logger.info("[ChatService] Sử dụng bộ phản hồi dự phòng thông minh...")
         fallback_reply = cls._generate_smart_fallback(request.message)
+        citations = cls._extract_citations(fallback_reply, request)
+        formatted_reply = cls._format_reply_with_citations(fallback_reply, citations)
         return ChatResponse(
             status="success",
-            reply=fallback_reply,
+            reply=formatted_reply,
             provider="fallback",
             model="LivingDocs Assistant (Offline Guide)",
+            citations=citations,
         )
 
     @classmethod
@@ -134,7 +239,10 @@ class ChatService:
         )
 
         def _invoke():
-            client = GeminiKeyManager.get_active_client()
+            if request.api_key and GeminiDocService._is_valid_google_api_key(request.api_key):
+                client = genai.Client(api_key=request.api_key.strip().strip("'\""))
+            else:
+                client = GeminiKeyManager.get_active_client()
             last_err = None
 
             for model_name in CHAT_MODELS:
@@ -173,7 +281,9 @@ class ChatService:
     def _call_ollama_chat(cls, request: ChatRequest, system_prompt: str) -> tuple[str, str]:
         """Gọi Ollama Local qua API /api/chat."""
         settings = get_settings()
-        chat_url = f"{settings.ollama_base_url.rstrip('/')}/api/chat"
+        base_url = (request.local_ai_url or settings.ollama_base_url or "http://127.0.0.1:11434").rstrip("/")
+        chat_url = f"{base_url}/api/chat"
+        model_name = request.local_model or settings.ollama_model or "qwen2.5-coder:7b"
 
         messages = [{"role": "system", "content": system_prompt}]
         for h in (request.history or [])[-6:]:
@@ -181,7 +291,7 @@ class ChatService:
         messages.append({"role": "user", "content": request.message})
 
         payload = {
-            "model": settings.ollama_model,
+            "model": model_name,
             "messages": messages,
             "stream": False,
             "options": {
@@ -196,7 +306,7 @@ class ChatService:
             data = resp.json()
 
         reply_text = data.get("message", {}).get("content", "")
-        return reply_text, settings.ollama_model
+        return reply_text, model_name
 
     @classmethod
     def _generate_smart_fallback(cls, message: str) -> str:

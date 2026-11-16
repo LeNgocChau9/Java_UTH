@@ -291,7 +291,7 @@ export default function DashboardPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <Link
-                          href={`/tai-lieu-cua-toi/editor?id=${doc.docId}`}
+                          href={`/tai-lieu-cua-toi/editor?docId=${doc.docId}`}
                           className="font-bold text-sm text-slate-900 hover:text-emerald-700 transition truncate"
                         >
                           {doc.title}
@@ -325,7 +325,7 @@ export default function DashboardPage() {
                       </span>
 
                       <Link
-                        href={`/tai-lieu-cua-toi/editor?id=${doc.docId}`}
+                        href={`/tai-lieu-cua-toi/editor?docId=${doc.docId}`}
                         className="p-1.5 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition"
                         title="Mở trình soạn thảo Markdown"
                       >

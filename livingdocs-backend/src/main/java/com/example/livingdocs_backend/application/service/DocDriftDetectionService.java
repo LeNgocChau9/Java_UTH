@@ -64,6 +64,9 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
     private final RestClient restClient;
     private final String frontendUrl;
 
+    @Autowired(required = false)
+    private AiRuntimeConfigService aiRuntimeConfigService;
+
     public static final String BOT_MARKER = "<!-- livingdocs-drift-alert -->";
 
     @Autowired
@@ -645,7 +648,7 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
 
             String diffSnippet = item.details() != null ? item.details() : "Diff for method: " + item.methodName();
 
-            AiDriftAnalyzeRequestDto request = AiDriftAnalyzeRequestDto.builder()
+            var reqBuilder = AiDriftAnalyzeRequestDto.builder()
                     .code_diff(diffSnippet)
                     .current_doc(currentDoc)
                     .entity_name(item.methodName() != null ? item.methodName() : item.className())
@@ -654,8 +657,16 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
                     .document_id(item.documentId())
                     .repository_id(repositoryId)
                     .pr_number(prNumber)
-                    .commit_hash(diffRequest.head_commit_hash())
-                    .build();
+                    .commit_hash(diffRequest.head_commit_hash());
+            if (aiRuntimeConfigService != null) {
+                var settings = aiRuntimeConfigService.getRawSettings();
+                reqBuilder.cloudProvider(settings.cloudProvider())
+                        .apiKey(settings.apiKey())
+                        .localAiUrl(settings.localAiUrl())
+                        .localModel(settings.localModel())
+                        .routingMode(settings.routingMode());
+            }
+            AiDriftAnalyzeRequestDto request = reqBuilder.build();
 
             return restClient.post()
                     .uri("/v1/drift/analyze")

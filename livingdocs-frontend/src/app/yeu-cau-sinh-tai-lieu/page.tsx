@@ -72,6 +72,7 @@ interface GeneratedDocResult {
   confidenceScore?: number;
   mode?: string;
   provider?: string;
+  model?: string;
 }
 
 type ScopeType = "FILE" | "PACKAGE" | "REPOSITORY";
@@ -198,6 +199,7 @@ function YeuCauSinhContent() {
       : "")
   );
   const [aiProvider, setAiProvider] = useState<"auto" | "ollama" | "gemini">("ollama");
+  const [localModelName, setLocalModelName] = useState<string>("Local Model");
   const [step, setStep] = useState<Step>("idle");
   const [repositories, setRepositories] = useState<RepoItem[]>([]);
   const [templates, setTemplates] = useState<DocTemplateOption[]>([]);
@@ -301,10 +303,13 @@ function YeuCauSinhContent() {
       .finally(() => setLoadingRepositories(false));
     // Nạp cấu hình AI đã lưu từ Settings
     apiClient
-      .get<{ provider?: string }>("/api/v1/settings/ai")
+      .get<{ provider?: string; localModel?: string }>("/api/v1/settings/ai")
       .then((res) => {
         if (res.data?.provider) {
           setAiProvider(res.data.provider as any);
+        }
+        if (res.data?.localModel) {
+          setLocalModelName(res.data.localModel);
         }
       })
       .catch(() => {});
@@ -449,6 +454,7 @@ function YeuCauSinhContent() {
       let linkedCount = selectedFileEntities.length;
       let confidenceScore = 0.95;
       let generatedMode = aiProvider === "ollama" ? "ollama-local" : "real";
+      let generatedModel = localModelName;
 
       // 1. Gọi API Điều phối Sinh tài liệu AI (/api/documents/generate-ai) theo 3 phạm vi (FILE, PACKAGE, REPOSITORY)
       try {
@@ -463,6 +469,7 @@ function YeuCauSinhContent() {
           linkedEntitiesCount?: number;
           status: string;
           mode: string;
+          model?: string;
           generated_content: string;
           confidence_score: number;
         }>("/api/documents/generate-ai", {
@@ -520,6 +527,7 @@ function YeuCauSinhContent() {
           linkedCount = aiRes.data.linkedEntitiesCount || linkedCount;
           confidenceScore = aiRes.data.confidence_score || confidenceScore;
           generatedMode = aiRes.data.mode || generatedMode;
+          if (aiRes.data.model) generatedModel = aiRes.data.model;
         }
       } catch (backendAiErr) {
         console.warn("Backend /generate-ai fallback:", backendAiErr);
@@ -557,6 +565,7 @@ function YeuCauSinhContent() {
           generatedMarkdown = engineData.generated_content;
           confidenceScore = engineData.confidence_score || 0.95;
           generatedMode = engineData.mode || generatedMode;
+          if (engineData.model) generatedModel = engineData.model;
         }
       }
 
@@ -642,6 +651,7 @@ service.initialize();
         confidenceScore: confidenceScore,
         mode: generatedMode,
         provider: aiProvider,
+        model: generatedModel,
       });
 
       setStep("generated");
@@ -723,88 +733,6 @@ service.initialize();
       >
         {/* Left Form & Results */}
         <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-          {/* Banner thông báo tự động điền từ Khoảng trống Tài liệu */}
-          {(paramClassName || paramScope) && (
-            <div
-              style={{
-                padding: "16px 20px",
-                borderRadius: 12,
-                background: "linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%)",
-                border: "1.5px solid #c7d2fe",
-                display: "flex",
-                alignItems: "flex-start",
-                gap: 14,
-                boxShadow: "0 2px 6px rgba(99, 102, 241, 0.08)",
-              }}
-            >
-              <div
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 10,
-                  background: "#4f46e5",
-                  color: "#ffffff",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexShrink: 0,
-                  marginTop: 2,
-                }}
-              >
-                <Sparkles size={20} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: "#312e81" }}>
-                    ✨ Đã tự động điền từ Khoảng trống Tài liệu (Documentation Gap)
-                  </span>
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 700,
-                      color: "#4338ca",
-                      background: "#ffffff",
-                      border: "1px solid #c7d2fe",
-                      padding: "2px 10px",
-                      borderRadius: 12,
-                      letterSpacing: "0.5px",
-                    }}
-                  >
-                    {paramEntityType || "MÃ NGUỒN"}
-                  </span>
-                </div>
-                <p style={{ fontSize: 13, color: "#3730a3", marginTop: 6, margin: "6px 0 0" }}>
-                  Phần tử đích:{" "}
-                  <strong style={{ fontFamily: "monospace", color: "#1e1b4b" }}>
-                    {paramClassName}
-                    {paramMethodName ? `.${paramMethodName}()` : ""}
-                  </strong>
-                  {paramScope && (
-                    <span style={{ marginLeft: 10, color: "#475569" }}>
-                      • Tệp nguồn:{" "}
-                      <code
-                        style={{
-                          fontFamily: "monospace",
-                          background: "#ffffff",
-                          padding: "2px 6px",
-                          borderRadius: 4,
-                          border: "1px solid #e2e8f0",
-                          color: "#0f766e",
-                        }}
-                      >
-                        {paramScope}
-                      </code>
-                    </span>
-                  )}
-                </p>
-                <p style={{ fontSize: 12, color: "#4f46e5", marginTop: 4, margin: "4px 0 0" }}>
-                  Các thông tin kho lưu trữ, tệp nguồn và mẫu tài liệu đã được chọn sẵn tự động. Bạn chỉ cần nhấn nút{" "}
-                  <strong>&quot;Tạo tài liệu bằng AI&quot;</strong> để tiến hành sinh tài liệu kỹ thuật!
-                </p>
-              </div>
-            </div>
-          )}
-
           {/* Form cấu hình */}
           <form onSubmit={handleGenerate}>
             <div className="ld-card" style={{ padding: 0, overflow: "hidden", border: "1px solid #dfe7e4" }}>
@@ -1472,11 +1400,13 @@ service.initialize();
                       Độ tin cậy: {((generatedDoc.confidenceScore || 0.95) * 100).toFixed(0)}%
                     </span>
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded border ${
-                      generatedDoc.mode === "ollama-local"
+                      generatedDoc.mode === "ollama-local" || generatedDoc.provider === "ollama"
                         ? "text-purple-800 bg-purple-100 border-purple-300"
                         : "text-blue-800 bg-blue-100 border-blue-300"
                     }`}>
-                      {generatedDoc.mode === "ollama-local" ? "⚡ Ollama Local (RTX 4060)" : "☁️ Google Gemini"}
+                      {generatedDoc.mode === "ollama-local" || generatedDoc.provider === "ollama"
+                        ? `⚡ Ollama (${generatedDoc.model || localModelName || "Local"})`
+                        : "☁️ Google Gemini"}
                     </span>
                   </div>
                   <h3 style={{ fontSize: 16, fontWeight: 700, color: "#0f766e", margin: 0 }}>

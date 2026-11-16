@@ -20,8 +20,14 @@ from app.schemas.ai_schemas import (
     DocSectionDiffItem,
     ChatRequest,
     ChatResponse,
+    EmbeddingRequest,
+    EmbeddingResponse,
+    RagChunkRequest,
+    RagChunkResponse,
 )
 from app.services.chat_service import ChatService
+from app.services.embedding_service import EmbeddingService
+from app.services.rag_chunk_service import RagChunkService
 from app.services.tree_sitter_ast_parser import parse_multilingual_ast, parse_java_with_treesitter
 from app.services.gemini_doc_service import GeminiDocService
 from app.services.ollama_doc_service import OllamaDocService
@@ -445,7 +451,30 @@ def get_ai_providers():
                 "type": "local-gpu",
                 "base_url": settings.ollama_base_url,
                 "model": settings.ollama_model,
-                "device": "NVIDIA GeForce RTX 4060 Laptop GPU (8GB VRAM)" if ollama_ready else "N/A",
+                "device": "Ollama Local Server" if ollama_ready else "N/A",
             }
         }
     }
+
+
+@router.post(
+    "/embeddings",
+    response_model=EmbeddingResponse,
+    summary="Tạo vector embedding 768 chiều (L2 normalized) với Google Gemini / Ollama failover",
+    description="Ưu tiên Gemini text-embedding-004, tự động failover sang Ollama nomic-embed-text. Đầu ra vector 768 chiều chuẩn hóa L2."
+)
+def create_embeddings(request: EmbeddingRequest):
+    """Tạo vector embedding chuẩn hóa L2 768 chiều cho văn bản tài liệu hoặc truy vấn."""
+    return EmbeddingService.create_embedding(request)
+
+
+@router.post(
+    "/rag/chunk",
+    response_model=RagChunkResponse,
+    summary="Phân đoạn ngữ nghĩa tài liệu (Markdown Headings) hoặc mã nguồn (Code AST Entities)",
+    description="Markdown: chia nhỏ theo Heading hierarchy (#, ##, ###) và paragraph nếu vượt quá max_chunk_size. Code: bóc tách class/method theo Tree-sitter AST."
+)
+def chunk_rag(request: RagChunkRequest):
+    """Phân đoạn ngữ nghĩa tài liệu Markdown hoặc mã nguồn để đánh chỉ mục vector RAG."""
+    return RagChunkService.chunk(request)
+

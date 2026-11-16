@@ -117,6 +117,33 @@ export const documentService = {
   },
 
   /**
+   * Chuyển trạng thái tài liệu từ REJECTED về DRAFT (Mở lại bản nháp)
+   */
+  async reopenDraft(docId: number): Promise<DocumentItem> {
+    try {
+      const res = await apiClient.post<DocumentItem>(`/api/documents/${docId}/reopen-draft`);
+      return res.data;
+    } catch {
+      // Fallback: cập nhật status thành DRAFT qua PUT /api/documents/{docId}
+      const res = await apiClient.put<DocumentItem>(`/api/documents/${docId}`, {
+        status: "DRAFT",
+      });
+      return res.data;
+    }
+  },
+
+  /**
+   * Xuất bản tài liệu lên GitHub repository
+   */
+  async publishToGitHub(
+    docId: number,
+    data?: { githubToken?: string; commitMessage?: string }
+  ): Promise<{ status: string; message?: string; commitSha?: string; targetPath?: string }> {
+    const res = await apiClient.post(`/api/documents/${docId}/publish-to-github`, data || {});
+    return res.data;
+  },
+
+  /**
    * Developer gửi tài liệu lên quy trình phê duyệt
    */
   async submitForReview(docId: number): Promise<DocumentItem> {

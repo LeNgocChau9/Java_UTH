@@ -386,10 +386,10 @@ public class AuthServiceImpl implements AuthServicePort {
     }
 
     private UserNotificationPreferencesDto toNotificationPreferencesDto(UserNotificationPreferenceEntity entity) {
-        boolean emailEnabled = entity.getEmailEnabled() == null || entity.getEmailEnabled();
-        boolean reviewEnabled = entity.getReviewEnabled() == null || entity.getReviewEnabled();
-        boolean documentEnabled = entity.getDocumentEnabled() == null || entity.getDocumentEnabled();
-        boolean githubEnabled = entity.getGithubEnabled() == null || entity.getGithubEnabled();
+        boolean emailEnabled = entity.isEmailEnabled();
+        boolean reviewEnabled = entity.isReviewEnabled();
+        boolean documentEnabled = entity.isDocumentEnabled();
+        boolean githubEnabled = entity.isGithubEnabled();
 
         return UserNotificationPreferencesDto.builder()
                 .userId(entity.getUserId())

@@ -59,4 +59,10 @@ public class DocumentResponse {
 
     @Schema(description = "Các đề mục bắt buộc còn thiếu")
     private java.util.List<String> missingHeadings;
+
+    @Schema(description = "Đoạn trích dẫn nổi bật (highlighted snippet) từ tìm kiếm toàn văn hoặc ngữ nghĩa")
+    private String snippet;
+
+    @Schema(description = "Điểm tương đồng kết hợp (Hybrid Score) từ 0.0 đến 1.0")
+    private Double similarityScore;
 }

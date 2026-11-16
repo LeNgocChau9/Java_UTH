@@ -19,6 +19,25 @@ public record AiSettingDto(
         @JsonAlias({"localModel", "local_model"})
         String localModel,
 
-        @JsonAlias({"routingMode", "routing_mode", "provider"})
-        String routingMode
-) {}
+        @JsonAlias({"routingMode", "routing_mode"})
+        String routingMode,
+
+        @JsonAlias({"provider"})
+        String provider
+) {
+    /**
+     * Đồng bộ giá trị provider ("ollama", "gemini", hoặc "auto") tương thích với yeu-cau-sinh-tai-lieu
+     */
+    public String resolveProvider() {
+        if (provider != null && !provider.isBlank()) {
+            return provider;
+        }
+        if ("local_only".equalsIgnoreCase(routingMode) || "ollama".equalsIgnoreCase(routingMode)) {
+            return "ollama";
+        }
+        if ("cloud_only".equalsIgnoreCase(routingMode) || "gemini".equalsIgnoreCase(routingMode)) {
+            return "gemini";
+        }
+        return "auto";
+    }
+}

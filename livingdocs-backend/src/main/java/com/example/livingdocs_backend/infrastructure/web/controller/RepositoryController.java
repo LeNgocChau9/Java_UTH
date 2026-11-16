@@ -51,6 +51,9 @@ public class RepositoryController {
     private final SpringDataCommitRepository commitRepository;
     private final CodeIndexServicePort codeIndexService;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.example.livingdocs_backend.application.port.DocumentServicePort documentServicePort;
+
     @PostMapping
     @Operation(summary = "Thêm kho lưu trữ GitHub vào Workspace")
     public ResponseEntity<RepoResponse> addRepository(
@@ -70,6 +73,18 @@ public class RepositoryController {
         Long userId = userPrincipal != null ? userPrincipal.getUserId() : 1L;
         SyncRepoResponse response = repositoryService.syncRepository(id, token, userId);
         return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/{id}/reindex")
+    @Operation(summary = "Tái lập chỉ mục Vector RAG cho kho lưu trữ", description = "Băm nhỏ và lập vector embedding cho toàn bộ tài liệu PUBLISHED và thực thể code trong repository.")
+    public ResponseEntity<java.util.Map<String, Object>> reindexRepository(@PathVariable("id") Long id) {
+        int indexed = documentServicePort != null ? documentServicePort.reindexRepository(id) : 0;
+        java.util.Map<String, Object> resp = new java.util.HashMap<>();
+        resp.put("status", "SUCCESS");
+        resp.put("repositoryId", id);
+        resp.put("indexedChunks", indexed);
+        resp.put("message", "Đã tái lập chỉ mục Vector RAG thành công cho kho lưu trữ.");
+        return ResponseEntity.ok(resp);
     }
 
     @GetMapping
