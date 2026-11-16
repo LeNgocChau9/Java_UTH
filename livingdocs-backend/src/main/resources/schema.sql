@@ -731,5 +731,24 @@ ALTER TABLE IF EXISTS public.workspaces
     ON UPDATE NO ACTION
     ON DELETE RESTRICT;
 
+-- 8. Default Seed Data: Roles & Default Workspace
+INSERT INTO public.roles (role_id, role_name, description)
+VALUES
+    (1, 'ADMIN', 'Quản trị viên toàn hệ thống'),
+    (2, 'TECH_LEAD', 'Trưởng nhóm kỹ thuật'),
+    (3, 'MANAGER', 'Quản lý phê duyệt xuất bản (Cấp 2)'),
+    (4, 'STAFF', 'Nhân viên thẩm định tài liệu (Cấp 1)'),
+    (5, 'DEVELOPER', 'Lập trình viên biên soạn tài liệu')
+ON CONFLICT (role_name) DO UPDATE SET
+    description = EXCLUDED.description;
+
+INSERT INTO public.users (user_id, email, password_hash, full_name, status)
+VALUES (1, 'system@livingdocs.internal', '$2a$10$7EqJtq98hPqEX7fNZaFWoOHi7BfG9O6d/2.N9x7BfG9O6d/2.N9x7', 'LivingDocs System Admin', 'ACTIVE')
+ON CONFLICT (user_id) DO NOTHING;
+
+INSERT INTO public.workspaces (workspace_id, name, slug, owner_id)
+VALUES (1, 'LivingDocs Core Workspace', 'livingdocs-core', 1)
+ON CONFLICT (workspace_id) DO NOTHING;
+
 COMMIT;
 

@@ -43,10 +43,15 @@ public class UserRepositoryAdapter implements UserRepositoryPort {
         return toDomain(savedEntity);
     }
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
     @Override
     @Transactional
     public void assignDefaultWorkspaceRole(Long userId) {
-        springDataUserRepository.assignWorkspaceRole(DEFAULT_WORKSPACE_ID, userId, DEFAULT_ROLE_ID);
+        ensureRoleAndDefaultWorkspace("DEVELOPER", userId);
+        Long roleId = springDataUserRepository.findRoleIdByName("DEVELOPER").orElse(DEFAULT_ROLE_ID);
+        springDataUserRepository.assignWorkspaceRole(DEFAULT_WORKSPACE_ID, userId, roleId);
     }
 
     @Override
@@ -68,9 +73,34 @@ public class UserRepositoryAdapter implements UserRepositoryPort {
     @Override
     @Transactional
     public void changeRole(Long userId, String roleName) {
-        Long roleId = springDataUserRepository.findRoleIdByName(roleName)
+        String normalizedRole = com.example.livingdocs_backend.domain.model.RoleType.fromString(roleName).getRawName();
+        ensureRoleAndDefaultWorkspace(normalizedRole, userId);
+        Long roleId = springDataUserRepository.findRoleIdByName(normalizedRole)
                 .orElseThrow(() -> new com.example.livingdocs_backend.domain.exception.AuthenticationException("Vai trò không hợp lệ: " + roleName));
         springDataUserRepository.upsertWorkspaceMemberRole(DEFAULT_WORKSPACE_ID, userId, roleId);
+    }
+
+    private void ensureRoleAndDefaultWorkspace(String roleName, Long fallbackOwnerId) {
+        if (jdbcTemplate == null) {
+            return;
+        }
+        try {
+            jdbcTemplate.update("""
+                INSERT INTO roles (role_name, description)
+                VALUES (?, ?)
+                ON CONFLICT (role_name) DO NOTHING
+            """, roleName, "Vai trò hệ thống " + roleName);
+
+            Long ownerId = fallbackOwnerId != null ? fallbackOwnerId : 1L;
+            jdbcTemplate.update("""
+                INSERT INTO workspaces (workspace_id, name, slug, owner_id)
+                SELECT 1, 'LivingDocs Core Workspace', 'livingdocs-core',
+                       COALESCE((SELECT MIN(user_id) FROM users), ?)
+                WHERE NOT EXISTS (SELECT 1 FROM workspaces WHERE workspace_id = 1)
+                ON CONFLICT (workspace_id) DO NOTHING
+            """, ownerId);
+        } catch (Exception ignored) {
+        }
     }
 
     private User toDomain(UserEntity entity) {

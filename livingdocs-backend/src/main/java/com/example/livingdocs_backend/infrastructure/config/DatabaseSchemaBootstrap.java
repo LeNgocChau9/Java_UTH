@@ -47,6 +47,41 @@ public class DatabaseSchemaBootstrap implements ApplicationRunner {
                 )
             """);
 
+            // Tự động seed 5 vai trò chuẩn (ADMIN, TECH_LEAD, MANAGER, STAFF, DEVELOPER) và default workspace (workspace_id = 1)
+            // để không bao giờ lỗi khi đổi role sang STAFF hoặc gán thành viên trên DB mới
+            try {
+                jdbcTemplate.execute("""
+                    INSERT INTO roles (role_id, role_name, description)
+                    VALUES
+                        (1, 'ADMIN', 'Quản trị viên toàn hệ thống'),
+                        (2, 'TECH_LEAD', 'Trưởng nhóm kỹ thuật'),
+                        (3, 'MANAGER', 'Quản lý phê duyệt xuất bản (Cấp 2)'),
+                        (4, 'STAFF', 'Nhân viên thẩm định tài liệu (Cấp 1)'),
+                        (5, 'DEVELOPER', 'Lập trình viên biên soạn tài liệu')
+                    ON CONFLICT (role_name) DO UPDATE SET
+                        description = EXCLUDED.description
+                """);
+
+                // Đảm bảo có ít nhất 1 user để làm owner cho workspace mặc định nếu bảng users hoàn toàn trống
+                jdbcTemplate.execute("""
+                    INSERT INTO users (user_id, email, password_hash, full_name, status)
+                    SELECT 1, 'system@livingdocs.internal', '$2a$10$7EqJtq98hPqEX7fNZaFWoOHi7BfG9O6d/2.N9x7BfG9O6d/2.N9x7', 'LivingDocs System Admin', 'ACTIVE'
+                    WHERE NOT EXISTS (SELECT 1 FROM users)
+                    ON CONFLICT DO NOTHING
+                """);
+
+                jdbcTemplate.execute("""
+                    INSERT INTO workspaces (workspace_id, name, slug, owner_id)
+                    SELECT 1, 'LivingDocs Core Workspace', 'livingdocs-core',
+                           COALESCE((SELECT MIN(user_id) FROM users), 1)
+                    WHERE NOT EXISTS (SELECT 1 FROM workspaces WHERE workspace_id = 1)
+                    ON CONFLICT (workspace_id) DO NOTHING
+                """);
+                log.info("[DatabaseSchemaBootstrap] Đã kiểm tra và tự động seed roles (DEVELOPER, STAFF, MANAGER, TECH_LEAD, ADMIN) và default workspace thành công.");
+            } catch (Exception seedEx) {
+                log.debug("[DatabaseSchemaBootstrap] Bỏ qua seed roles/workspaces: {}", seedEx.getMessage());
+            }
+
             jdbcTemplate.execute("""
                 INSERT INTO doc_templates (id, name, type, structure_json, is_default)
                 VALUES

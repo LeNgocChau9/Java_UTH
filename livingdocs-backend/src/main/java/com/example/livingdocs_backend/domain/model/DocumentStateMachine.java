@@ -39,7 +39,7 @@ public class DocumentStateMachine {
     private static final Map<TransitionKey, Set<String>> ALLOWED_ROLES_PER_TRANSITION = new HashMap<>();
 
     // Các vai trò mặc định
-    private static final Set<String> LEVEL_1_REVIEWERS = Set.of("STAFF", "MANAGER", "ADMIN");
+    public static final Set<String> LEVEL_1_REVIEWERS = Set.of("STAFF", "MANAGER", "TECH_LEAD", "ADMIN");
     private static final Set<String> LEVEL_2_REVIEWERS = Set.of("MANAGER", "ADMIN");
     private static final Set<String> ALL_ACTIVE_ACTORS = Set.of("DEVELOPER", "STAFF", "MANAGER", "TECH_LEAD", "ADMIN", "AI");
 
