@@ -25,4 +25,7 @@ public interface SpringDataJobRepository extends JpaRepository<JobEntity, Long> 
 
     @Query("SELECT j FROM JobEntity j WHERE j.status IN :statuses ORDER BY j.updatedAt DESC")
     List<JobEntity> findDeadLetterJobsWithLimit(@Param("statuses") Collection<JobStatus> statuses, Pageable pageable);
+
+    @Query("SELECT j FROM JobEntity j ORDER BY j.createdAt DESC, j.jobId DESC")
+    List<JobEntity> findRecentJobsWithLimit(Pageable pageable);
 }

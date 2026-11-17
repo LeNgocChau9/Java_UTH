@@ -1,5 +1,7 @@
 package com.example.livingdocs_backend.application.dto.job;
 
+import com.example.livingdocs_backend.application.dto.ai.AiDocGenerateRequestDto;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -11,6 +13,7 @@ import java.util.List;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class AiDocGenJobPayload {
     private Long repositoryId;
     private Long documentId;
@@ -20,4 +23,5 @@ public class AiDocGenJobPayload {
     private String actorRole;
     private List<Long> entityIds;
     private String prompt;
+    private AiDocGenerateRequestDto fullRequest;
 }

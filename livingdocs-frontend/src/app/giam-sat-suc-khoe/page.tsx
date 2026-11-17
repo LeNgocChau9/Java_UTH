@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import {
   Activity,
@@ -16,7 +16,12 @@ import {
   Loader2,
   ChevronDown,
   ChevronUp,
+  Terminal,
+  RotateCcw,
+  X,
+  Layers,
 } from "lucide-react";
+import { jobService, type JobProgressItem } from "@/services/jobService";
 
 interface ServiceItem {
   id: string;
@@ -115,6 +120,53 @@ export default function GiamSatSucKhoePage() {
   // Chỉ mở rộng khi người dùng nhấn xem nguyên nhân lỗi (mặc định đóng)
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
 
+  // Live Jobs & Dead-Letter Queue (DLQ) Monitor state
+  const [jobs, setJobs] = useState<JobProgressItem[]>([]);
+  const [dlqJobs, setDlqJobs] = useState<JobProgressItem[]>([]);
+  const [loadingJobs, setLoadingJobs] = useState<boolean>(false);
+  const [jobFilter, setJobFilter] = useState<"ALL" | "ACTIVE" | "COMPLETED" | "DLQ">("ALL");
+  const [retryingJobId, setRetryingJobId] = useState<number | null>(null);
+  const [stacktraceJob, setStacktraceJob] = useState<JobProgressItem | null>(null);
+  const [jobNotice, setJobNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  const loadJobs = useCallback(async () => {
+    setLoadingJobs(true);
+    try {
+      const [allRes, dlqRes] = await Promise.all([
+        jobService.listJobs(undefined, 50).catch(() => [] as JobProgressItem[]),
+        jobService.getDeadLetterJobs(50).catch(() => [] as JobProgressItem[]),
+      ]);
+      setJobs(allRes);
+      setDlqJobs(dlqRes);
+    } finally {
+      setLoadingJobs(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadJobs();
+  }, [loadJobs]);
+
+  const handleRetryJob = async (jobId: number) => {
+    setRetryingJobId(jobId);
+    setJobNotice(null);
+    try {
+      await jobService.retryDeadLetterJob(jobId);
+      setJobNotice({
+        type: "success",
+        text: `Đã đẩy lại Job #${jobId} vào hàng đợi QUEUED để Worker thực thi lại.`,
+      });
+      await loadJobs();
+    } catch {
+      setJobNotice({
+        type: "error",
+        text: `Không thể thử lại Job #${jobId}. Vui lòng kiểm tra kết nối backend.`,
+      });
+    } finally {
+      setRetryingJobId(null);
+    }
+  };
+
   const toggleExpand = (id: string) => {
     setExpandedCardId((prev) => (prev === id ? null : id));
   };
@@ -124,6 +176,7 @@ export default function GiamSatSucKhoePage() {
     const start = performance.now();
 
     try {
+      void loadJobs();
       const res = await fetch("/api/health", { cache: "no-store" }).catch(() => null);
       const elapsed = Math.max(4, Math.round(performance.now() - start));
       const nowStr = new Date().toLocaleTimeString("vi-VN");
@@ -175,6 +228,43 @@ export default function GiamSatSucKhoePage() {
 
   const offlineServices = services.filter((s) => s.status === "offline");
   const onlineCount = services.length - offlineServices.length;
+
+  const displayedJobs =
+    jobFilter === "DLQ"
+      ? dlqJobs
+      : jobs.filter((job) => {
+          const st = (job.status || "").toUpperCase();
+          if (jobFilter === "ACTIVE") {
+            return st === "QUEUED" || st === "PENDING" || st === "PROCESSING" || st === "RUNNING";
+          }
+          if (jobFilter === "COMPLETED") {
+            return st === "COMPLETED" || st === "DONE";
+          }
+          return true;
+        });
+
+  const formatJobTime = (value?: string | null) => {
+    if (!value) return "—";
+    try {
+      return new Date(value).toLocaleString("vi-VN");
+    } catch {
+      return value;
+    }
+  };
+
+  const getJobStatusStyle = (status: string) => {
+    const st = (status || "").toUpperCase();
+    if (st === "COMPLETED" || st === "DONE") {
+      return { bg: "#ecfdf5", color: "#047857", border: "#a7f3d0" };
+    }
+    if (st === "FAILED" || st === "DEAD") {
+      return { bg: "#fef2f2", color: "#b91c1c", border: "#fecaca" };
+    }
+    if (st === "PROCESSING" || st === "RUNNING") {
+      return { bg: "#eff6ff", color: "#1d4ed8", border: "#bfdbfe" };
+    }
+    return { bg: "#fffbeb", color: "#b45309", border: "#fde68a" };
+  };
 
   return (
     <AppShell>
@@ -358,6 +448,365 @@ export default function GiamSatSucKhoePage() {
           );
         })}
       </div>
+
+      {/* Live Jobs & Dead-Letter Queue (DLQ) Monitor */}
+      <div className="ld-card" style={{ border: "1px solid #e2e8f0", marginBottom: 24 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: 12,
+            marginBottom: 14,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Layers size={16} style={{ color: "#0f766e" }} />
+            <div>
+              <h2 style={{ fontSize: 15, fontWeight: 700, color: "#0f172a", margin: 0 }}>
+                Hàng đợi Tác vụ ngầm &amp; Dead-Letter Queue (DLQ) Monitor
+              </h2>
+              <p style={{ fontSize: 12, color: "#64748b", margin: "2px 0 0" }}>
+                Theo dõi các tác vụ AI_DOC_GEN, REPO_SCAN, DRIFT_ANALYZE và khôi phục job lỗi
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            {(
+              [
+                { key: "ALL", label: `Tất cả Tác vụ (${jobs.length})` },
+                { key: "ACTIVE", label: "Đang xử lý" },
+                { key: "COMPLETED", label: "Hoàn tất" },
+                { key: "DLQ", label: `Lỗi (DLQ: ${dlqJobs.length})` },
+              ] as const
+            ).map((tab) => {
+              const active = jobFilter === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setJobFilter(tab.key)}
+                  className="ld-btn ld-btn-sm"
+                  style={{
+                    background: active ? "#0f766e" : "#f8fafc",
+                    color: active ? "#ffffff" : "#475569",
+                    border: `1px solid ${active ? "#0f766e" : "#cbd5e1"}`,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => void loadJobs()}
+              disabled={loadingJobs}
+              className="ld-btn ld-btn-secondary ld-btn-sm"
+              style={{ gap: 5, cursor: loadingJobs ? "not-allowed" : "pointer" }}
+            >
+              <RefreshCw size={12} className={loadingJobs ? "animate-spin" : ""} />
+              Tải lại
+            </button>
+          </div>
+        </div>
+
+        {jobNotice && (
+          <div
+            style={{
+              marginBottom: 12,
+              padding: "8px 12px",
+              borderRadius: 6,
+              fontSize: 12.5,
+              fontWeight: 500,
+              background: jobNotice.type === "success" ? "#ecfdf5" : "#fef2f2",
+              color: jobNotice.type === "success" ? "#047857" : "#b91c1c",
+              border: `1px solid ${jobNotice.type === "success" ? "#a7f3d0" : "#fecaca"}`,
+            }}
+          >
+            {jobNotice.text}
+          </div>
+        )}
+
+        <div style={{ overflowX: "auto", border: "1px solid #e2e8f0", borderRadius: 8 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, textAlign: "left" }}>
+            <thead>
+              <tr style={{ background: "#f8fafc", borderBottom: "1.5px solid #e2e8f0", color: "#475569" }}>
+                <th style={{ padding: "10px 12px", fontWeight: 600 }}>Job ID</th>
+                <th style={{ padding: "10px 12px", fontWeight: 600 }}>Loại tác vụ</th>
+                <th style={{ padding: "10px 12px", fontWeight: 600 }}>Trạng thái</th>
+                <th style={{ padding: "10px 12px", fontWeight: 600 }}>Lần thử</th>
+                <th style={{ padding: "10px 12px", fontWeight: 600 }}>Thời gian tạo</th>
+                <th style={{ padding: "10px 12px", fontWeight: 600 }}>Thử lại tiếp theo</th>
+                <th style={{ padding: "10px 12px", fontWeight: 600, textAlign: "right" }}>Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loadingJobs && displayedJobs.length === 0 ? (
+                <tr>
+                  <td colSpan={7} style={{ padding: 24, textAlign: "center", color: "#64748b" }}>
+                    Đang tải danh sách tác vụ nền...
+                  </td>
+                </tr>
+              ) : displayedJobs.length === 0 ? (
+                <tr>
+                  <td colSpan={7} style={{ padding: 24, textAlign: "center", color: "#64748b" }}>
+                    Chưa có tác vụ nền nào trong bộ lọc này.
+                  </td>
+                </tr>
+              ) : (
+                displayedJobs.map((job) => {
+                  const badge = getJobStatusStyle(job.status);
+                  const isFailedOrDead =
+                    (job.status || "").toUpperCase() === "FAILED" ||
+                    (job.status || "").toUpperCase() === "DEAD" ||
+                    Boolean(job.deadLetter) ||
+                    Boolean(job.isDeadLetter);
+
+                  return (
+                    <tr key={job.jobId} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                      <td style={{ padding: "10px 12px", fontFamily: "monospace", fontWeight: 700, color: "#0f172a" }}>
+                        #{job.jobId}
+                      </td>
+                      <td style={{ padding: "10px 12px", fontFamily: "monospace", fontWeight: 600, color: "#0f766e" }}>
+                        {job.type}
+                      </td>
+                      <td style={{ padding: "10px 12px" }}>
+                        <span
+                          style={{
+                            display: "inline-block",
+                            fontSize: 11,
+                            fontWeight: 700,
+                            padding: "2px 8px",
+                            borderRadius: 9999,
+                            background: badge.bg,
+                            color: badge.color,
+                            border: `1px solid ${badge.border}`,
+                          }}
+                        >
+                          {job.status}
+                        </span>
+                      </td>
+                      <td style={{ padding: "10px 12px", fontFamily: "monospace", color: "#334155" }}>
+                        {job.attempts ?? 0}/{job.maxAttempts ?? 3}
+                      </td>
+                      <td style={{ padding: "10px 12px", color: "#475569", fontSize: 12 }}>
+                        {formatJobTime(job.createdAt)}
+                      </td>
+                      <td style={{ padding: "10px 12px", color: "#475569", fontSize: 12 }}>
+                        {formatJobTime(job.nextRetryAt)}
+                      </td>
+                      <td style={{ padding: "10px 12px", textAlign: "right" }}>
+                        <div style={{ display: "inline-flex", gap: 6, justifyContent: "flex-end" }}>
+                          {job.lastError && (
+                            <button
+                              type="button"
+                              onClick={() => setStacktraceJob(job)}
+                              className="ld-btn ld-btn-secondary ld-btn-sm"
+                              style={{ gap: 4, fontSize: 11.5, cursor: "pointer" }}
+                            >
+                              <Terminal size={12} />
+                              Xem Stacktrace
+                            </button>
+                          )}
+                          {isFailedOrDead && (
+                            <button
+                              type="button"
+                              onClick={() => void handleRetryJob(job.jobId)}
+                              disabled={retryingJobId === job.jobId}
+                              className="ld-btn ld-btn-primary ld-btn-sm"
+                              style={{
+                                gap: 4,
+                                fontSize: 11.5,
+                                background: "#0f766e",
+                                cursor: retryingJobId === job.jobId ? "not-allowed" : "pointer",
+                              }}
+                            >
+                              {retryingJobId === job.jobId ? (
+                                <Loader2 size={12} className="animate-spin" />
+                              ) : (
+                                <RotateCcw size={12} />
+                              )}
+                              Thử lại (Retry)
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Modal xem chi tiết Stacktrace lỗi của Job */}
+      {stacktraceJob && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15, 23, 42, 0.5)",
+            zIndex: 60,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+          onClick={() => setStacktraceJob(null)}
+        >
+          <div
+            className="ld-card"
+            style={{
+              width: "100%",
+              maxWidth: 780,
+              maxHeight: "85vh",
+              display: "flex",
+              flexDirection: "column",
+              background: "#ffffff",
+              borderRadius: 10,
+              border: "1px solid #cbd5e1",
+              padding: 0,
+              overflow: "hidden",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                padding: "14px 18px",
+                borderBottom: "1px solid #e2e8f0",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                background: "#fef2f2",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <AlertTriangle size={16} style={{ color: "#b91c1c" }} />
+                <h3 style={{ fontSize: 14, fontWeight: 700, color: "#991b1b", margin: 0 }}>
+                  Chi tiết Stacktrace lỗi — Job #{stacktraceJob.jobId} ({stacktraceJob.type})
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStacktraceJob(null)}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  color: "#64748b",
+                  padding: 4,
+                }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{ padding: 18, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "flex", gap: 16, fontSize: 12, color: "#475569", flexWrap: "wrap" }}>
+                <span>
+                  Trạng thái: <strong style={{ color: "#b91c1c" }}>{stacktraceJob.status}</strong>
+                </span>
+                <span>
+                  Số lần thử: <strong>{stacktraceJob.attempts}/{stacktraceJob.maxAttempts}</strong>
+                </span>
+                <span>
+                  Cập nhật lúc: <strong>{formatJobTime(stacktraceJob.updatedAt)}</strong>
+                </span>
+              </div>
+
+              <div>
+                <p style={{ fontSize: 12, fontWeight: 700, color: "#334155", margin: "0 0 6px" }}>
+                  Stacktrace / Thông báo lỗi (lastError):
+                </p>
+                <pre
+                  style={{
+                    margin: 0,
+                    padding: 14,
+                    borderRadius: 8,
+                    background: "#0f172a",
+                    color: "#f8fafc",
+                    fontFamily: "monospace",
+                    fontSize: 11.5,
+                    lineHeight: 1.55,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    maxHeight: 320,
+                    overflowY: "auto",
+                  }}
+                >
+                  {stacktraceJob.lastError || "Không có thông tin stacktrace."}
+                </pre>
+              </div>
+
+              {stacktraceJob.payloadJson && (
+                <div>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "#334155", margin: "0 0 6px" }}>
+                    Payload đầu vào (payloadJson):
+                  </p>
+                  <pre
+                    style={{
+                      margin: 0,
+                      padding: 12,
+                      borderRadius: 8,
+                      background: "#f8fafc",
+                      border: "1px solid #e2e8f0",
+                      color: "#334155",
+                      fontFamily: "monospace",
+                      fontSize: 11.5,
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      maxHeight: 160,
+                      overflowY: "auto",
+                    }}
+                  >
+                    {stacktraceJob.payloadJson}
+                  </pre>
+                </div>
+              )}
+            </div>
+
+            <div
+              style={{
+                padding: "12px 18px",
+                borderTop: "1px solid #e2e8f0",
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: 8,
+                background: "#f8fafc",
+              }}
+            >
+              {(stacktraceJob.status === "FAILED" || stacktraceJob.status === "DEAD") && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const id = stacktraceJob.jobId;
+                    setStacktraceJob(null);
+                    void handleRetryJob(id);
+                  }}
+                  className="ld-btn ld-btn-primary ld-btn-sm"
+                  style={{ background: "#0f766e", gap: 6, cursor: "pointer" }}
+                >
+                  <RotateCcw size={13} />
+                  Thử lại (Retry)
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setStacktraceJob(null)}
+                className="ld-btn ld-btn-secondary ld-btn-sm"
+                style={{ cursor: "pointer" }}
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Logs section */}
       <div className="ld-card" style={{ border: "1px solid #e2e8f0" }}>

@@ -4,15 +4,20 @@ import com.example.livingdocs_backend.application.dto.DriftAlertActionRequest;
 import com.example.livingdocs_backend.application.dto.DriftAlertResponse;
 import com.example.livingdocs_backend.application.dto.drift.ManualDriftAnalysisRequestDto;
 import com.example.livingdocs_backend.application.dto.drift.ManualDriftAnalysisResponseDto;
+import com.example.livingdocs_backend.application.dto.job.DriftAnalyzeJobPayload;
 import com.example.livingdocs_backend.application.port.DocDriftDetectionServicePort;
+import com.example.livingdocs_backend.application.port.JobQueue;
 import com.example.livingdocs_backend.application.service.DriftAlertService;
+import com.example.livingdocs_backend.domain.model.Job;
 import com.example.livingdocs_backend.infrastructure.sse.SseNotificationService;
 import com.example.livingdocs_backend.infrastructure.security.UserPrincipal;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,6 +30,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentChangeAlertEntity;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/drift-alerts")
@@ -37,14 +43,44 @@ public class DriftAlertController {
     private final SseNotificationService sseNotificationService;
     private final DocDriftDetectionServicePort docDriftDetectionService;
 
+    @Autowired(required = false)
+    private JobQueue jobQueue;
+
+    @Autowired(required = false)
+    private ObjectMapper objectMapper;
+
     @PostMapping("/manual-analyze")
     @Operation(
             summary = "Kích hoạt thủ công phân tích sai lệch tài liệu theo PR hoặc Tài liệu cụ thể",
-            description = "Cho phép Developer hoặc Tech Lead chủ động bấm nút yêu cầu phân tích sự thay đổi và trôi dạt tài liệu cho một Pull Request hoặc một tài liệu cụ thể bất kỳ lúc nào mà không cần chờ Webhook."
+            description = "Cho phép Developer hoặc Tech Lead chủ động bấm nút yêu cầu phân tích sự thay đổi và trôi dạt tài liệu. Hỗ trợ ?async=true để chạy nền và trả về jobId."
     )
-    public ResponseEntity<ManualDriftAnalysisResponseDto> triggerManualAnalyze(
-            @RequestBody ManualDriftAnalysisRequestDto request
+    public ResponseEntity<?> triggerManualAnalyze(
+            @RequestBody ManualDriftAnalysisRequestDto request,
+            @RequestParam(name = "async", defaultValue = "false") boolean async,
+            @AuthenticationPrincipal UserPrincipal actor
     ) {
+        if (async && jobQueue != null) {
+            try {
+                DriftAnalyzeJobPayload payload = DriftAnalyzeJobPayload.builder()
+                        .mode(request != null ? request.getMode() : null)
+                        .repositoryId(request != null ? request.getRepositoryId() : null)
+                        .prNumber(request != null ? request.getPrNumber() : null)
+                        .documentId(request != null ? request.getDocumentId() : null)
+                        .actorId(actor != null ? actor.getUserId() : null)
+                        .build();
+                ObjectMapper mapper = objectMapper != null ? objectMapper : new ObjectMapper();
+                Job job = jobQueue.enqueue(Job.TYPE_DRIFT_ANALYZE, mapper.writeValueAsString(payload));
+                return ResponseEntity.accepted().body(Map.of(
+                        "jobId", job.getJobId(),
+                        "status", job.getStatus().name(),
+                        "type", job.getType(),
+                        "streamUrl", "/api/jobs/" + job.getJobId() + "/stream",
+                        "message", "Đã đẩy tác vụ phân tích sai lệch tài liệu vào hàng đợi xử lý nền."
+                ));
+            } catch (Exception ex) {
+                throw new RuntimeException("Không thể đẩy tác vụ DRIFT_ANALYZE vào hàng đợi: " + ex.getMessage(), ex);
+            }
+        }
         ManualDriftAnalysisResponseDto response = docDriftDetectionService.triggerManualDriftAnalysis(request);
         return ResponseEntity.ok(response);
     }
