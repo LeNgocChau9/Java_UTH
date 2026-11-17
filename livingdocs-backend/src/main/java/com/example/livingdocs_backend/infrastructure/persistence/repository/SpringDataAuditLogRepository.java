@@ -18,5 +18,5 @@ public interface SpringDataAuditLogRepository extends JpaRepository<AuditLogEnti
 
     @Modifying
     @Query("DELETE FROM AuditLogEntity a WHERE a.createdAt < :cutoff")
-    long deleteByCreatedAtBefore(@Param("cutoff") Instant cutoff);
+    int deleteByCreatedAtBefore(@Param("cutoff") Instant cutoff);
 }
