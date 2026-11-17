@@ -2,6 +2,7 @@ package com.example.livingdocs_backend.application.service;
 
 import com.example.livingdocs_backend.application.dto.*;
 import com.example.livingdocs_backend.application.port.AuditServicePort;
+import com.example.livingdocs_backend.application.port.ChangelogServicePort;
 import com.example.livingdocs_backend.application.port.DocumentServicePort;
 import com.example.livingdocs_backend.application.port.PrMergeBlockingServicePort;
 import com.example.livingdocs_backend.application.port.ReviewServicePort;
@@ -13,34 +14,41 @@ import com.example.livingdocs_backend.domain.model.DocumentStateMachine;
 import com.example.livingdocs_backend.domain.model.DocumentStatus;
 import com.example.livingdocs_backend.domain.model.DocumentVersion;
 import com.example.livingdocs_backend.domain.model.Review;
+import com.example.livingdocs_backend.domain.model.User;
 import com.example.livingdocs_backend.domain.repository.DocumentRepositoryPort;
 import com.example.livingdocs_backend.domain.repository.DocumentVersionRepositoryPort;
 import com.example.livingdocs_backend.domain.repository.ReviewRepositoryPort;
+import com.example.livingdocs_backend.domain.repository.UserRepositoryPort;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.AdminSettingEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocTemplate;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.ManagerApprovalDelegationEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.ManagerApprovalPolicyEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.ReviewCommentEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.DocTemplateRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataAdminSettingRepository;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataManagerApprovalDelegationRepository;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataManagerApprovalPolicyRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataReviewCommentRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ReviewServiceImpl implements ReviewServicePort {
 
     private final DocumentRepositoryPort documentRepositoryPort;
@@ -55,6 +63,84 @@ public class ReviewServiceImpl implements ReviewServicePort {
     private final SpringDataAdminSettingRepository adminSettingRepository;
     private final DocTemplateRepository docTemplateRepository;
     private final ObjectMapper objectMapper;
+
+    private ChangelogServicePort changelogServicePort;
+    private SpringDataManagerApprovalPolicyRepository managerApprovalPolicyRepository;
+    private SpringDataManagerApprovalDelegationRepository managerApprovalDelegationRepository;
+    private UserRepositoryPort userRepositoryPort;
+
+    @Autowired
+    public ReviewServiceImpl(
+            DocumentRepositoryPort documentRepositoryPort,
+            DocumentVersionRepositoryPort documentVersionRepositoryPort,
+            ReviewRepositoryPort reviewRepositoryPort,
+            SpringDataRepositoryRepository repositoryRepository,
+            AuditServicePort auditServicePort,
+            TemplateStructureCheck templateStructureCheck,
+            DocumentServicePort documentServicePort,
+            SpringDataReviewCommentRepository reviewCommentRepository,
+            PrMergeBlockingServicePort prMergeBlockingService,
+            SpringDataAdminSettingRepository adminSettingRepository,
+            DocTemplateRepository docTemplateRepository,
+            ObjectMapper objectMapper,
+            @Autowired(required = false) ChangelogServicePort changelogServicePort,
+            @Autowired(required = false) SpringDataManagerApprovalPolicyRepository managerApprovalPolicyRepository,
+            @Autowired(required = false) SpringDataManagerApprovalDelegationRepository managerApprovalDelegationRepository,
+            @Autowired(required = false) UserRepositoryPort userRepositoryPort
+    ) {
+        this.documentRepositoryPort = documentRepositoryPort;
+        this.documentVersionRepositoryPort = documentVersionRepositoryPort;
+        this.reviewRepositoryPort = reviewRepositoryPort;
+        this.repositoryRepository = repositoryRepository;
+        this.auditServicePort = auditServicePort;
+        this.templateStructureCheck = templateStructureCheck;
+        this.documentServicePort = documentServicePort;
+        this.reviewCommentRepository = reviewCommentRepository;
+        this.prMergeBlockingService = prMergeBlockingService;
+        this.adminSettingRepository = adminSettingRepository;
+        this.docTemplateRepository = docTemplateRepository;
+        this.objectMapper = objectMapper;
+        this.changelogServicePort = changelogServicePort;
+        this.managerApprovalPolicyRepository = managerApprovalPolicyRepository;
+        this.managerApprovalDelegationRepository = managerApprovalDelegationRepository;
+        this.userRepositoryPort = userRepositoryPort;
+    }
+
+    public ReviewServiceImpl(
+            DocumentRepositoryPort documentRepositoryPort,
+            DocumentVersionRepositoryPort documentVersionRepositoryPort,
+            ReviewRepositoryPort reviewRepositoryPort,
+            SpringDataRepositoryRepository repositoryRepository,
+            AuditServicePort auditServicePort,
+            TemplateStructureCheck templateStructureCheck,
+            DocumentServicePort documentServicePort,
+            SpringDataReviewCommentRepository reviewCommentRepository,
+            PrMergeBlockingServicePort prMergeBlockingService,
+            SpringDataAdminSettingRepository adminSettingRepository,
+            DocTemplateRepository docTemplateRepository,
+            ObjectMapper objectMapper
+    ) {
+        this(documentRepositoryPort, documentVersionRepositoryPort, reviewRepositoryPort,
+                repositoryRepository, auditServicePort, templateStructureCheck, documentServicePort,
+                reviewCommentRepository, prMergeBlockingService, adminSettingRepository,
+                docTemplateRepository, objectMapper, null, null, null, null);
+    }
+
+    public void setChangelogServicePort(ChangelogServicePort changelogServicePort) {
+        this.changelogServicePort = changelogServicePort;
+    }
+
+    public void setManagerApprovalPolicyRepository(SpringDataManagerApprovalPolicyRepository managerApprovalPolicyRepository) {
+        this.managerApprovalPolicyRepository = managerApprovalPolicyRepository;
+    }
+
+    public void setManagerApprovalDelegationRepository(SpringDataManagerApprovalDelegationRepository managerApprovalDelegationRepository) {
+        this.managerApprovalDelegationRepository = managerApprovalDelegationRepository;
+    }
+
+    public void setUserRepositoryPort(UserRepositoryPort userRepositoryPort) {
+        this.userRepositoryPort = userRepositoryPort;
+    }
 
     public static final String KEY_APPROVAL_POLICIES = "approval_policies";
     public static final String KEY_MANAGER_DELEGATIONS = "manager_delegations";
@@ -134,16 +220,29 @@ public class ReviewServiceImpl implements ReviewServicePort {
                 ? actorEmail
                 : ("STAFF".equalsIgnoreCase(effectiveRole) ? "staff@livingdocs.internal" : effectiveRole);
 
-        Review reviewRecord = Review.builder()
-                .docId(savedDoc.getDocId())
-                .versionId(latestVersion != null ? latestVersion.getVersionId() : null)
-                .reviewer(reviewerIdentity)
-                .generalComment(comment)
-                .result((targetStatus == DocumentStatus.UNDER_REVIEW_MANAGER || targetStatus == DocumentStatus.PUBLISHED) ? "APPROVED" : "REJECTED")
-                .createdAt(Instant.now())
-                .build();
+        String staffResult = (targetStatus == DocumentStatus.UNDER_REVIEW_MANAGER || targetStatus == DocumentStatus.PUBLISHED)
+                ? "APPROVED" : "REJECTED";
+        Optional<Review> pendingOpt = reviewRepositoryPort.findFirstByDocIdAndResultOrderByCreatedAtDesc(savedDoc.getDocId(), "PENDING");
+        Review reviewRecord;
+        if (pendingOpt != null && pendingOpt.isPresent()) {
+            reviewRecord = pendingOpt.get();
+            reviewRecord.setVersionId(latestVersion != null ? latestVersion.getVersionId() : reviewRecord.getVersionId());
+            reviewRecord.setReviewer(reviewerIdentity);
+            reviewRecord.setGeneralComment(comment);
+            reviewRecord.setResult(staffResult);
+            reviewRecord.setCreatedAt(Instant.now());
+        } else {
+            reviewRecord = Review.builder()
+                    .docId(savedDoc.getDocId())
+                    .versionId(latestVersion != null ? latestVersion.getVersionId() : null)
+                    .reviewer(reviewerIdentity)
+                    .generalComment(comment)
+                    .result(staffResult)
+                    .createdAt(Instant.now())
+                    .build();
+        }
         Review savedReview = reviewRepositoryPort.save(reviewRecord);
-        saveSectionComments(savedReview.getReviewId(), request);
+        saveSectionComments(savedReview.getReviewId(), savedDoc.getDocId(), request, effectiveRole, reviewerIdentity);
 
         // 5. Ghi nhận Audit Log
         if (auditServicePort != null) {
@@ -158,6 +257,22 @@ public class ReviewServiceImpl implements ReviewServicePort {
                 auditServicePort.recordDocumentApproval(actorId, savedDoc.getDocId());
             }
             auditServicePort.recordDocumentAction(actorId, savedDoc.getDocId(), action, detailMsg);
+        }
+
+        // 5.1 Ghi nhận Changelog
+        if (changelogServicePort != null) {
+            String summary = (nextStatus == DocumentStatus.REJECTED)
+                    ? "Staff đã từ chối tài liệu. Lý do: " + (comment.isEmpty() ? "Không có lý do chi tiết" : comment)
+                    : (nextStatus == DocumentStatus.PUBLISHED
+                            ? "Staff đã phê duyệt xuất bản trực tiếp theo chính sách 1 cấp (PUBLISHED). " + (comment.isEmpty() ? "" : "Ghi chú: " + comment)
+                            : "Staff đã phê duyệt tài liệu cấp 1 (chuyển sang Manager). " + (comment.isEmpty() ? "" : "Ghi chú: " + comment));
+            changelogServicePort.logChange(
+                    savedDoc.getDocId(),
+                    latestVersion != null ? latestVersion.getVersionId() : null,
+                    actorId,
+                    effectiveRole,
+                    summary.trim()
+            );
         }
 
         // Tự động mở khóa PR Checks trên GitHub nếu tài liệu xuất bản trực tiếp
@@ -261,7 +376,17 @@ public class ReviewServiceImpl implements ReviewServicePort {
             commitSha = documentServicePort.commitMarkdownToDefaultBranch(savedDoc.getDocId(), actorId, approver);
         }
 
-        // 4. Ghi nhận Audit Log nếu đã phê duyệt xuất bản
+        // 4. Trích xuất ghi chú/lý do trước khi ghi Audit Log & Changelog
+        String rawComment = extractComment(
+                request != null ? request.getComment() : null,
+                request != null ? request.getNote() : null,
+                targetStatus == DocumentStatus.PUBLISHED
+                        ? "Manager phê duyệt xuất bản tài liệu chính thức lên hệ thống."
+                        : "Manager trả về yêu cầu chỉnh sửa lại nội dung."
+        );
+        String reasonSuffix = !rawComment.isBlank() ? rawComment : "Cần rà soát và hiệu chỉnh lại.";
+
+        // Ghi nhận Audit Log
         if (auditServicePort != null) {
             if (nextStatus == DocumentStatus.PUBLISHED) {
                 String publishedDetail = "Manager phê duyệt xuất bản tài liệu chính thức lên hệ thống (PUBLISHED)."
@@ -277,12 +402,35 @@ public class ReviewServiceImpl implements ReviewServicePort {
                     auditServicePort.recordDocumentAction(actorId, savedDoc.getDocId(), AuditAction.DOCUMENT_APPROVED, delegationMsg);
                 }
             } else if (nextStatus == DocumentStatus.UNDER_REVIEW_STAFF) {
-                String returnDetail = "Manager yêu cầu sửa đổi (trả lại Staff)." + (delegationMsg != null ? " [" + delegationMsg + "]" : "");
+                String returnDetail = "Manager yêu cầu sửa đổi (trả lại Staff). Lý do: " + reasonSuffix
+                        + (delegationMsg != null ? " [" + delegationMsg + "]" : "");
                 auditServicePort.recordDocumentAction(actorId, savedDoc.getDocId(), AuditAction.DOCUMENT_RETURNED_STAFF, returnDetail);
             } else {
-                String rejectDetail = "Manager đã từ chối tài liệu." + (delegationMsg != null ? " [" + delegationMsg + "]" : "");
+                String rejectDetail = "Manager đã từ chối tài liệu. Lý do: "
+                        + (!rawComment.isBlank() ? rawComment : "Tài liệu không đạt chuẩn xuất bản.")
+                        + (delegationMsg != null ? " [" + delegationMsg + "]" : "");
                 auditServicePort.recordDocumentAction(actorId, savedDoc.getDocId(), AuditAction.DOCUMENT_REJECTED, rejectDetail);
             }
+        }
+
+        // 4.1 Ghi nhận Changelog
+        if (changelogServicePort != null) {
+            String managerSummary = (nextStatus == DocumentStatus.PUBLISHED)
+                    ? "Manager phê duyệt xuất bản tài liệu chính thức lên hệ thống (PUBLISHED)."
+                    : (nextStatus == DocumentStatus.UNDER_REVIEW_STAFF
+                            ? "Manager yêu cầu sửa đổi (trả lại Staff). Lý do: " + reasonSuffix
+                            : "Manager đã từ chối tài liệu. Lý do: " + (!rawComment.isBlank() ? rawComment : "Không đạt chuẩn xuất bản."));
+            if (delegationMsg != null && !delegationMsg.isBlank()) {
+                managerSummary = managerSummary + " [" + delegationMsg + "]";
+            }
+            DocumentVersion latestVer = documentVersionRepositoryPort.findLatestByDocId(savedDoc.getDocId()).orElse(null);
+            changelogServicePort.logChange(
+                    savedDoc.getDocId(),
+                    latestVer != null ? latestVer.getVersionId() : null,
+                    actorId,
+                    effectiveRole,
+                    managerSummary.trim()
+            );
         }
 
         // Tự động mở khóa PR Checks trên GitHub (chuyển sang màu xanh hợp lệ) khi tài liệu được phê duyệt
@@ -298,13 +446,7 @@ public class ReviewServiceImpl implements ReviewServicePort {
         }
 
         // 5. Chuẩn hóa ghi chú và lưu bản ghi vào bảng reviews
-        String comment = extractComment(
-                request != null ? request.getComment() : null,
-                request != null ? request.getNote() : null,
-                targetStatus == DocumentStatus.PUBLISHED
-                        ? "Manager phê duyệt xuất bản tài liệu chính thức lên hệ thống."
-                        : "Manager trả về yêu cầu chỉnh sửa lại nội dung."
-        );
+        String comment = rawComment;
         if (delegationMsg != null) {
             comment = comment + "\n[" + delegationMsg + "]";
         }
@@ -548,7 +690,11 @@ public class ReviewServiceImpl implements ReviewServicePort {
     }
 
     private void saveSectionComments(Long reviewId, StaffActionRequest request) {
-        if (reviewCommentRepository == null || reviewId == null || request == null || request.getSectionComments() == null) {
+        saveSectionComments(reviewId, null, request, "STAFF", "staff@livingdocs.internal");
+    }
+
+    private void saveSectionComments(Long reviewId, Long docId, StaffActionRequest request, String authorRole, String authorEmail) {
+        if (reviewCommentRepository == null || request == null || request.getSectionComments() == null) {
             return;
         }
         for (StaffActionRequest.SectionComment item : request.getSectionComments()) {
@@ -561,8 +707,14 @@ public class ReviewServiceImpl implements ReviewServicePort {
             }
             reviewCommentRepository.save(ReviewCommentEntity.builder()
                     .reviewId(reviewId)
+                    .docId(docId)
                     .textSegment(segment)
                     .detailedComment(item.getDetailedComment().trim())
+                    .status("OPEN")
+                    .authorRole(authorRole != null ? authorRole : "STAFF")
+                    .authorEmail(authorEmail)
+                    .createdAt(Instant.now())
+                    .updatedAt(Instant.now())
                     .build());
         }
     }
@@ -615,12 +767,14 @@ public class ReviewServiceImpl implements ReviewServicePort {
                 }
             }
 
-            String rawResult = r.getResult() != null ? r.getResult().toUpperCase() : "APPROVED";
+            String rawResult = r.getResult() != null ? r.getResult().toUpperCase() : "PENDING";
             String action = "approved";
             if (rawResult.contains("REJECT") || rawResult.contains("DECLINE")) {
                 action = "rejected";
-            } else if (rawResult.contains("RETURN")) {
+            } else if (rawResult.contains("RETURN") || rawResult.contains("CHANGE")) {
                 action = "returned";
+            } else if (rawResult.contains("PENDING")) {
+                action = "pending";
             }
 
             list.add(ReviewHistoryItemResponse.builder()
@@ -674,6 +828,26 @@ public class ReviewServiceImpl implements ReviewServicePort {
     @Override
     @Transactional(readOnly = true)
     public List<ApprovalPolicyDto> getApprovalPolicies() {
+        if (managerApprovalPolicyRepository != null) {
+            try {
+                List<ManagerApprovalPolicyEntity> entities = managerApprovalPolicyRepository.findByWorkspaceId(1L);
+                if (entities != null && !entities.isEmpty()) {
+                    List<ApprovalPolicyDto> list = new ArrayList<>();
+                    for (ManagerApprovalPolicyEntity e : entities) {
+                        list.add(ApprovalPolicyDto.builder()
+                                .docType(e.getDocumentType())
+                                .tiers(e.getTiers() != null ? e.getTiers() : (Boolean.TRUE.equals(e.getApprovalRequired()) ? 2 : 1))
+                                .description(e.getDescription())
+                                .updatedAt(e.getUpdatedAt() != null ? e.getUpdatedAt().toString() : Instant.now().toString())
+                                .updatedBy(e.getUpdatedByEmail() != null ? e.getUpdatedByEmail() : (e.getUpdatedBy() != null ? String.valueOf(e.getUpdatedBy()) : "SYSTEM"))
+                                .build());
+                    }
+                    return list;
+                }
+            } catch (Exception ex) {
+                log.debug("[ReviewServiceImpl] Lỗi đọc từ managerApprovalPolicyRepository, fallback sang adminSettingRepository: {}", ex.getMessage());
+            }
+        }
         if (adminSettingRepository == null) {
             return defaultApprovalPolicies();
         }
@@ -708,26 +882,55 @@ public class ReviewServiceImpl implements ReviewServicePort {
                 p.setTiers(2);
             }
         }
-        try {
-            String json = objectMapper.writeValueAsString(policies);
-            AdminSettingEntity entity = adminSettingRepository.findById(KEY_APPROVAL_POLICIES)
-                    .map(existing -> {
-                        existing.setSettingValue(json);
-                        existing.setUpdatedBy(actorId);
-                        existing.setUpdatedAt(now);
-                        return existing;
-                    })
-                    .orElseGet(() -> AdminSettingEntity.builder()
-                            .settingKey(KEY_APPROVAL_POLICIES)
-                            .settingValue(json)
-                            .updatedBy(actorId)
-                            .updatedAt(now)
-                            .build());
-            adminSettingRepository.save(entity);
-            log.info("[ReviewServiceImpl] Đã cập nhật {} chính sách phê duyệt bởi {}", policies.size(), updater);
-        } catch (Exception e) {
-            log.error("[ReviewServiceImpl] Lỗi lưu cấu hình approval_policies: {}", e.getMessage(), e);
-            throw new RuntimeException("Không thể lưu cấu hình chính sách phê duyệt: " + e.getMessage(), e);
+
+        // 1. Lưu vào bảng quan hệ manager_approval_policies
+        if (managerApprovalPolicyRepository != null) {
+            try {
+                for (ApprovalPolicyDto p : policies) {
+                    String dt = normalizeDocType(p.getDocType());
+                    int tiers = p.getTiers() != null && p.getTiers() == 1 ? 1 : 2;
+                    ManagerApprovalPolicyEntity entity = managerApprovalPolicyRepository
+                            .findByWorkspaceIdAndDocumentType(1L, dt)
+                            .orElseGet(() -> ManagerApprovalPolicyEntity.builder()
+                                    .workspaceId(1L)
+                                    .documentType(dt)
+                                    .build());
+                    entity.setTiers(tiers);
+                    entity.setApprovalRequired(tiers > 1);
+                    entity.setDescription(p.getDescription());
+                    entity.setUpdatedBy(actorId);
+                    entity.setUpdatedByEmail(updater);
+                    entity.setUpdatedAt(now);
+                    managerApprovalPolicyRepository.save(entity);
+                }
+            } catch (Exception ex) {
+                log.warn("[ReviewServiceImpl] Lỗi lưu vào managerApprovalPolicyRepository: {}", ex.getMessage());
+            }
+        }
+
+        // 2. Dual-write sang admin_settings JSON blob để tương thích ngược
+        if (adminSettingRepository != null) {
+            try {
+                String json = objectMapper.writeValueAsString(policies);
+                AdminSettingEntity entity = adminSettingRepository.findById(KEY_APPROVAL_POLICIES)
+                        .map(existing -> {
+                            existing.setSettingValue(json);
+                            existing.setUpdatedBy(actorId);
+                            existing.setUpdatedAt(now);
+                            return existing;
+                        })
+                        .orElseGet(() -> AdminSettingEntity.builder()
+                                .settingKey(KEY_APPROVAL_POLICIES)
+                                .settingValue(json)
+                                .updatedBy(actorId)
+                                .updatedAt(now)
+                                .build());
+                adminSettingRepository.save(entity);
+                log.info("[ReviewServiceImpl] Đã cập nhật {} chính sách phê duyệt bởi {}", policies.size(), updater);
+            } catch (Exception e) {
+                log.error("[ReviewServiceImpl] Lỗi lưu cấu hình approval_policies: {}", e.getMessage(), e);
+                throw new RuntimeException("Không thể lưu cấu hình chính sách phê duyệt: " + e.getMessage(), e);
+            }
         }
         return policies;
     }
@@ -735,6 +938,33 @@ public class ReviewServiceImpl implements ReviewServicePort {
     @Override
     @Transactional(readOnly = true)
     public List<ManagerDelegationDto> getManagerDelegations() {
+        if (managerApprovalDelegationRepository != null) {
+            try {
+                List<ManagerApprovalDelegationEntity> entities = managerApprovalDelegationRepository.findByWorkspaceId(1L);
+                if (entities != null && !entities.isEmpty()) {
+                    List<ManagerDelegationDto> list = new ArrayList<>();
+                    for (ManagerApprovalDelegationEntity e : entities) {
+                        list.add(ManagerDelegationDto.builder()
+                                .id(String.valueOf(e.getDelegationId()))
+                                .delegatorId(e.getDelegatorId() != null && e.getDelegatorId() > 0 ? e.getDelegatorId() : null)
+                                .delegatorEmail(e.getDelegatorEmail())
+                                .delegatorName(e.getDelegatorName())
+                                .delegateeId(e.getDelegateId() != null && e.getDelegateId() > 0 ? e.getDelegateId() : null)
+                                .delegateeEmail(e.getDelegateeEmail())
+                                .delegateeName(e.getDelegateeName())
+                                .fromDate(e.getStartsAt() != null ? e.getStartsAt().toString() : null)
+                                .toDate(e.getEndsAt() != null ? e.getEndsAt().toString() : null)
+                                .reason(e.getReason())
+                                .active(e.getActive() != null ? e.getActive() : true)
+                                .createdAt(e.getCreatedAt() != null ? e.getCreatedAt().toString() : null)
+                                .build());
+                    }
+                    return list;
+                }
+            } catch (Exception ex) {
+                log.debug("[ReviewServiceImpl] Lỗi đọc managerApprovalDelegationRepository, fallback sang adminSettingRepository: {}", ex.getMessage());
+            }
+        }
         if (adminSettingRepository == null) {
             return new ArrayList<>();
         }
@@ -766,50 +996,311 @@ public class ReviewServiceImpl implements ReviewServicePort {
         if (delegation.getActive() == null) {
             delegation.setActive(true);
         }
+        if ((delegation.getDelegatorEmail() == null || delegation.getDelegatorEmail().isBlank())
+                && actorEmail != null && !actorEmail.isBlank()) {
+            delegation.setDelegatorEmail(actorEmail.trim());
+        }
+
+        // Resolve delegatorId & delegateeId via UserRepositoryPort when null (never default delegateId to 1L)
+        if (userRepositoryPort != null) {
+            if (delegation.getDelegatorEmail() != null && !delegation.getDelegatorEmail().isBlank()) {
+                Optional<User> delegatorOpt = userRepositoryPort.findByEmail(delegation.getDelegatorEmail().trim());
+                if (delegatorOpt != null && delegatorOpt.isPresent()) {
+                    User u = delegatorOpt.get();
+                    if (delegation.getDelegatorId() == null) {
+                        delegation.setDelegatorId(u.getUserId());
+                    }
+                    if ((delegation.getDelegatorName() == null || delegation.getDelegatorName().isBlank())
+                            && u.getFullName() != null && !u.getFullName().isBlank()) {
+                        delegation.setDelegatorName(u.getFullName());
+                    }
+                }
+            }
+            if (delegation.getDelegateeEmail() != null && !delegation.getDelegateeEmail().isBlank()) {
+                Optional<User> delegateeOpt = userRepositoryPort.findByEmail(delegation.getDelegateeEmail().trim());
+                if (delegateeOpt != null && delegateeOpt.isPresent()) {
+                    User u = delegateeOpt.get();
+                    if (delegation.getDelegateeId() == null) {
+                        delegation.setDelegateeId(u.getUserId());
+                    }
+                    if ((delegation.getDelegateeName() == null || delegation.getDelegateeName().isBlank())
+                            && u.getFullName() != null && !u.getFullName().isBlank()) {
+                        delegation.setDelegateeName(u.getFullName());
+                    }
+                }
+            }
+        }
         if (delegation.getDelegatorId() == null && actorId != null) {
             delegation.setDelegatorId(actorId);
         }
-        if (delegation.getDelegatorEmail() == null && actorEmail != null) {
-            delegation.setDelegatorEmail(actorEmail);
-        }
         if (delegation.getDelegatorName() == null || delegation.getDelegatorName().isBlank()) {
-            delegation.setDelegatorName("Quản lý A");
+            delegation.setDelegatorName(delegation.getDelegatorEmail() != null && !delegation.getDelegatorEmail().isBlank()
+                    ? delegation.getDelegatorEmail() : "Quản lý ủy quyền");
         }
         if (delegation.getDelegateeName() == null || delegation.getDelegateeName().isBlank()) {
-            delegation.setDelegateeName("Quản lý B");
-        }
-        if (delegation.getFromDate() != null && delegation.getToDate() != null
-                && delegation.getFromDate().compareTo(delegation.getToDate()) > 0) {
-            throw new IllegalArgumentException("Ngày kết thúc phải sau ngày bắt đầu.");
+            delegation.setDelegateeName(delegation.getDelegateeEmail() != null && !delegation.getDelegateeEmail().isBlank()
+                    ? delegation.getDelegateeEmail() : "Quản lý nhận ủy quyền");
         }
 
-        List<ManagerDelegationDto> current = getManagerDelegations();
-        List<ManagerDelegationDto> updated = new ArrayList<>(current);
-        updated.add(delegation);
+        // Normalize blank fromDate / toDate (open-ended toDate allowed)
+        if (delegation.getFromDate() != null && delegation.getFromDate().isBlank()) {
+            delegation.setFromDate(null);
+        }
+        if (delegation.getToDate() != null && delegation.getToDate().isBlank()) {
+            delegation.setToDate(null);
+        }
+        if (delegation.getFromDate() != null && delegation.getToDate() != null) {
+            String fromClean = delegation.getFromDate().trim();
+            String toClean = delegation.getToDate().trim();
+            if (fromClean.length() >= 10 && toClean.length() >= 10) {
+                try {
+                    LocalDate fromLd = LocalDate.parse(fromClean.substring(0, 10));
+                    LocalDate toLd = LocalDate.parse(toClean.substring(0, 10));
+                    if (fromLd.isAfter(toLd)) {
+                        throw new IllegalArgumentException("Ngày kết thúc phải sau ngày bắt đầu.");
+                    }
+                } catch (IllegalArgumentException ex) {
+                    throw ex;
+                } catch (Exception ex) {
+                    if (fromClean.compareTo(toClean) > 0) {
+                        throw new IllegalArgumentException("Ngày kết thúc phải sau ngày bắt đầu.");
+                    }
+                }
+            } else if (fromClean.compareTo(toClean) > 0) {
+                throw new IllegalArgumentException("Ngày kết thúc phải sau ngày bắt đầu.");
+            }
+        }
 
-        try {
-            String json = objectMapper.writeValueAsString(updated);
-            AdminSettingEntity entity = adminSettingRepository.findById(KEY_MANAGER_DELEGATIONS)
+        // 1. Lưu vào bảng quan hệ manager_approval_delegations
+        if (managerApprovalDelegationRepository != null) {
+            try {
+                Instant start = parseDate(delegation.getFromDate(), true);
+                Instant end = parseDate(delegation.getToDate(), false);
+                ManagerApprovalDelegationEntity entity = ManagerApprovalDelegationEntity.builder()
+                        .workspaceId(1L)
+                        .delegatorId(delegation.getDelegatorId())
+                        .delegateId(delegation.getDelegateeId())
+                        .delegatorName(delegation.getDelegatorName())
+                        .delegatorEmail(delegation.getDelegatorEmail())
+                        .delegateeName(delegation.getDelegateeName())
+                        .delegateeEmail(delegation.getDelegateeEmail())
+                        .active(delegation.getActive())
+                        .startsAt(start)
+                        .endsAt(end)
+                        .reason(delegation.getReason())
+                        .createdAt(now)
+                        .build();
+                ManagerApprovalDelegationEntity saved = managerApprovalDelegationRepository.save(entity);
+                if (saved != null && saved.getDelegationId() != null) {
+                    delegation.setId(String.valueOf(saved.getDelegationId()));
+                }
+            } catch (Exception ex) {
+                log.warn("[ReviewServiceImpl] Lỗi lưu vào managerApprovalDelegationRepository: {}", ex.getMessage());
+            }
+        }
+
+        // 2. Dual-write sang admin_settings JSON blob (đọc trực tiếp từ adminSettingRepository & chống trùng theo id)
+        if (adminSettingRepository != null) {
+            List<ManagerDelegationDto> current = adminSettingRepository.findById(KEY_MANAGER_DELEGATIONS)
                     .map(existing -> {
-                        existing.setSettingValue(json);
-                        existing.setUpdatedBy(actorId);
-                        existing.setUpdatedAt(now);
-                        return existing;
+                        try {
+                            return objectMapper.readValue(existing.getSettingValue(), new TypeReference<List<ManagerDelegationDto>>() {});
+                        } catch (Exception e) {
+                            return new ArrayList<ManagerDelegationDto>();
+                        }
                     })
-                    .orElseGet(() -> AdminSettingEntity.builder()
-                            .settingKey(KEY_MANAGER_DELEGATIONS)
-                            .settingValue(json)
-                            .updatedBy(actorId)
-                            .updatedAt(now)
-                            .build());
-            adminSettingRepository.save(entity);
-            log.info("[ReviewServiceImpl] Đã lưu ủy quyền mới: {} ủy quyền cho {}",
-                    delegation.getDelegatorName(), delegation.getDelegateeName());
-        } catch (Exception e) {
-            log.error("[ReviewServiceImpl] Lỗi lưu manager_delegations: {}", e.getMessage(), e);
-            throw new RuntimeException("Không thể lưu ủy quyền phê duyệt: " + e.getMessage(), e);
+                    .orElseGet(ArrayList::new);
+            List<ManagerDelegationDto> updated = new ArrayList<>();
+            updated.add(delegation);
+            for (ManagerDelegationDto existingItem : current) {
+                if (existingItem != null && (delegation.getId() == null || !delegation.getId().equals(existingItem.getId()))) {
+                    updated.add(existingItem);
+                }
+            }
+
+            try {
+                String json = objectMapper.writeValueAsString(updated);
+                AdminSettingEntity entity = adminSettingRepository.findById(KEY_MANAGER_DELEGATIONS)
+                        .map(existing -> {
+                            existing.setSettingValue(json);
+                            existing.setUpdatedBy(actorId);
+                            existing.setUpdatedAt(now);
+                            return existing;
+                        })
+                        .orElseGet(() -> AdminSettingEntity.builder()
+                                .settingKey(KEY_MANAGER_DELEGATIONS)
+                                .settingValue(json)
+                                .updatedBy(actorId)
+                                .updatedAt(now)
+                                .build());
+                adminSettingRepository.save(entity);
+                log.info("[ReviewServiceImpl] Đã lưu ủy quyền mới: {} ủy quyền cho {}",
+                        delegation.getDelegatorName(), delegation.getDelegateeName());
+            } catch (Exception e) {
+                log.error("[ReviewServiceImpl] Lỗi lưu manager_delegations: {}", e.getMessage(), e);
+                throw new RuntimeException("Không thể lưu ủy quyền phê duyệt: " + e.getMessage(), e);
+            }
         }
         return delegation;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ReviewCommentDto> getDocumentComments(Long docId, String status) {
+        if (reviewCommentRepository == null || docId == null) {
+            return new ArrayList<>();
+        }
+        List<ReviewCommentEntity> entities;
+        if (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status)) {
+            entities = reviewCommentRepository.findByDocIdAndStatusOrderByCreatedAtAsc(docId, status.trim().toUpperCase());
+        } else {
+            entities = reviewCommentRepository.findByDocIdOrderByCreatedAtAsc(docId);
+        }
+        List<ReviewCommentDto> dtoList = new ArrayList<>();
+        for (ReviewCommentEntity e : entities) {
+            dtoList.add(toReviewCommentDto(e));
+        }
+        return dtoList;
+    }
+
+    @Override
+    @Transactional
+    public ReviewCommentDto addDocumentComment(Long docId, CreateReviewCommentRequest request, Long actorId, String actorRole, String actorEmail) {
+        if (docId == null) {
+            throw new IllegalArgumentException("Document ID không được để trống");
+        }
+        if (request == null || request.getDetailedComment() == null || request.getDetailedComment().isBlank()) {
+            throw new IllegalArgumentException("Nội dung nhận xét không được để trống");
+        }
+        String email = (actorEmail != null && !actorEmail.isBlank())
+                ? actorEmail.trim()
+                : (request.getAuthorEmail() != null && !request.getAuthorEmail().isBlank()
+                        ? request.getAuthorEmail().trim()
+                        : "staff@livingdocs.internal");
+        String role = (actorRole != null && !actorRole.isBlank())
+                ? actorRole.trim().toUpperCase()
+                : (request.getAuthorRole() != null && !request.getAuthorRole().isBlank()
+                        ? request.getAuthorRole().trim().toUpperCase()
+                        : "STAFF");
+
+        String segment = request.getTextSegment() != null ? request.getTextSegment().trim() : "";
+        if (segment.length() > 255) {
+            segment = segment.substring(0, 255);
+        }
+
+        ReviewCommentEntity entity = ReviewCommentEntity.builder()
+                .docId(docId)
+                .reviewId(request.getReviewId())
+                .textSegment(segment)
+                .detailedComment(request.getDetailedComment().trim())
+                .status("OPEN")
+                .authorEmail(email)
+                .authorRole(role)
+                .createdAt(Instant.now())
+                .updatedAt(Instant.now())
+                .build();
+
+        ReviewCommentEntity saved = reviewCommentRepository.save(entity);
+        log.info("[ReviewServiceImpl] Đã thêm comment #{} cho doc #{}, author: {}", saved.getCommentId(), docId, email);
+        return toReviewCommentDto(saved);
+    }
+
+    @Override
+    @Transactional
+    public ReviewCommentDto updateCommentStatus(Long docId, Long commentId, UpdateReviewCommentRequest request, Long actorId, String actorRole, String actorEmail) {
+        if (docId == null) {
+            throw new IllegalArgumentException("Document ID không được để trống");
+        }
+        if (commentId == null) {
+            throw new IllegalArgumentException("Comment ID không được để trống");
+        }
+        ReviewCommentEntity entity = reviewCommentRepository.findById(commentId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy comment ID: " + commentId));
+        if (entity.getDocId() == null || !entity.getDocId().equals(docId)) {
+            throw new IllegalArgumentException("Nhận xét #" + commentId + " không thuộc tài liệu #" + docId);
+        }
+        if (request != null) {
+            if (request.getStatus() != null && !request.getStatus().isBlank()) {
+                String normalizedStatus = request.getStatus().trim().toUpperCase();
+                if (!"OPEN".equals(normalizedStatus) && !"RESOLVED".equals(normalizedStatus)) {
+                    throw new IllegalArgumentException("Trạng thái nhận xét không hợp lệ (chỉ chấp nhận OPEN hoặc RESOLVED)");
+                }
+                entity.setStatus(normalizedStatus);
+            }
+            if (request.getDetailedComment() != null && !request.getDetailedComment().isBlank()) {
+                entity.setDetailedComment(request.getDetailedComment().trim());
+            }
+        }
+        entity.setUpdatedAt(Instant.now());
+        ReviewCommentEntity saved = reviewCommentRepository.save(entity);
+        log.info("[ReviewServiceImpl] Đã cập nhật comment #{} (doc #{}) -> status: {}", commentId, docId, saved.getStatus());
+        return toReviewCommentDto(saved);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<WorkspaceManagerResponse> getWorkspaceManagers() {
+        List<WorkspaceManagerResponse> result = new ArrayList<>();
+        if (userRepositoryPort == null) {
+            return result;
+        }
+        List<User> users = userRepositoryPort.findAll();
+        for (User u : users) {
+            if (u.getStatus() != null && !"ACTIVE".equalsIgnoreCase(u.getStatus())) {
+                continue;
+            }
+            Set<com.example.livingdocs_backend.domain.model.RoleType> roles = u.getRoles();
+            if (roles != null) {
+                Set<String> roleNames = new java.util.HashSet<>();
+                boolean isEligible = false;
+                for (com.example.livingdocs_backend.domain.model.RoleType r : roles) {
+                    String name = r != null ? r.getRawName() : "";
+                    roleNames.add(name);
+                    if ("MANAGER".equalsIgnoreCase(name) || "ADMIN".equalsIgnoreCase(name) || "TECH_LEAD".equalsIgnoreCase(name)) {
+                        isEligible = true;
+                    }
+                }
+                if (isEligible) {
+                    result.add(WorkspaceManagerResponse.builder()
+                            .userId(u.getUserId())
+                            .fullName(u.getFullName() != null ? u.getFullName() : u.getEmail())
+                            .email(u.getEmail())
+                            .roles(roleNames)
+                            .build());
+                }
+            }
+        }
+        return result;
+    }
+
+    private ReviewCommentDto toReviewCommentDto(ReviewCommentEntity e) {
+        return ReviewCommentDto.builder()
+                .commentId(e.getCommentId())
+                .reviewId(e.getReviewId())
+                .docId(e.getDocId())
+                .textSegment(e.getTextSegment())
+                .detailedComment(e.getDetailedComment())
+                .status(e.getStatus() != null ? e.getStatus() : "OPEN")
+                .authorEmail(e.getAuthorEmail())
+                .authorRole(e.getAuthorRole())
+                .createdAt(e.getCreatedAt())
+                .updatedAt(e.getUpdatedAt())
+                .build();
+    }
+
+    private Instant parseDate(String dateStr, boolean isStart) {
+        if (dateStr == null || dateStr.isBlank()) {
+            return isStart ? Instant.now() : null;
+        }
+        try {
+            if (dateStr.length() >= 10) {
+                LocalDate ld = LocalDate.parse(dateStr.substring(0, 10));
+                return ld.atStartOfDay().toInstant(ZoneOffset.UTC);
+            }
+            return Instant.parse(dateStr);
+        } catch (Exception e) {
+            return isStart ? Instant.now() : null;
+        }
     }
 
     private String resolveDocType(Document doc) {
@@ -822,25 +1313,44 @@ public class ReviewServiceImpl implements ReviewServicePort {
         String path = (doc.getTargetPath() != null ? doc.getTargetPath() : "").toLowerCase();
         String title = (doc.getTitle() != null ? doc.getTitle() : "").toLowerCase();
         if (path.contains("api") || title.contains("api")) {
-            return "API";
+            return "API_REFERENCE";
         }
-        if (path.contains("arch") || title.contains("kiến trúc") || title.contains("architecture")) {
-            return "ARCHITECTURE";
+        if (path.contains("readme") || title.contains("readme")) {
+            return "PROJECT_README";
+        }
+        if (path.contains("arch") || title.contains("kiến trúc") || title.contains("architecture") || path.contains("adr")) {
+            return "ARCHITECTURE_ADR";
         }
         if (path.contains("guide") || path.contains("manual") || title.contains("hướng dẫn")) {
-            return "USER_GUIDE";
+            return "MODULE_GUIDE";
         }
         if (path.contains("release") || path.contains("changelog") || title.contains("phát hành")) {
-            return "RELEASE_NOTE";
+            return "MODULE_GUIDE";
+        }
+        if (path.contains("project") || title.contains("dự án")) {
+            return "PROJECT_DOCUMENTATION";
         }
         return "DEFAULT";
     }
 
+    private String normalizeDocType(String docType) {
+        if (docType == null) return "DEFAULT";
+        String dt = docType.trim().toUpperCase();
+        if ("API".equals(dt)) return "API_REFERENCE";
+        if ("ARCHITECTURE".equals(dt)) return "ARCHITECTURE_ADR";
+        if ("USER_GUIDE".equals(dt) || "RELEASE_NOTE".equals(dt)) return "MODULE_GUIDE";
+        return dt;
+    }
+
     private int getApprovalTiersForDocType(String docType) {
+        String normalized = normalizeDocType(docType);
         List<ApprovalPolicyDto> policies = getApprovalPolicies();
         for (ApprovalPolicyDto p : policies) {
-            if (p.getDocType() != null && p.getDocType().equalsIgnoreCase(docType)) {
-                return p.getTiers() != null && p.getTiers() == 1 ? 1 : 2;
+            if (p.getDocType() != null) {
+                String pNorm = normalizeDocType(p.getDocType());
+                if (pNorm.equalsIgnoreCase(normalized) || p.getDocType().equalsIgnoreCase(docType)) {
+                    return p.getTiers() != null && p.getTiers() == 1 ? 1 : 2;
+                }
             }
         }
         for (ApprovalPolicyDto p : policies) {
@@ -871,7 +1381,7 @@ public class ReviewServiceImpl implements ReviewServicePort {
             return true;
         } catch (Exception e) {
             log.warn("[Manager Delegation] Lỗi kiểm tra khoảng ngày [{}, {}]: {}", fromDateStr, toDateStr, e.getMessage());
-            return true; // ponytail: fallback to active if date parsing is ambiguous
+            return false; // fail-closed when date format is invalid
         }
     }
 
@@ -896,41 +1406,51 @@ public class ReviewServiceImpl implements ReviewServicePort {
     }
 
     private boolean isDelegatee(ManagerDelegationDto delegation, String actorEmail, Long actorId) {
-        if (actorEmail != null && delegation.getDelegateeEmail() != null
-                && actorEmail.trim().equalsIgnoreCase(delegation.getDelegateeEmail().trim())) {
-            return true;
+        String delegateeEmail = delegation.getDelegateeEmail();
+        boolean hasActorEmail = actorEmail != null && !actorEmail.isBlank();
+        boolean hasDelegateeEmail = delegateeEmail != null && !delegateeEmail.isBlank();
+        if (hasActorEmail && hasDelegateeEmail) {
+            return actorEmail.trim().equalsIgnoreCase(delegateeEmail.trim());
         }
-        return actorId != null && delegation.getDelegateeId() != null && actorId.equals(delegation.getDelegateeId());
+        return actorId != null && delegation.getDelegateeId() != null
+                && delegation.getDelegateeId() > 0 && actorId.equals(delegation.getDelegateeId());
     }
 
     private List<ApprovalPolicyDto> defaultApprovalPolicies() {
         String nowStr = Instant.now().toString();
         List<ApprovalPolicyDto> list = new ArrayList<>();
         list.add(ApprovalPolicyDto.builder()
-                .docType("API")
+                .docType("API_REFERENCE")
                 .tiers(1)
                 .description("Tài liệu kỹ thuật API - Phê duyệt 1 cấp (Staff duyệt xuất bản trực tiếp)")
                 .updatedAt(nowStr)
                 .updatedBy("SYSTEM")
                 .build());
         list.add(ApprovalPolicyDto.builder()
-                .docType("ARCHITECTURE")
+                .docType("PROJECT_README")
+                .tiers(1)
+                .description("Tài liệu README dự án - Phê duyệt 1 cấp (Staff duyệt xuất bản trực tiếp)")
+                .updatedAt(nowStr)
+                .updatedBy("SYSTEM")
+                .build());
+        list.add(ApprovalPolicyDto.builder()
+                .docType("MODULE_GUIDE")
+                .tiers(1)
+                .description("Hướng dẫn module & sử dụng - Phê duyệt 1 cấp (Staff duyệt xuất bản trực tiếp)")
+                .updatedAt(nowStr)
+                .updatedBy("SYSTEM")
+                .build());
+        list.add(ApprovalPolicyDto.builder()
+                .docType("ARCHITECTURE_ADR")
                 .tiers(2)
-                .description("Tài liệu Kiến trúc hệ thống - Phê duyệt 2 cấp (Staff duyệt -> Manager ký duyệt)")
+                .description("Tài liệu Kiến trúc hệ thống (ADR) - Phê duyệt 2 cấp (Staff duyệt -> Manager ký duyệt)")
                 .updatedAt(nowStr)
                 .updatedBy("SYSTEM")
                 .build());
         list.add(ApprovalPolicyDto.builder()
-                .docType("USER_GUIDE")
-                .tiers(1)
-                .description("Hướng dẫn sử dụng & Vận hành - Phê duyệt 1 cấp (Staff duyệt xuất bản trực tiếp)")
-                .updatedAt(nowStr)
-                .updatedBy("SYSTEM")
-                .build());
-        list.add(ApprovalPolicyDto.builder()
-                .docType("RELEASE_NOTE")
-                .tiers(1)
-                .description("Ghi chú phát hành phiên bản - Phê duyệt 1 cấp (Staff duyệt xuất bản trực tiếp)")
+                .docType("PROJECT_DOCUMENTATION")
+                .tiers(2)
+                .description("Tài liệu Dự án Tiêu chuẩn (10 Phần) - Phê duyệt 2 cấp (Staff duyệt -> Manager ký duyệt)")
                 .updatedAt(nowStr)
                 .updatedBy("SYSTEM")
                 .build());
