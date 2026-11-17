@@ -34,7 +34,9 @@ public class Job {
     private Instant updatedAt;
 
     public boolean canRetry() {
-        return this.attempts < this.maxAttempts;
+        int currentAttempts = this.attempts != null ? this.attempts : 0;
+        int limit = this.maxAttempts != null ? this.maxAttempts : 3;
+        return currentAttempts < limit;
     }
 
     public void markRunning() {
@@ -66,7 +68,9 @@ public class Job {
         this.lockedAt = null;
         this.updatedAt = Instant.now();
 
-        if (this.attempts >= this.maxAttempts) {
+        int currentAttempts = this.attempts != null ? this.attempts : 0;
+        int limit = this.maxAttempts != null ? this.maxAttempts : 3;
+        if (currentAttempts >= limit) {
             this.status = JobStatus.FAILED; // Chuyển sang Dead Letter Queue (DLQ)
             this.nextRetryAt = null;
         } else {

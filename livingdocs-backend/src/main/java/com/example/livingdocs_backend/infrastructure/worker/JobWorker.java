@@ -4,7 +4,9 @@ import com.example.livingdocs_backend.application.port.JobHandler;
 import com.example.livingdocs_backend.domain.model.Job;
 import com.example.livingdocs_backend.domain.model.JobStatus;
 import com.example.livingdocs_backend.domain.repository.JobRepositoryPort;
+import com.example.livingdocs_backend.infrastructure.sse.JobStreamService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -25,9 +27,20 @@ public class JobWorker {
 
     private final JobRepositoryPort jobRepositoryPort;
     private final Map<String, JobHandler> handlerMap = new HashMap<>();
+    private final JobStreamService jobStreamService;
 
     public JobWorker(JobRepositoryPort jobRepositoryPort, List<JobHandler> handlers) {
+        this(jobRepositoryPort, handlers, null);
+    }
+
+    @Autowired
+    public JobWorker(
+            JobRepositoryPort jobRepositoryPort,
+            List<JobHandler> handlers,
+            @Autowired(required = false) JobStreamService jobStreamService
+    ) {
         this.jobRepositoryPort = jobRepositoryPort;
+        this.jobStreamService = jobStreamService;
         if (handlers != null) {
             for (JobHandler handler : handlers) {
                 this.handlerMap.put(handler.getJobType(), handler);
@@ -62,8 +75,24 @@ public class JobWorker {
         if (handler == null) {
             String errorMsg = String.format("No JobHandler registered for job type: '%s'", job.getType());
             log.error("[JobWorker] {}", errorMsg);
-            job.recordFailure(errorMsg, 0);
+            int attempts = job.getAttempts() != null ? job.getAttempts() : 1;
+            int maxAttempts = job.getMaxAttempts() != null ? job.getMaxAttempts() : 3;
+            job.setStatus(JobStatus.FAILED);
+            job.setLastError(errorMsg);
+            job.setLockedAt(null);
+            job.setNextRetryAt(null);
+            job.setUpdatedAt(java.time.Instant.now());
             jobRepositoryPort.save(job);
+            if (jobStreamService != null) {
+                jobStreamService.publishProgress(job.getJobId(), "FAILED", 0, errorMsg,
+                        Map.of(
+                                "attempts", attempts,
+                                "maxAttempts", maxAttempts,
+                                "willRetry", false,
+                                "isTerminal", true,
+                                "lastError", errorMsg
+                        ));
+            }
             return;
         }
 
@@ -79,23 +108,64 @@ public class JobWorker {
         } catch (Exception ex) {
             // 4. Bắt lỗi và kích hoạt cơ chế Retry với Exponential Backoff / Dead Letter Queue (DLQ)
             String errorDetails = extractStackTrace(ex);
-            int attempts = job.getAttempts();
-            int maxAttempts = job.getMaxAttempts();
+            int attempts = job.getAttempts() != null ? job.getAttempts() : 1;
+            int maxAttempts = job.getMaxAttempts() != null ? job.getMaxAttempts() : 3;
 
             // Thời gian chờ tăng dần theo cấp số nhân: lần 1: 5s, lần 2: 15s, lần 3: 45s (hoặc maxAttempts)
             long backoffSeconds = calculateExponentialBackoff(attempts);
+            boolean willRetry = attempts < maxAttempts;
 
-            log.warn("[JobWorker] Job #{} failed on attempt {}/{}. Reason: {}. Next retry in {}s", 
-                    job.getJobId(), attempts, maxAttempts, ex.getMessage(), backoffSeconds);
+            log.warn("[JobWorker] Job #{} failed on attempt {}/{}. Reason: {}. willRetry={}",
+                    job.getJobId(), attempts, maxAttempts, ex.getMessage(), willRetry);
 
             job.recordFailure(errorDetails, backoffSeconds);
             Job savedJob = jobRepositoryPort.save(job);
+
+            if (jobStreamService != null) {
+                String rawMsg = ex.getMessage() != null ? ex.getMessage() : "Tác vụ nền thất bại";
+                if (willRetry && savedJob.getStatus() == JobStatus.QUEUED) {
+                    String retryMsg = String.format(
+                            "Lần thử %d/%d gặp lỗi (%s). Đang lên lịch thử lại sau %ds...",
+                            attempts, maxAttempts, rawMsg, backoffSeconds
+                    );
+                    jobStreamService.publishProgress(
+                            job.getJobId(),
+                            "RETRY_SCHEDULED",
+                            0,
+                            retryMsg,
+                            Map.of(
+                                    "attempts", attempts,
+                                    "maxAttempts", maxAttempts,
+                                    "willRetry", true,
+                                    "isTerminal", false,
+                                    "backoffSeconds", backoffSeconds,
+                                    "nextRetryAt", savedJob.getNextRetryAt() != null ? savedJob.getNextRetryAt().toString() : "",
+                                    "lastError", errorDetails
+                            )
+                    );
+                } else {
+                    jobStreamService.publishProgress(
+                            job.getJobId(),
+                            "FAILED",
+                            0,
+                            rawMsg,
+                            Map.of(
+                                    "attempts", attempts,
+                                    "maxAttempts", maxAttempts,
+                                    "willRetry", false,
+                                    "isTerminal", true,
+                                    "backoffSeconds", 0L,
+                                    "lastError", errorDetails
+                            )
+                    );
+                }
+            }
 
             if (savedJob.getStatus() == JobStatus.FAILED || savedJob.getStatus() == JobStatus.DEAD) {
                 log.error("[JobWorker - DEAD LETTER QUEUE] Job #{} reached max attempts ({}) and is now moved to DLQ (FAILED/DEAD)! Last error: {}",
                         job.getJobId(), maxAttempts, ex.getMessage());
             } else {
-                log.info("[JobWorker] Job #{} scheduled for retry at {} (Exponential backoff: {}s).", 
+                log.info("[JobWorker] Job #{} scheduled for retry at {} (Exponential backoff: {}s).",
                         job.getJobId(), savedJob.getNextRetryAt(), backoffSeconds);
             }
         }

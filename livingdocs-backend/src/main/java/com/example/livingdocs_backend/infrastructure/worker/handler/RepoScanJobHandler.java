@@ -4,11 +4,16 @@ import com.example.livingdocs_backend.application.dto.ai.DocCoverageResponseDto;
 import com.example.livingdocs_backend.application.dto.job.RepoScanJobPayload;
 import com.example.livingdocs_backend.application.port.CodeIndexServicePort;
 import com.example.livingdocs_backend.application.port.JobHandler;
+import com.example.livingdocs_backend.domain.model.CodeEntity;
 import com.example.livingdocs_backend.domain.model.Job;
+import com.example.livingdocs_backend.infrastructure.sse.JobStreamService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+
+import java.util.List;
+import java.util.Map;
 
 /**
  * Handler quét toàn bộ cấu trúc mã nguồn của kho lưu trữ dưới nền (REPO_SCAN).
@@ -20,6 +25,7 @@ public class RepoScanJobHandler implements JobHandler {
 
     private final CodeIndexServicePort codeIndexService;
     private final ObjectMapper objectMapper;
+    private final JobStreamService jobStreamService;
 
     @Override
     public String getJobType() {
@@ -36,10 +42,52 @@ public class RepoScanJobHandler implements JobHandler {
         }
 
         RepoScanJobPayload payload = objectMapper.readValue(job.getPayloadJson(), RepoScanJobPayload.class);
-        log.info("[JobHandler - REPO_SCAN] Quét và tính toán độ bao phủ cho repositoryId={}", payload.getRepositoryId());
+        Long repoId = payload.getRepositoryId();
 
-        DocCoverageResponseDto coverage = codeIndexService.calculateRepositoryCoverage(payload.getRepositoryId());
+        jobStreamService.publishProgress(
+                job.getJobId(),
+                "FETCHING_REPO",
+                20,
+                "Đang lấy thông tin kho lưu trữ và cây mã nguồn...",
+                Map.of("repositoryId", repoId != null ? repoId : 0L)
+        );
+
+        List<CodeEntity> entities = codeIndexService.getEntitiesByRepository(repoId);
+
+        jobStreamService.publishProgress(
+                job.getJobId(),
+                "EXTRACTING_AST",
+                45,
+                "Đang tổng hợp thực thể AST trong kho lưu trữ...",
+                Map.of("entitiesCount", entities.size())
+        );
+
+        jobStreamService.publishProgress(
+                job.getJobId(),
+                "RAG_CONTEXT",
+                70,
+                "Đang đối chiếu chỉ mục tài liệu và khoảng trống (Gaps)...",
+                Map.of("repositoryId", repoId != null ? repoId : 0L)
+        );
+
+        jobStreamService.publishProgress(
+                job.getJobId(),
+                "LLM_GENERATING",
+                88,
+                "Đang tính toán thống kê độ bao phủ tài liệu toàn repo...",
+                null
+        );
+
+        DocCoverageResponseDto coverage = codeIndexService.calculateRepositoryCoverage(repoId);
         job.setResultJson(objectMapper.writeValueAsString(coverage));
+
+        jobStreamService.publishProgress(
+                job.getJobId(),
+                "COMPLETED",
+                100,
+                "Hoàn tất quét AST và đánh giá độ bao phủ kho lưu trữ.",
+                coverage
+        );
 
         log.info("[JobHandler - REPO_SCAN] Hoàn tất quét kho mã nguồn cho Job #{}", job.getJobId());
     }

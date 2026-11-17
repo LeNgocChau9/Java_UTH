@@ -69,6 +69,14 @@ public class JobRepositoryAdapter implements JobRepositoryPort {
                 .collect(Collectors.toList());
     }
 
+    @Override
+    public List<Job> findRecentJobs(int limit) {
+        List<JobEntity> entities = springDataJobRepository.findRecentJobsWithLimit(PageRequest.of(0, limit));
+        return entities.stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
     private JobEntity toEntity(Job job) {
         return JobEntity.builder()
                 .jobId(job.getJobId())

@@ -2,16 +2,24 @@ package com.example.livingdocs_backend.infrastructure.web.controller;
 
 import com.example.livingdocs_backend.application.dto.ai.AstExtractResponseDto;
 import com.example.livingdocs_backend.application.dto.ai.DocCoverageResponseDto;
+import com.example.livingdocs_backend.application.dto.job.RepoScanJobPayload;
 import com.example.livingdocs_backend.application.port.CodeIndexServicePort;
+import com.example.livingdocs_backend.application.port.JobQueue;
 import com.example.livingdocs_backend.domain.model.CodeEntity;
+import com.example.livingdocs_backend.domain.model.Job;
+import com.example.livingdocs_backend.infrastructure.security.UserPrincipal;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.Builder;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/code-entities")
@@ -20,6 +28,12 @@ import java.util.List;
 public class CodeEntityController {
 
     private final CodeIndexServicePort codeIndexService;
+
+    @Autowired(required = false)
+    private JobQueue jobQueue;
+
+    @Autowired(required = false)
+    private ObjectMapper objectMapper;
 
     @Builder
     public record IndexFileRequest(
@@ -69,6 +83,47 @@ public class CodeEntityController {
     @Operation(summary = "Tính toán tỷ lệ bao phủ tài liệu (% Coverage) của toàn bộ Repository", description = "Đo lường số thực thể code đã có tài liệu (doc_status = 'DOCUMENTED') so với tổng số thực thể bóc tách được của repo.")
     public ResponseEntity<DocCoverageResponseDto> getRepositoryCoverage(@PathVariable Long repositoryId) {
         return ResponseEntity.ok(codeIndexService.calculateRepositoryCoverage(repositoryId));
+    }
+
+    @PostMapping("/repository/{repositoryId}/scan")
+    @Operation(summary = "Quét AST và đánh giá độ bao phủ toàn Repository", description = "Hỗ trợ ?async=true để đẩy tác vụ REPO_SCAN vào hàng đợi JobWorker và trả về jobId.")
+    public ResponseEntity<?> scanRepository(
+            @PathVariable Long repositoryId,
+            @RequestParam(name = "branch", required = false) String branch,
+            @RequestParam(name = "async", defaultValue = "false") boolean async,
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+        if (async && jobQueue != null) {
+            try {
+                RepoScanJobPayload payload = RepoScanJobPayload.builder()
+                        .repositoryId(repositoryId)
+                        .branch(branch)
+                        .actorId(userPrincipal != null ? userPrincipal.getUserId() : null)
+                        .build();
+                ObjectMapper mapper = objectMapper != null ? objectMapper : new ObjectMapper();
+                Job job = jobQueue.enqueue(Job.TYPE_REPO_SCAN, mapper.writeValueAsString(payload));
+                return ResponseEntity.accepted().body(Map.of(
+                        "jobId", job.getJobId(),
+                        "status", job.getStatus().name(),
+                        "type", job.getType(),
+                        "repositoryId", repositoryId,
+                        "streamUrl", "/api/jobs/" + job.getJobId() + "/stream",
+                        "message", "Đã đẩy tác vụ quét AST toàn kho lưu trữ vào hàng đợi xử lý nền."
+                ));
+            } catch (Exception ex) {
+                throw new RuntimeException("Không thể đẩy tác vụ REPO_SCAN vào hàng đợi: " + ex.getMessage(), ex);
+            }
+        }
+        return ResponseEntity.ok(codeIndexService.calculateRepositoryCoverage(repositoryId));
+    }
+
+    @PostMapping("/scan")
+    @Operation(summary = "Quét AST và đánh giá độ bao phủ toàn Repository (query param)", description = "Alias của /repository/{repositoryId}/scan, hỗ trợ ?async=true trả về jobId.")
+    public ResponseEntity<?> scanRepositoryByParam(
+            @RequestParam Long repositoryId,
+            @RequestParam(name = "branch", required = false) String branch,
+            @RequestParam(name = "async", defaultValue = "false") boolean async,
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+        return scanRepository(repositoryId, branch, async, userPrincipal);
     }
 
     @GetMapping("/repository/{repositoryId}/file/coverage")

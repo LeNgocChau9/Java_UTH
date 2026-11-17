@@ -47,6 +47,12 @@ public class DocumentController {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentRepository springDataDocumentRepository;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.example.livingdocs_backend.application.port.JobQueue jobQueue;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+
     @PostMapping
     @Operation(summary = "Tạo tài liệu mới", description = "Tạo mới tài liệu và tự động tạo phiên bản v1 kèm chuỗi băm khởi tạo (Genesis Hash).")
     public ResponseEntity<DocumentResponse> createDocument(
@@ -375,14 +381,48 @@ public class DocumentController {
     @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(
             summary = "Điều phối sinh tài liệu AI theo 3 phạm vi (FILE, PACKAGE, REPOSITORY)",
-            description = "Hỗ trợ 3 phạm vi (FILE, PACKAGE, REPOSITORY): lấy mã nguồn/AST, gọi FastAPI (/v1/docs/generate), lưu vào bảng documents & document_versions (trạng thái DRAFT) và lưu liên kết vào bảng doc_code_links."
+            description = "Hỗ trợ 3 phạm vi (FILE, PACKAGE, REPOSITORY) và chế độ chạy nền bất đồng bộ (?async=true trả về jobId để lắng nghe SSE /api/jobs/{jobId}/stream)."
     )
-    public ResponseEntity<AiDocGenerateResponseDto> generateAiDocumentation(
+    public ResponseEntity<?> generateAiDocumentation(
             @RequestBody AiDocGenerateRequestDto request,
+            @RequestParam(name = "async", defaultValue = "false") boolean async,
             @AuthenticationPrincipal UserPrincipal userPrincipal
     ) {
         Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
         String actorRole = extractRole(userPrincipal);
+
+        if (async && jobQueue != null) {
+            try {
+                com.example.livingdocs_backend.application.dto.job.AiDocGenJobPayload payload =
+                        com.example.livingdocs_backend.application.dto.job.AiDocGenJobPayload.builder()
+                                .repositoryId(request != null ? request.repository_id() : null)
+                                .title(request != null ? request.title() : null)
+                                .docType(request != null && request.scope() != null ? request.scope() : "FILE")
+                                .actorId(actorId)
+                                .actorRole(actorRole)
+                                .prompt(request != null ? request.note() : null)
+                                .fullRequest(request)
+                                .build();
+                com.fasterxml.jackson.databind.ObjectMapper mapper = objectMapper != null
+                        ? objectMapper
+                        : new com.fasterxml.jackson.databind.ObjectMapper();
+                String payloadJson = mapper.writeValueAsString(payload);
+                com.example.livingdocs_backend.domain.model.Job job = jobQueue.enqueue(
+                        com.example.livingdocs_backend.domain.model.Job.TYPE_AI_DOC_GEN,
+                        payloadJson
+                );
+                return ResponseEntity.accepted().body(Map.of(
+                        "jobId", job.getJobId(),
+                        "status", job.getStatus().name(),
+                        "type", job.getType(),
+                        "streamUrl", "/api/jobs/" + job.getJobId() + "/stream",
+                        "message", "Đã đẩy yêu cầu sinh tài liệu AI vào hàng đợi xử lý nền."
+                ));
+            } catch (Exception ex) {
+                throw new RuntimeException("Không thể đẩy tác vụ AI_DOC_GEN vào hàng đợi: " + ex.getMessage(), ex);
+            }
+        }
+
         AiDocGenerateResponseDto response = aiDocumentationServicePort.generateDocumentation(request, actorId, actorRole);
         if (auditServicePort != null) {
             String docId = response != null && response.docId() != null ? response.docId().toString() : null;

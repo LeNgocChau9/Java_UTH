@@ -5,16 +5,22 @@ import com.example.livingdocs_backend.application.port.JobQueue;
 import com.example.livingdocs_backend.domain.model.Job;
 import com.example.livingdocs_backend.domain.model.JobStatus;
 import com.example.livingdocs_backend.domain.repository.JobRepositoryPort;
+import com.example.livingdocs_backend.infrastructure.sse.JobStreamService;
 import com.example.livingdocs_backend.infrastructure.worker.handler.FailingTestJobHandler;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @Tag(name = "Background Jobs", description = "API quản trị và theo dõi hàng đợi tác vụ xử lý nền bất đồng bộ (Background Job Worker & DLQ)")
 @RestController
@@ -24,6 +30,7 @@ public class JobDemoController {
 
     private final JobQueue jobQueue;
     private final JobRepositoryPort jobRepositoryPort;
+    private final JobStreamService jobStreamService;
 
     @Operation(
             summary = "Tra cứu danh sách các tác vụ nền theo trạng thái",
@@ -34,10 +41,30 @@ public class JobDemoController {
             @RequestParam(required = false) JobStatus status,
             @RequestParam(defaultValue = "50") int limit
     ) {
+        int safeLimit = Math.max(1, Math.min(limit, 100));
         List<Job> jobs = (status != null)
-                ? jobRepositoryPort.findTopJobsByStatus(status, Math.min(limit, 100))
-                : jobRepositoryPort.findDeadLetterJobs(Math.min(limit, 100));
+                ? jobRepositoryPort.findTopJobsByStatus(status, safeLimit)
+                : jobRepositoryPort.findRecentJobs(safeLimit);
         return ResponseEntity.ok(jobs.stream().map(this::toProgressDto).toList());
+    }
+
+    @Operation(
+            summary = "Mở kết nối SSE theo dõi tiến trình tác vụ nền theo thời gian thực",
+            description = "Phát trực tiếp các trạng thái thực tế của job: FETCHING_REPO -> EXTRACTING_AST -> RAG_CONTEXT -> LLM_GENERATING -> COMPLETED / FAILED."
+    )
+    @GetMapping(value = "/{jobId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public ResponseEntity<SseEmitter> streamJobProgress(
+            @Parameter(description = "Mã định danh tác vụ nền (jobId)", example = "1")
+            @PathVariable Long jobId
+    ) {
+        Optional<Job> jobOpt = jobRepositoryPort.findById(jobId);
+        if (jobOpt.isEmpty() && jobStreamService.getLatestEvent(jobId) == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+        SseEmitter emitter = jobStreamService.registerEmitter(jobId, jobOpt.orElse(null));
+        return ResponseEntity.ok()
+                .contentType(MediaType.TEXT_EVENT_STREAM)
+                .body(emitter);
     }
 
     @Operation(
@@ -73,23 +100,47 @@ public class JobDemoController {
 
     @Operation(
             summary = "Thử lại thủ công một tác vụ trong Dead Letter Queue",
-            description = "Cho phép Quản trị viên kích hoạt lại một job đã vào DLQ (chuyển trạng thái về QUEUED, đặt lại attempts = 0 và xóa nextRetryAt)."
+            description = "Cho phép Quản trị viên kích hoạt lại một job đã vào DLQ (chỉ cho phép với trạng thái FAILED hoặc DEAD; chuyển về QUEUED, đặt lại attempts = 0, xóa nextRetryAt và lastError)."
     )
     @PostMapping("/dlq/{jobId}/retry")
-    public ResponseEntity<JobProgressResponseDto> retryDeadLetterJob(
+    public ResponseEntity<?> retryDeadLetterJob(
             @Parameter(description = "Mã định danh tác vụ nền (jobId)", example = "1")
             @PathVariable Long jobId
     ) {
-        return jobRepositoryPort.findById(jobId)
-                .map(job -> {
-                    job.setStatus(JobStatus.QUEUED);
-                    job.setAttempts(0);
-                    job.setNextRetryAt(null);
-                    job.setLockedAt(null);
-                    Job saved = jobRepositoryPort.save(job);
-                    return ResponseEntity.ok(toProgressDto(saved));
-                })
-                .orElse(ResponseEntity.notFound().build());
+        Optional<Job> jobOpt = jobRepositoryPort.findById(jobId);
+        if (jobOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        Job job = jobOpt.get();
+        if (job.getStatus() != JobStatus.FAILED && job.getStatus() != JobStatus.DEAD) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "message", "Chỉ có thể thử lại tác vụ ở trạng thái FAILED hoặc DEAD (trạng thái hiện tại: " + job.getStatus() + ").",
+                    "jobId", jobId,
+                    "status", job.getStatus() != null ? job.getStatus().name() : "UNKNOWN"
+            ));
+        }
+
+        job.setStatus(JobStatus.QUEUED);
+        job.setAttempts(0);
+        job.setNextRetryAt(null);
+        job.setLastError(null);
+        job.setLockedAt(null);
+        job.setUpdatedAt(Instant.now());
+        jobStreamService.clearJobState(jobId);
+        Job saved = jobRepositoryPort.save(job);
+        return ResponseEntity.ok(toProgressDto(saved));
+    }
+
+    @Operation(
+            summary = "Thử lại thủ công một tác vụ theo jobId",
+            description = "Alias của /api/jobs/dlq/{jobId}/retry để kích hoạt lại job thất bại."
+    )
+    @PostMapping("/{jobId}/retry")
+    public ResponseEntity<?> retryJob(
+            @Parameter(description = "Mã định danh tác vụ nền (jobId)", example = "1")
+            @PathVariable Long jobId
+    ) {
+        return retryDeadLetterJob(jobId);
     }
 
     @Operation(summary = "Kiểm tra thông tin job trong DLQ trước khi retry")

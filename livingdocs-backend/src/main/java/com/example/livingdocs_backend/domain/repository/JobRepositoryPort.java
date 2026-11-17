@@ -15,4 +15,5 @@ public interface JobRepositoryPort {
     List<Job> findTopJobsByStatus(JobStatus status, int limit);
     List<Job> findReadyJobs(JobStatus status, java.time.Instant now, int limit);
     List<Job> findDeadLetterJobs(int limit);
+    List<Job> findRecentJobs(int limit);
 }

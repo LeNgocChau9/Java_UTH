@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useRef, useState, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { isAxiosError } from "axios";
@@ -31,6 +31,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { apiClient } from "@/services/apiClient";
+import { jobService, type JobSseProgressEvent } from "@/services/jobService";
 import { repoService, type RepoItem } from "@/services/repoService";
 
 interface DocTemplateOption {
@@ -90,31 +91,31 @@ interface AnalysisProgressStep {
 const ANALYSIS_STEPS: AnalysisProgressStep[] = [
   {
     id: 1,
-    key: "scan",
-    title: "Đang quét mã",
-    desc: "",
+    key: "FETCHING_REPO",
+    title: "Lấy dữ liệu Repo",
+    desc: "FETCHING_REPO",
     icon: Search,
   },
   {
     id: 2,
-    key: "ast",
-    title: "Đang bóc tách AST",
-    desc: "",
+    key: "EXTRACTING_AST",
+    title: "Bóc tách AST",
+    desc: "EXTRACTING_AST",
     icon: Code2,
   },
   {
     id: 3,
-    key: "llm",
-    title: "Đang gọi LLM",
-    desc: "",
-    icon: Cpu,
+    key: "RAG_CONTEXT",
+    title: "Tổng hợp RAG",
+    desc: "RAG_CONTEXT",
+    icon: Layers,
   },
   {
     id: 4,
-    key: "complete",
-    title: "Hoàn tất",
-    desc: "",
-    icon: FileCheck2,
+    key: "LLM_GENERATING",
+    title: "Đang gọi LLM",
+    desc: "LLM_GENERATING",
+    icon: Cpu,
   },
 ];
 
@@ -208,9 +209,13 @@ function YeuCauSinhContent() {
   const [loadingEntities, setLoadingEntities] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Dynamic progress state for AI generation
+  // Real-time SSE progress state for AI generation
   const [currentProgressIndex, setCurrentProgressIndex] = useState<number>(0);
   const [progressPercent, setProgressPercent] = useState<number>(0);
+  const [sseStatusMessage, setSseStatusMessage] = useState<string>("");
+  const [activeJobId, setActiveJobId] = useState<number | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Result state
   const [generatedDoc, setGeneratedDoc] = useState<GeneratedDocResult | null>(null);
@@ -376,41 +381,43 @@ function YeuCauSinhContent() {
     return !scope || e.filePath === scope;
   });
 
-  // Tự động điều chỉnh tiến trình loading động khi đang sinh tài liệu
+  // Dọn dẹp kết nối SSE khi rời trang
   useEffect(() => {
-    if (step === "generating") {
-      setCurrentProgressIndex(0);
-      setProgressPercent(15);
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+      if (pollTimerRef.current) {
+        clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
+  }, []);
 
-      const t1 = setTimeout(() => {
-        setCurrentProgressIndex(1);
-        setProgressPercent(45);
-      }, 450);
-
-      const t2 = setTimeout(() => {
-        setCurrentProgressIndex(2);
-        setProgressPercent(78);
-      }, 950);
-
-      const t3 = setTimeout(() => {
-        setProgressPercent(92);
-      }, 1500);
-
-      return () => {
-        clearTimeout(t1);
-        clearTimeout(t2);
-        clearTimeout(t3);
-      };
-    } else if (step === "generated" || step === "done") {
-      setCurrentProgressIndex(3);
-      setProgressPercent(100);
-    } else {
-      setCurrentProgressIndex(0);
-      setProgressPercent(0);
+  function mapSseStateToStepIndex(state: string): number {
+    switch (state) {
+      case "FETCHING_REPO":
+      case "QUEUED":
+      case "PENDING":
+      case "RETRY_SCHEDULED":
+      case "RETRYING":
+        return 0;
+      case "EXTRACTING_AST":
+        return 1;
+      case "RAG_CONTEXT":
+        return 2;
+      case "LLM_GENERATING":
+        return 3;
+      case "COMPLETED":
+      case "DONE":
+        return 4;
+      default:
+        return 0;
     }
-  }, [step]);
+  }
 
-  // Xử lý tạo tài liệu bằng AI
+  // Xử lý tạo tài liệu bằng AI bất đồng bộ qua JobWorker & SSE
   async function handleGenerate(e: React.FormEvent) {
     e.preventDefault();
     if (!repo) {
@@ -418,9 +425,23 @@ function YeuCauSinhContent() {
       setStep("error");
       return;
     }
+
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    if (pollTimerRef.current) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+
     setError(null);
     setStep("generating");
     setGeneratedDoc(null);
+    setCurrentProgressIndex(0);
+    setProgressPercent(5);
+    setActiveJobId(null);
+    setSseStatusMessage("Đang gửi yêu cầu vào hàng đợi JobWorker...");
 
     const selectedRepoItem = repositories.find((r) => String(r.repositoryId) === String(repo));
     const selectedTarget =
@@ -443,223 +464,231 @@ function YeuCauSinhContent() {
           selectedTarget.split("/").pop()?.replace(".java", "") ||
           "AppService");
 
-    try {
-      let generatedMarkdown = "";
-      let createdDocId: number | undefined;
-      let createdTitle = "";
-      let createdTargetPath = "";
-      let createdStatus = "DRAFT";
-      let createdVersion = 1;
-      let createdSourceCommit = selectedFileEntities[0]?.commitHash || "b39f1c7e9a";
-      let linkedCount = selectedFileEntities.length;
-      let confidenceScore = 0.95;
-      let generatedMode = aiProvider === "ollama" ? "ollama-local" : "real";
-      let generatedModel = localModelName;
-
-      // 1. Gọi API Điều phối Sinh tài liệu AI (/api/documents/generate-ai) theo 3 phạm vi (FILE, PACKAGE, REPOSITORY)
-      try {
-        const aiRes = await apiClient.post<{
-          docId?: number;
-          title?: string;
-          targetPath?: string;
-          scope?: string;
-          documentStatus?: string;
-          currentVersion?: number;
-          sourceCommit?: string;
-          linkedEntitiesCount?: number;
-          status: string;
-          mode: string;
-          model?: string;
-          generated_content: string;
-          confidence_score: number;
-        }>("/api/documents/generate-ai", {
-          repository_id: Number(repo),
-          scope: scopeType,
-          target_path: selectedTarget,
-          file_path: selectedTarget,
-          branch,
-          template_id: Number(templateId),
-          template_type: selectedTemplate?.type || "API_REFERENCE",
-          class_name: className,
-          note: note.trim() || undefined,
-          save_document: true,
-          provider: aiProvider,
-          entities:
-            selectedFileEntities.length > 0
-              ? selectedFileEntities.map((ent) => ({
-                entity_type: ent.entityType || "METHOD",
-                class_name: ent.className || className,
-                method_name: ent.methodName,
-                signature: ent.signature,
-                return_type: "void",
-                parameters: ent.parameters,
-                start_line: ent.startLine,
-                end_line: ent.endLine,
-                doc_status: ent.docStatus,
-                javadoc: ent.javadoc,
-                annotations: ent.annotations || [],
-              }))
-              : [
-                {
-                  entity_type: paramEntityType || "CLASS",
-                  class_name: className,
-                  method_name: paramMethodName || null,
-                  signature: paramMethodName ? `${paramMethodName}()` : className,
-                  return_type: "void",
-                  parameters: "",
-                  start_line: 1,
-                  end_line: 100,
-                  doc_status: "UNDOCUMENTED",
-                  javadoc: null,
-                  annotations: [],
-                },
-              ],
-        });
-
-        if (aiRes.data?.generated_content) {
-          generatedMarkdown = aiRes.data.generated_content;
-          createdDocId = aiRes.data.docId;
-          createdTitle = aiRes.data.title || "";
-          createdTargetPath = aiRes.data.targetPath || "";
-          createdStatus = aiRes.data.documentStatus || "DRAFT";
-          createdVersion = aiRes.data.currentVersion || 1;
-          createdSourceCommit = aiRes.data.sourceCommit || createdSourceCommit;
-          linkedCount = aiRes.data.linkedEntitiesCount || linkedCount;
-          confidenceScore = aiRes.data.confidence_score || confidenceScore;
-          generatedMode = aiRes.data.mode || generatedMode;
-          if (aiRes.data.model) generatedModel = aiRes.data.model;
-        }
-      } catch (backendAiErr) {
-        console.warn("Backend /generate-ai fallback:", backendAiErr);
-      }
-
-      // 2. Dự phòng: Gọi trực tiếp sang AI Engine nếu Backend chưa phản hồi
-      if (!generatedMarkdown) {
-        const aiEngineUrl = process.env.NEXT_PUBLIC_AI_ENGINE_URL || "http://localhost:8000";
-        const engineRes = await fetch(`${aiEngineUrl}/v1/docs/generate`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            file_path: selectedTarget || "README.md",
-            template_type: selectedTemplate?.type || "API_REFERENCE",
-            class_name: className || "AppService",
-            provider: aiProvider || "auto",
-            entities: selectedFileEntities.map((ent) => ({
-              entity_type: ent.entityType || "METHOD",
-              class_name: ent.className || className || "AppService",
-              method_name: ent.methodName || "element",
-              signature: ent.signature || `${ent.entityType || "METHOD"} ${ent.methodName || "element"}()`,
-              return_type: "void",
-              parameters: ent.parameters || "",
-              start_line: typeof ent.startLine === "number" ? ent.startLine : 1,
-              end_line: typeof ent.endLine === "number" ? ent.endLine : 1,
-              doc_status: ent.docStatus || "UNDOCUMENTED",
-              javadoc: ent.javadoc || "",
-              annotations: Array.isArray(ent.annotations) ? ent.annotations : [],
-            })),
-          }),
-        });
-
-        if (engineRes.ok) {
-          const engineData = await engineRes.json();
-          generatedMarkdown = engineData.generated_content;
-          confidenceScore = engineData.confidence_score || 0.95;
-          generatedMode = engineData.mode || generatedMode;
-          if (engineData.model) generatedModel = engineData.model;
-        }
-      }
-
-      // 3. Dự phòng mẫu kỹ thuật nếu mất kết nối AI hoàn toàn
-      if (!generatedMarkdown) {
-        generatedMarkdown = `# Tài liệu Kỹ thuật cho \`${className}\`
-
-> **Mẫu áp dụng:** ${selectedTemplate?.name || "API Reference"}  
-> **Phạm vi:** ${scopeType} (\`${selectedTarget}\`)  
-> **Nhánh mã nguồn:** \`${branch}\`  
-> **Trạng thái:** DRAFT (Sinh tự động bởi LivingDocs AI)
-
-## 1. Tổng quan & Mục đích thiết kế
-Mô-đun \`${className}\` đóng vai trò thực thi các logic nghiệp vụ nòng cốt trong hệ thống LivingDocs. Đảm bảo tính nhất quán của dữ liệu, tuân thủ các quy tắc bảo mật và giao tiếp đồng bộ với cơ sở hạ tầng.
-
-## 2. Chi tiết các Phương thức & API
-| Tên phương thức | Kiểu trả về | Tham số | Vị trí dòng | Mô tả chức năng |
-| :--- | :--- | :--- | :--- | :--- |
-${selectedFileEntities.length > 0
-            ? selectedFileEntities
-              .slice(0, 6)
-              .map(
-                (ent) =>
-                  `| \`${ent.methodName || "init"}\` | \`void\` | \`${ent.parameters || "None"}\` | L${ent.startLine}-L${ent.endLine} | Xử lý nghiệp vụ cho ${ent.methodName || className} |`
-              )
-              .join("\n")
-            : `| \`executeProcess\` | \`boolean\` | \`String contextId\` | L15-L42 | Khởi tạo quy trình phân tích và đồng bộ tài liệu |`
-          }
-
-## 3. Hướng dẫn Tích hợp & Sử dụng
-\`\`\`java
-// Ví dụ tích hợp mô-đun
-${className} service = new ${className}();
-service.initialize();
-\`\`\`
-
-## 4. Bằng chứng xác thực nguồn (Grounding & Verification)
-- **Tập tin phân tích:** \`${selectedTarget}\`
-- **Thực thể đã ánh xạ:** ${selectedFileEntities.length} phần tử AST
-- **Độ tin cậy xác thực:** ${(confidenceScore * 100).toFixed(0)}%
-`;
-      }
-
-      // 4. Lưu tài liệu vào database nếu backend chưa lưu
-      if (!createdDocId) {
-        const safeRepoId = Number(repo) || repositories[0]?.repositoryId || 1;
-        const safeTitle = (`Tài liệu ${selectedTemplate?.name || "API Reference"} - ${className || "Component"}`).trim();
-        const safeContent = (generatedMarkdown || `# Tài liệu Kỹ thuật cho \`${className || "Component"}\`\n\nTài liệu được sinh tự động bởi LivingDocs AI.`).trim();
-        const createRes = await apiClient.post<{ docId?: number; id?: number; title: string; targetPath: string; status: string }>(
-          "/api/documents",
-          {
-            repoId: safeRepoId,
-            title: safeTitle,
-            targetPath:
-              scopeType === "REPOSITORY"
-                ? "README.md"
-                : scopeType === "PACKAGE"
-                  ? `${selectedTarget}/MODULE_GUIDE.md`
-                  : `${selectedTarget.replace(/\.[^/.]+$/, "")}.md`,
-            content: safeContent,
-            actorRole: "AI",
-            triggerType: "AI_GENERATION",
-            templateId: Number(templateId) || 1,
-          }
-        );
-
-        createdDocId = createRes.data.docId ?? createRes.data.id;
-        createdTitle = createRes.data.title;
-        createdTargetPath = createRes.data.targetPath;
-        createdStatus = createRes.data.status || "DRAFT";
-      }
-
+    const applyAiDocResult = (data: {
+      docId?: number;
+      title?: string;
+      targetPath?: string;
+      scope?: string;
+      documentStatus?: string;
+      currentVersion?: number;
+      sourceCommit?: string;
+      linkedEntitiesCount?: number;
+      status?: string;
+      mode?: string;
+      model?: string;
+      content?: string;
+      generated_content?: string;
+      confidence_score?: number;
+    }) => {
+      const content = data.generated_content || data.content || "";
       setGeneratedDoc({
-        docId: createdDocId!,
-        title: createdTitle || `Tài liệu ${selectedTemplate?.name} - ${className}`,
-        targetPath: createdTargetPath || `${selectedTarget}.md`,
-        status: createdStatus,
-        currentVersion: createdVersion,
-        sourceCommit: createdSourceCommit,
-        content: generatedMarkdown,
-        scope: scopeType,
-        linkedEntitiesCount: linkedCount,
-        confidenceScore: confidenceScore,
-        mode: generatedMode,
+        docId: data.docId ?? 0,
+        title: data.title || `Tài liệu ${selectedTemplate?.name} - ${className}`,
+        targetPath: data.targetPath || `${selectedTarget}.md`,
+        status: data.documentStatus || "DRAFT",
+        currentVersion: data.currentVersion || 1,
+        sourceCommit: data.sourceCommit || selectedFileEntities[0]?.commitHash || "HEAD",
+        content,
+        scope: data.scope || scopeType,
+        linkedEntitiesCount: data.linkedEntitiesCount ?? selectedFileEntities.length,
+        confidenceScore: data.confidence_score ?? 0.95,
+        mode: data.mode || (aiProvider === "ollama" ? "ollama-local" : "real"),
         provider: aiProvider,
-        model: generatedModel,
+        model: data.model || localModelName,
+      });
+      setCurrentProgressIndex(4);
+      setProgressPercent(100);
+      setStep("generated");
+    };
+
+    try {
+      const aiRes = await apiClient.post<{
+        jobId?: number;
+        status?: string;
+        streamUrl?: string;
+        docId?: number;
+        title?: string;
+        targetPath?: string;
+        scope?: string;
+        documentStatus?: string;
+        currentVersion?: number;
+        sourceCommit?: string;
+        linkedEntitiesCount?: number;
+        mode?: string;
+        model?: string;
+        generated_content?: string;
+        confidence_score?: number;
+      }>("/api/documents/generate-ai?async=true", {
+        repository_id: Number(repo),
+        scope: scopeType,
+        target_path: selectedTarget,
+        file_path: selectedTarget,
+        branch,
+        template_id: Number(templateId),
+        template_type: selectedTemplate?.type || "API_REFERENCE",
+        class_name: className,
+        note: note.trim() || undefined,
+        save_document: true,
+        provider: aiProvider,
+        entities:
+          selectedFileEntities.length > 0
+            ? selectedFileEntities.map((ent) => ({
+              entity_type: ent.entityType || "METHOD",
+              class_name: ent.className || className,
+              method_name: ent.methodName,
+              signature: ent.signature,
+              return_type: "void",
+              parameters: ent.parameters,
+              start_line: ent.startLine,
+              end_line: ent.endLine,
+              doc_status: ent.docStatus,
+              javadoc: ent.javadoc,
+              annotations: ent.annotations || [],
+            }))
+            : [
+              {
+                entity_type: paramEntityType || "CLASS",
+                class_name: className,
+                method_name: paramMethodName || null,
+                signature: paramMethodName ? `${paramMethodName}()` : className,
+                return_type: "void",
+                parameters: "",
+                start_line: 1,
+                end_line: 100,
+                doc_status: "UNDOCUMENTED",
+                javadoc: null,
+                annotations: [],
+              },
+            ],
       });
 
-      setStep("generated");
+      // Nếu Backend trả về trực tiếp kết quả đồng bộ
+      if (!aiRes.data?.jobId && aiRes.data?.generated_content) {
+        applyAiDocResult(aiRes.data);
+        return;
+      }
+
+      if (!aiRes.data?.jobId) {
+        throw new Error("Backend không trả về jobId cho tiến trình sinh tài liệu.");
+      }
+
+      const jobId = Number(aiRes.data.jobId);
+      setActiveJobId(jobId);
+      setSseStatusMessage(`Đã tiếp nhận tác vụ #${jobId}, đang kết nối luồng SSE...`);
+
+      let terminalHandled = false;
+
+      const checkJobFallback = async () => {
+        if (terminalHandled) return;
+        try {
+          const job = await jobService.getJobById(jobId);
+          if (job.status === "COMPLETED" || job.status === "DONE") {
+            const parsed = job.resultJson
+              ? (JSON.parse(job.resultJson) as Record<string, unknown>)
+              : {};
+            applyAiDocResult(parsed);
+            terminalHandled = true;
+            return;
+          }
+          if (job.status === "FAILED" || job.status === "DEAD") {
+            terminalHandled = true;
+            setError(job.lastError || "Tác vụ AI sinh tài liệu đã thất bại.");
+            setStep("error");
+            return;
+          }
+          pollTimerRef.current = setTimeout(checkJobFallback, 2000);
+        } catch {
+          if (!terminalHandled) {
+            terminalHandled = true;
+            setError("Mất kết nối theo dõi tiến trình tác vụ #" + jobId);
+            setStep("error");
+          }
+        }
+      };
+
+      const es = new EventSource("/api/jobs/" + jobId + "/stream");
+      eventSourceRef.current = es;
+
+      es.onmessage = (event) => {
+        if (terminalHandled) return;
+        try {
+          const data = JSON.parse(event.data) as JobSseProgressEvent;
+          if (data.message) {
+            setSseStatusMessage(data.message);
+          }
+
+          if (data.state === "RETRY_SCHEDULED" || data.state === "RETRYING") {
+            const retryPayload = data.payload as
+              | { attempts?: number; maxAttempts?: number; backoffSeconds?: number }
+              | undefined;
+            const retryDetail =
+              retryPayload?.attempts && retryPayload?.maxAttempts
+                ? ` (Lần ${retryPayload.attempts}/${retryPayload.maxAttempts}${
+                    retryPayload.backoffSeconds ? `, thử lại sau ${retryPayload.backoffSeconds}s` : ""
+                  })`
+                : "";
+            setSseStatusMessage(
+              data.message || `Tác vụ gặp lỗi tạm thời${retryDetail}. Hệ thống đang lên lịch thử lại...`
+            );
+            setCurrentProgressIndex(0);
+            if (typeof data.progress === "number") {
+              setProgressPercent(data.progress);
+            }
+            return;
+          }
+
+          if (data.state === "FAILED") {
+            terminalHandled = true;
+            es.close();
+            eventSourceRef.current = null;
+            const errPayload = data.payload as { lastError?: string } | undefined;
+            setError(data.message || errPayload?.lastError || "Tác vụ AI sinh tài liệu thất bại.");
+            setStep("error");
+            return;
+          }
+
+          if (data.state === "COMPLETED") {
+            es.close();
+            eventSourceRef.current = null;
+            const payloadObj =
+              data.payload && typeof data.payload === "object"
+                ? (data.payload as Record<string, unknown>)
+                : null;
+            const hasExtractedContent =
+              payloadObj !== null &&
+              ((typeof payloadObj.generated_content === "string" && payloadObj.generated_content.length > 0) ||
+                (typeof payloadObj.content === "string" && payloadObj.content.length > 0));
+            if (hasExtractedContent && payloadObj) {
+              applyAiDocResult(payloadObj);
+              terminalHandled = true;
+            } else {
+              void checkJobFallback();
+            }
+            return;
+          }
+
+          setCurrentProgressIndex(mapSseStateToStepIndex(data.state));
+          if (typeof data.progress === "number") {
+            setProgressPercent(data.progress);
+          }
+        } catch {
+          // Bỏ qua frame không phải JSON hợp lệ
+        }
+      };
+
+      es.onerror = () => {
+        if (terminalHandled) return;
+        es.close();
+        eventSourceRef.current = null;
+        void checkJobFallback();
+      };
     } catch (caught) {
       let rawMsg =
         isAxiosError(caught) && typeof caught.response?.data?.message === "string"
           ? caught.response.data.message
-          : "Không thể tạo tài liệu bằng AI. Vui lòng kiểm tra lại kết nối và thử lại.";
+          : caught instanceof Error && caught.message
+            ? caught.message
+            : "Không thể tạo tài liệu bằng AI. Vui lòng kiểm tra lại kết nối và thử lại.";
 
       const isDbOrInternal =
         rawMsg.includes("Exception") ||
@@ -1244,8 +1273,13 @@ service.initialize();
                   </div>
                   <div>
                     <h3 style={{ fontSize: 14.5, fontWeight: 700, color: "#0f766e", margin: 0 }}>
-                      Tiến trình Phân tích & Biên soạn AI (Dynamic Progress)
+                      Tiến trình Phân tích & Biên soạn AI {activeJobId ? `(Job #${activeJobId})` : "(SSE Stream)"}
                     </h3>
+                    {sseStatusMessage && (
+                      <p style={{ fontSize: 12, color: "#475569", margin: "2px 0 0" }}>
+                        {sseStatusMessage}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <span style={{ fontSize: 13, fontWeight: 700, color: "#0f766e", fontFamily: "monospace" }}>
