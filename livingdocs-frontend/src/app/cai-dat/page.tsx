@@ -15,8 +15,21 @@ import {
   Cloud,
   ShieldAlert,
   GitPullRequest,
+  Bell,
+  Webhook,
+  Send,
+  Mail,
+  GitBranch,
+  FileWarning,
+  ClipboardCheck,
 } from "lucide-react";
 import { apiClient } from "@/services/apiClient";
+import {
+  externalIntegrationService,
+  type ExternalIntegrationConfig,
+  type TestExternalIntegrationResponse,
+} from "@/services/externalIntegrationService";
+import { useSession } from "@/hooks/useSession";
 
 const CLOUD_PROVIDERS = [
   { id: "gemini", name: "Google Gemini" },
@@ -37,8 +50,44 @@ const ROUTING_MODES = [
   { id: "cloud_only", name: "Chỉ dùng Cloud API" },
 ];
 
+const WEBHOOK_PROVIDERS_META: Record<
+  string,
+  { label: string; badge: string; placeholderUrl: string; description: string }
+> = {
+  SLACK: {
+    label: "Slack Incoming Webhook",
+    badge: "Slack",
+    placeholderUrl: "https://hooks.slack.com/services/<WORKSPACE>/<CHANNEL>/<TOKEN>",
+    description: "Gửi thẻ Block Kit & Attachments kèm dải màu trạng thái vào kênh Slack của nhóm.",
+  },
+  DISCORD: {
+    label: "Discord Webhook",
+    badge: "Discord",
+    placeholderUrl: "https://discord.com/api/webhooks/123456789012345678/xxxxxxxxxxxxxxxxxxxxxxxx",
+    description: "Gửi Embeds định dạng đẹp với mã màu thập phân trực tiếp vào kênh Discord.",
+  },
+  CUSTOM_WEBHOOK: {
+    label: "Custom Webhook",
+    badge: "JSON / HMAC",
+    placeholderUrl: "https://hooks.your-domain.com/livingdocs/events",
+    description: "Đẩy payload JSON chuẩn { event, timestamp, data } kèm chữ ký HMAC-SHA256 (tùy chọn).",
+  },
+};
+
+const WEBHOOK_EVENT_OPTIONS = [
+  { key: "DRIFT_HIGH_CRITICAL", label: "Cảnh báo sai lệch mức HIGH / CRITICAL" },
+  { key: "REVIEW_SUBMITTED", label: "Developer gửi tài liệu cho Staff duyệt" },
+  { key: "DOCUMENT_PUBLISHED", label: "Manager phê duyệt xuất bản (PUBLISHED)" },
+];
+
 export default function CaiDatPage() {
-  const [activeTab, setActiveTab] = useState<"cloud" | "local" | "pr_blocking">("cloud");
+  const { roles } = useSession();
+  const canManageIntegrations =
+    roles.includes("ADMIN") || roles.includes("TECH_LEAD") || roles.includes("MANAGER");
+
+  const [activeTab, setActiveTab] = useState<
+    "cloud" | "local" | "pr_blocking" | "notifications" | "integrations"
+  >("cloud");
 
   // State cấu hình AI
   const [cloudProvider, setCloudProvider] = useState<string>("gemini");
@@ -61,6 +110,38 @@ export default function CaiDatPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [scanningModels, setScanningModels] = useState<boolean>(false);
   const [scanMessage, setScanMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // State Tùy chọn thông báo người dùng (GET/PUT /api/me/notification-preferences)
+  const [notifEmail, setNotifEmail] = useState<boolean>(true);
+  const [notifReview, setNotifReview] = useState<boolean>(true);
+  const [notifDriftAlert, setNotifDriftAlert] = useState<boolean>(true);
+  const [notifGithubToken, setNotifGithubToken] = useState<boolean>(true);
+  const [notifSaving, setNotifSaving] = useState<boolean>(false);
+  const [notifSavedMsg, setNotifSavedMsg] = useState<string | null>(null);
+  const [notifErrorMsg, setNotifErrorMsg] = useState<string | null>(null);
+
+  // State Tích hợp ngoài (Slack, Discord, Custom Webhook)
+  const [integrations, setIntegrations] = useState<ExternalIntegrationConfig[]>([]);
+  const [integrationSavingProvider, setIntegrationSavingProvider] = useState<string | null>(null);
+  const [integrationTestingProvider, setIntegrationTestingProvider] = useState<string | null>(null);
+  const [integrationFeedback, setIntegrationFeedback] = useState<
+    Record<string, { type: "success" | "error"; text: string }>
+  >({});
+
+  // Đọc ?tab= từ URL khi mount
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const tabParam = new URLSearchParams(window.location.search).get("tab");
+    if (
+      tabParam === "notifications" ||
+      tabParam === "integrations" ||
+      tabParam === "cloud" ||
+      tabParam === "local" ||
+      tabParam === "pr_blocking"
+    ) {
+      setActiveTab(tabParam);
+    }
+  }, []);
 
   // Nạp cấu hình hiện tại từ Backend Database
   useEffect(() => {
@@ -104,6 +185,29 @@ export default function CaiDatPage() {
         })
         .catch((err) => {
           console.warn("Không thể tải cấu hình PR blocking, dùng mặc định:", err);
+        }),
+      externalIntegrationService
+        .getNotificationPreferences()
+        .then((prefs) => {
+          if (prefs) {
+            setNotifEmail(prefs.emailEnabled ?? true);
+            setNotifReview(prefs.reviewEnabled ?? true);
+            setNotifDriftAlert(prefs.driftAlertEnabled ?? prefs.documentEnabled ?? true);
+            setNotifGithubToken(prefs.githubTokenIssueEnabled ?? prefs.githubEnabled ?? true);
+          }
+        })
+        .catch((err) => {
+          console.warn("Không thể tải tùy chọn thông báo:", err);
+        }),
+      externalIntegrationService
+        .listIntegrations()
+        .then((items) => {
+          if (Array.isArray(items) && items.length > 0) {
+            setIntegrations(items);
+          }
+        })
+        .catch((err) => {
+          console.warn("Không thể tải danh sách tích hợp ngoài:", err);
         }),
     ]).finally(() => setLoading(false));
   }, []);
@@ -201,6 +305,129 @@ export default function CaiDatPage() {
     }
   }
 
+  // Lưu tùy chọn nhận thông báo cá nhân (PUT /api/me/notification-preferences)
+  async function handleSaveNotificationPreferences() {
+    setNotifSaving(true);
+    setNotifSavedMsg(null);
+    setNotifErrorMsg(null);
+    try {
+      const updated = await externalIntegrationService.updateNotificationPreferences({
+        emailEnabled: notifEmail,
+        reviewEnabled: notifReview,
+        driftAlertEnabled: notifDriftAlert,
+        githubTokenIssueEnabled: notifGithubToken,
+      });
+      setNotifEmail(updated.emailEnabled);
+      setNotifReview(updated.reviewEnabled);
+      setNotifDriftAlert(updated.driftAlertEnabled ?? updated.documentEnabled ?? true);
+      setNotifGithubToken(updated.githubTokenIssueEnabled ?? updated.githubEnabled ?? true);
+      setNotifSavedMsg("Đã lưu tùy chọn thông báo cá nhân thành công!");
+      setTimeout(() => setNotifSavedMsg(null), 4000);
+    } catch (err: unknown) {
+      const anyErr = err as { response?: { data?: { message?: string } } };
+      setNotifErrorMsg(anyErr?.response?.data?.message || "Không thể lưu tùy chọn thông báo.");
+    } finally {
+      setNotifSaving(false);
+    }
+  }
+
+  function updateIntegrationField(
+    provider: string,
+    patch: Partial<ExternalIntegrationConfig>
+  ) {
+    setIntegrations((prev) =>
+      prev.map((item) => (item.provider === provider ? { ...item, ...patch } : item))
+    );
+  }
+
+  function toggleIntegrationEvent(provider: string, eventKey: string) {
+    setIntegrations((prev) =>
+      prev.map((item) => {
+        if (item.provider !== provider) return item;
+        const current = item.events || [];
+        const next = current.includes(eventKey)
+          ? current.filter((e) => e !== eventKey)
+          : [...current, eventKey];
+        return { ...item, events: next };
+      })
+    );
+  }
+
+  async function handleSaveIntegration(item: ExternalIntegrationConfig) {
+    setIntegrationSavingProvider(item.provider);
+    setIntegrationFeedback((prev) => {
+      const copy = { ...prev };
+      delete copy[item.provider];
+      return copy;
+    });
+    try {
+      const saved = await externalIntegrationService.updateIntegration(item.provider, {
+        enabled: item.enabled,
+        webhookUrl: item.webhookUrl?.trim() || "",
+        channelName: item.channelName?.trim() || "",
+        secret: item.secret?.trim() || undefined,
+        events: item.events,
+      });
+      setIntegrations((prev) =>
+        prev.map((it) => (it.provider === item.provider ? saved : it))
+      );
+      setIntegrationFeedback((prev) => ({
+        ...prev,
+        [item.provider]: {
+          type: "success",
+          text: `Đã lưu cấu hình ${WEBHOOK_PROVIDERS_META[item.provider]?.label || item.provider}.`,
+        },
+      }));
+    } catch (err: unknown) {
+      const anyErr = err as { response?: { status?: number; data?: { message?: string } } };
+      const msg =
+        anyErr?.response?.status === 403
+          ? "Bạn cần quyền ADMIN, TECH_LEAD hoặc MANAGER để lưu cấu hình tích hợp ngoài."
+          : anyErr?.response?.data?.message || "Lưu cấu hình thất bại.";
+      setIntegrationFeedback((prev) => ({
+        ...prev,
+        [item.provider]: { type: "error", text: msg },
+      }));
+    } finally {
+      setIntegrationSavingProvider(null);
+    }
+  }
+
+  async function handleTestIntegration(item: ExternalIntegrationConfig) {
+    setIntegrationTestingProvider(item.provider);
+    setIntegrationFeedback((prev) => {
+      const copy = { ...prev };
+      delete copy[item.provider];
+      return copy;
+    });
+    try {
+      const res: TestExternalIntegrationResponse = await externalIntegrationService.testConnection({
+        provider: item.provider,
+        webhookUrl: item.webhookUrl?.trim() || "",
+        secret: item.secret?.trim() || undefined,
+      });
+      setIntegrationFeedback((prev) => ({
+        ...prev,
+        [item.provider]: {
+          type: res.success ? "success" : "error",
+          text: res.message || (res.success ? `Kết nối thành công (HTTP ${res.statusCode})` : `Lỗi HTTP ${res.statusCode}`),
+        },
+      }));
+    } catch (err: unknown) {
+      const anyErr = err as { response?: { status?: number; data?: { message?: string } } };
+      const msg =
+        anyErr?.response?.status === 403
+          ? "Bạn cần quyền ADMIN, TECH_LEAD hoặc MANAGER để kiểm tra kết nối."
+          : anyErr?.response?.data?.message || "Không thể gửi yêu cầu kiểm tra kết nối.";
+      setIntegrationFeedback((prev) => ({
+        ...prev,
+        [item.provider]: { type: "error", text: msg },
+      }));
+    } finally {
+      setIntegrationTestingProvider(null);
+    }
+  }
+
   return (
     <AppShell>
       <div style={{ maxWidth: 760, margin: "0 auto", padding: "24px 16px" }}>
@@ -289,6 +516,50 @@ export default function CaiDatPage() {
           >
             <GitPullRequest size={16} />
             Chặn Hợp nhất PR
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("notifications")}
+            style={{
+              padding: "8px 20px",
+              borderRadius: 6,
+              border: "none",
+              background: activeTab === "notifications" ? "#ffffff" : "transparent",
+              color: activeTab === "notifications" ? "#0f766e" : "#64748b",
+              fontWeight: activeTab === "notifications" ? 700 : 500,
+              fontSize: 13.5,
+              boxShadow: activeTab === "notifications" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              transition: "all 150ms ease",
+            }}
+          >
+            <Bell size={16} />
+            Tùy chọn thông báo
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("integrations")}
+            style={{
+              padding: "8px 20px",
+              borderRadius: 6,
+              border: "none",
+              background: activeTab === "integrations" ? "#ffffff" : "transparent",
+              color: activeTab === "integrations" ? "#0f766e" : "#64748b",
+              fontWeight: activeTab === "integrations" ? 700 : 500,
+              fontSize: 13.5,
+              boxShadow: activeTab === "integrations" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              transition: "all 150ms ease",
+            }}
+          >
+            <Webhook size={16} />
+            Tích hợp ngoài
           </button>
         </div>
 
@@ -568,7 +839,7 @@ export default function CaiDatPage() {
                 )}
               </div>
             </div>
-          ) : (
+          ) : activeTab === "pr_blocking" ? (
             /* TIỆN ÍCH 3: CƠ CHẾ CHẶN HỢP NHẤT PULL REQUEST (CHECKS API) */
             <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 22 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -776,6 +1047,375 @@ export default function CaiDatPage() {
                   </div>
                 )}
               </div>
+            </div>
+          ) : activeTab === "notifications" ? (
+            /* TIỆN ÍCH 4: TÙY CHỌN THÔNG BÁO CÁ NHÂN (GET/PUT /api/me/notification-preferences) */
+            <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 18 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Bell size={18} className="text-emerald-600" />
+                <div>
+                  <h2 style={{ fontSize: 15, fontWeight: 700, color: "#0f172a", margin: 0 }}>
+                    Tùy chọn thông báo cá nhân
+                  </h2>
+                  <p style={{ fontSize: 12, color: "#64748b", margin: "2px 0 0 0" }}>
+                    Bật hoặc tắt từng kênh nhận thông báo từ hệ thống LivingDocs cho tài khoản của bạn.
+                  </p>
+                </div>
+              </div>
+
+              {[
+                {
+                  key: "emailEnabled",
+                  title: "Nhận thông báo qua Email",
+                  desc: "Gửi tóm tắt thay đổi tài liệu và cảnh báo quan trọng tới địa chỉ email đăng nhập.",
+                  checked: notifEmail,
+                  onChange: setNotifEmail,
+                  icon: <Mail size={16} className="text-emerald-600" />,
+                },
+                {
+                  key: "reviewEnabled",
+                  title: "Thông báo Phê duyệt & Review tài liệu",
+                  desc: "Thông báo khi Developer gửi duyệt hoặc khi Staff/Manager có quyết định phê duyệt mới.",
+                  checked: notifReview,
+                  onChange: setNotifReview,
+                  icon: <ClipboardCheck size={16} className="text-amber-600" />,
+                },
+                {
+                  key: "driftAlertEnabled",
+                  title: "Cảnh báo Sai lệch Tài liệu & Mã nguồn (Drift / Document)",
+                  desc: "Nhận cảnh báo khi phân tích AST/AI phát hiện tài liệu bị lệch so với mã nguồn mới.",
+                  checked: notifDriftAlert,
+                  onChange: setNotifDriftAlert,
+                  icon: <FileWarning size={16} className="text-rose-600" />,
+                },
+                {
+                  key: "githubTokenIssueEnabled",
+                  title: "Sự cố kết nối & GitHub Token",
+                  desc: "Cảnh báo ngay khi GitHub Access Token hết hạn, bị thu hồi hoặc mất quyền đồng bộ.",
+                  checked: notifGithubToken,
+                  onChange: setNotifGithubToken,
+                  icon: <GitBranch size={16} className="text-indigo-600" />,
+                },
+              ].map((item) => (
+                <div
+                  key={item.key}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 16,
+                    padding: "14px 16px",
+                    borderRadius: 8,
+                    border: "1px solid #e2e8f0",
+                    background: item.checked ? "#f8fafc" : "#ffffff",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                    <div style={{ marginTop: 2 }}>{item.icon}</div>
+                    <div>
+                      <div style={{ fontSize: 13.5, fontWeight: 600, color: "#1e293b" }}>
+                        {item.title}
+                      </div>
+                      <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>
+                        {item.desc}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={item.checked}
+                    aria-label={item.title}
+                    onClick={() => item.onChange(!item.checked)}
+                    style={{
+                      width: 44,
+                      height: 24,
+                      borderRadius: 999,
+                      border: "none",
+                      background: item.checked ? "#0f766e" : "#cbd5e1",
+                      position: "relative",
+                      cursor: "pointer",
+                      flexShrink: 0,
+                      transition: "background 150ms ease",
+                    }}
+                  >
+                    <span
+                      style={{
+                        position: "absolute",
+                        top: 2,
+                        left: item.checked ? 22 : 2,
+                        width: 20,
+                        height: 20,
+                        borderRadius: "50%",
+                        background: "#ffffff",
+                        boxShadow: "0 1px 2px rgba(0,0,0,0.2)",
+                        transition: "left 150ms ease",
+                      }}
+                    />
+                  </button>
+                </div>
+              ))}
+
+              <div style={{ display: "flex", alignItems: "center", gap: 14, paddingTop: 10, borderTop: "1px solid #f1f5f9", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={handleSaveNotificationPreferences}
+                  disabled={notifSaving}
+                  className="ld-btn ld-btn-primary"
+                  style={{
+                    height: 42,
+                    padding: "0 24px",
+                    fontSize: 13.5,
+                    fontWeight: 600,
+                    background: "#0f766e",
+                    color: "#ffffff",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    cursor: notifSaving ? "not-allowed" : "pointer",
+                    opacity: notifSaving ? 0.75 : 1,
+                  }}
+                >
+                  {notifSaving ? <RefreshCw size={15} className="animate-spin" /> : <Save size={15} />}
+                  {notifSaving ? "Đang lưu..." : "Lưu tùy chọn thông báo"}
+                </button>
+
+                {notifSavedMsg && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#15803d", fontSize: 13, fontWeight: 600 }}>
+                    <CheckCircle2 size={16} />
+                    <span>{notifSavedMsg}</span>
+                  </div>
+                )}
+
+                {notifErrorMsg && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#dc2626", fontSize: 13, fontWeight: 600 }}>
+                    <AlertCircle size={16} />
+                    <span>{notifErrorMsg}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            /* TIỆN ÍCH 5: TÍCH HỢP NGOÀI (SLACK, DISCORD, CUSTOM WEBHOOK) */
+            <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 20 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Webhook size={18} className="text-indigo-600" />
+                <div>
+                  <h2 style={{ fontSize: 15, fontWeight: 700, color: "#0f172a", margin: 0 }}>
+                    Tích hợp Webhook Ngoài (Slack / Discord / Custom)
+                  </h2>
+                  <p style={{ fontSize: 12, color: "#64748b", margin: "2px 0 0 0" }}>
+                    Tự động bắn thông báo định dạng giàu khi có Drift HIGH/CRITICAL, khi gửi Staff duyệt hoặc khi Manager PUBLISHED.
+                  </p>
+                </div>
+              </div>
+
+              {!canManageIntegrations && (
+                <div
+                  style={{
+                    padding: "10px 14px",
+                    borderRadius: 8,
+                    background: "#fffbeb",
+                    border: "1px solid #fde68a",
+                    color: "#92400e",
+                    fontSize: 12.5,
+                  }}
+                >
+                  Chế độ chỉ xem: Chỉ <strong>ADMIN</strong>, <strong>TECH_LEAD</strong> hoặc <strong>MANAGER</strong> mới có quyền lưu và kiểm tra kết nối Webhook.
+                </div>
+              )}
+
+              {integrations.length === 0 ? (
+                <div style={{ padding: 24, textAlign: "center", color: "#64748b", fontSize: 13 }}>
+                  Chưa có dữ liệu tích hợp ngoài từ máy chủ.
+                </div>
+              ) : (
+                integrations
+                  .filter((it) => ["SLACK", "DISCORD", "CUSTOM_WEBHOOK"].includes(it.provider))
+                  .map((item) => {
+                    const meta = WEBHOOK_PROVIDERS_META[item.provider] || {
+                      label: item.provider,
+                      badge: item.provider,
+                      placeholderUrl: "https://...",
+                      description: "",
+                    };
+                    const fb = integrationFeedback[item.provider];
+                    const isSavingItem = integrationSavingProvider === item.provider;
+                    const isTestingItem = integrationTestingProvider === item.provider;
+
+                    return (
+                      <div
+                        key={item.provider}
+                        style={{
+                          border: "1px solid #e2e8f0",
+                          borderRadius: 10,
+                          padding: 18,
+                          background: item.enabled ? "#f8fafc" : "#ffffff",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 14,
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <span style={{ fontSize: 14, fontWeight: 700, color: "#0f172a" }}>{meta.label}</span>
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  padding: "2px 8px",
+                                  borderRadius: 999,
+                                  background: item.enabled ? "#dcfce7" : "#f1f5f9",
+                                  color: item.enabled ? "#166534" : "#64748b",
+                                }}
+                              >
+                                {item.enabled ? "Đang bật" : "Đang tắt"}
+                              </span>
+                            </div>
+                            <p style={{ fontSize: 12, color: "#64748b", margin: "2px 0 0 0" }}>{meta.description}</p>
+                          </div>
+
+                          <label style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                            <input
+                              type="checkbox"
+                              checked={item.enabled}
+                              onChange={(e) =>
+                                updateIntegrationField(item.provider, { enabled: e.target.checked })
+                              }
+                              style={{ width: 18, height: 18, accentColor: "#0f766e" }}
+                            />
+                            <span style={{ fontSize: 12.5, fontWeight: 600, color: "#334155" }}>Kích hoạt</span>
+                          </label>
+                        </div>
+
+                        <div>
+                          <label style={{ fontSize: 12, fontWeight: 600, color: "#334155", display: "block", marginBottom: 4 }}>
+                            Webhook URL
+                          </label>
+                          <input
+                            type="url"
+                            className="ld-input"
+                            style={{ width: "100%", height: 38, fontSize: 13 }}
+                            value={item.webhookUrl || ""}
+                            onChange={(e) =>
+                              updateIntegrationField(item.provider, { webhookUrl: e.target.value })
+                            }
+                            placeholder={meta.placeholderUrl}
+                          />
+                        </div>
+
+                        {item.provider === "CUSTOM_WEBHOOK" && (
+                          <div>
+                            <label style={{ fontSize: 12, fontWeight: 600, color: "#334155", display: "block", marginBottom: 4 }}>
+                              HMAC Secret (tùy chọn — ký header X-LivingDocs-Signature)
+                            </label>
+                            <input
+                              type="password"
+                              className="ld-input"
+                              style={{ width: "100%", height: 38, fontSize: 13 }}
+                              value={item.secret || ""}
+                              onChange={(e) =>
+                                updateIntegrationField(item.provider, { secret: e.target.value })
+                              }
+                              placeholder="Nhập chuỗi bí mật HMAC..."
+                            />
+                          </div>
+                        )}
+
+                        <div>
+                          <label style={{ fontSize: 12, fontWeight: 600, color: "#334155", display: "block", marginBottom: 6 }}>
+                            Sự kiện đăng ký nhận thông báo
+                          </label>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                            {WEBHOOK_EVENT_OPTIONS.map((ev) => {
+                              const checked = (item.events || []).includes(ev.key);
+                              return (
+                                <label
+                                  key={ev.key}
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 6,
+                                    fontSize: 12,
+                                    color: "#334155",
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => toggleIntegrationEvent(item.provider, ev.key)}
+                                    style={{ accentColor: "#0f766e" }}
+                                  />
+                                  <span>{ev.label}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveIntegration(item)}
+                            disabled={isSavingItem}
+                            className="ld-btn ld-btn-primary"
+                            style={{
+                              height: 36,
+                              padding: "0 16px",
+                              fontSize: 12.5,
+                              fontWeight: 600,
+                              background: "#0f766e",
+                              color: "#ffffff",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 6,
+                            }}
+                          >
+                            {isSavingItem ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
+                            {isSavingItem ? "Đang lưu..." : "Lưu cấu hình"}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleTestIntegration(item)}
+                            disabled={isTestingItem}
+                            className="ld-btn ld-btn-secondary"
+                            style={{
+                              height: 36,
+                              padding: "0 16px",
+                              fontSize: 12.5,
+                              fontWeight: 600,
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 6,
+                            }}
+                          >
+                            {isTestingItem ? <RefreshCw size={14} className="animate-spin" /> : <Send size={14} />}
+                            {isTestingItem ? "Đang kiểm tra..." : "Kiểm tra kết nối"}
+                          </button>
+
+                          {fb && (
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
+                                fontSize: 12.5,
+                                fontWeight: 600,
+                                color: fb.type === "success" ? "#15803d" : "#dc2626",
+                              }}
+                            >
+                              {fb.type === "success" ? <CheckCircle2 size={15} /> : <AlertCircle size={15} />}
+                              <span>{fb.text}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+              )}
             </div>
           )}
         </div>

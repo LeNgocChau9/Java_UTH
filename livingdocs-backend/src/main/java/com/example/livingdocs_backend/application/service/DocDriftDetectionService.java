@@ -67,6 +67,9 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
     @Autowired(required = false)
     private AiRuntimeConfigService aiRuntimeConfigService;
 
+    @Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.notification.ExternalIntegrationWebhookDispatcher webhookDispatcher;
+
     public static final String BOT_MARKER = "<!-- livingdocs-drift-alert -->";
 
     @Autowired
@@ -340,6 +343,17 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
         if (!savedAlerts.isEmpty()) {
             alertRepository.saveAll(savedAlerts);
             log.info("[DocDrift] Đã lưu {} bản ghi vào bảng document_change_alerts", savedAlerts.size());
+            if (webhookDispatcher != null) {
+                for (DocumentChangeAlertEntity alert : savedAlerts) {
+                    webhookDispatcher.dispatchDriftAlert(
+                            alert.getRepositoryId(),
+                            alert.getDocumentId(),
+                            alert.getSeverity(),
+                            alert.getDetails(),
+                            repo.getRepoFullName() + " PR #" + prNumber
+                    );
+                }
+            }
         }
 
         // 4. Định dạng Markdown comment chi tiết và chuyên nghiệp kèm deep link tới trang cảnh báo
@@ -484,7 +498,17 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
                                 targetDoc.getTargetPath() != null ? targetDoc.getTargetPath() : "docs/README.md"))
                         .createdAt(now)
                         .build();
-                createdAlerts.add(alertRepository.save(alert));
+                DocumentChangeAlertEntity savedManualAlert = alertRepository.save(alert);
+                createdAlerts.add(savedManualAlert);
+                if (webhookDispatcher != null) {
+                    webhookDispatcher.dispatchDriftAlert(
+                            repositoryId,
+                            targetDoc.getDocId(),
+                            savedManualAlert.getSeverity(),
+                            savedManualAlert.getDetails(),
+                            repo.getRepoFullName() + " PR #" + prNumber
+                    );
+                }
             }
             statusMessage = String.format("Đã phân tích thủ công PR #%d (%s) và ghi nhận %d cảnh báo sai lệch vào lịch sử.",
                     prNumber, repo.getRepoFullName(), createdAlerts.size());
@@ -578,7 +602,17 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
                         .details(details)
                         .createdAt(now)
                         .build();
-                savedAlerts.add(alertRepository.save(alert));
+                DocumentChangeAlertEntity savedDocAlert = alertRepository.save(alert);
+                savedAlerts.add(savedDocAlert);
+                if (webhookDispatcher != null) {
+                    webhookDispatcher.dispatchDriftAlert(
+                            repoId,
+                            documentId,
+                            savedDocAlert.getSeverity(),
+                            savedDocAlert.getDetails(),
+                            doc.getTitle()
+                    );
+                }
             }
         } else {
             String targetPath = StringUtils.hasText(doc.getTargetPath()) ? doc.getTargetPath() : "docs/" + doc.getTitle();
@@ -599,7 +633,17 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
                     .details(details)
                     .createdAt(now)
                     .build();
-            savedAlerts.add(alertRepository.save(alert));
+            DocumentChangeAlertEntity savedFallbackAlert = alertRepository.save(alert);
+            savedAlerts.add(savedFallbackAlert);
+            if (webhookDispatcher != null) {
+                webhookDispatcher.dispatchDriftAlert(
+                        repoId,
+                        documentId,
+                        savedFallbackAlert.getSeverity(),
+                        savedFallbackAlert.getDetails(),
+                        doc.getTitle()
+                );
+            }
         }
 
         return ManualDriftAnalysisResponseDto.builder()

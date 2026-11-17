@@ -69,6 +69,9 @@ public class ReviewServiceImpl implements ReviewServicePort {
     private SpringDataManagerApprovalDelegationRepository managerApprovalDelegationRepository;
     private UserRepositoryPort userRepositoryPort;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.notification.ExternalIntegrationWebhookDispatcher webhookDispatcher;
+
     @Autowired
     public ReviewServiceImpl(
             DocumentRepositoryPort documentRepositoryPort,
@@ -277,6 +280,9 @@ public class ReviewServiceImpl implements ReviewServicePort {
 
         // Tự động mở khóa PR Checks trên GitHub nếu tài liệu xuất bản trực tiếp
         if (nextStatus == DocumentStatus.PUBLISHED) {
+            if (webhookDispatcher != null) {
+                webhookDispatcher.dispatchDocumentPublished(savedDoc.getDocId(), savedDoc.getTitle(), actorId, null);
+            }
             try {
                 if (prMergeBlockingService != null) {
                     prMergeBlockingService.notifyDocumentApproved(savedDoc.getDocId());
@@ -434,6 +440,9 @@ public class ReviewServiceImpl implements ReviewServicePort {
         }
 
         // Tự động mở khóa PR Checks trên GitHub (chuyển sang màu xanh hợp lệ) khi tài liệu được phê duyệt
+        if (nextStatus == DocumentStatus.PUBLISHED && webhookDispatcher != null) {
+            webhookDispatcher.dispatchDocumentPublished(savedDoc.getDocId(), savedDoc.getTitle(), actorId, commitSha);
+        }
         if (nextStatus == DocumentStatus.PUBLISHED || nextStatus == DocumentStatus.APPROVED) {
             try {
                 if (prMergeBlockingService != null) {
