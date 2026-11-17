@@ -52,7 +52,9 @@ import {
   Wand2,
   GitBranch,
   RotateCcw,
+  MessageSquare,
 } from "lucide-react";
+import { reviewService, type ReviewCommentItem } from "@/services/reviewService";
 import {
   templateService,
   type DocTemplateDto,
@@ -223,6 +225,46 @@ function EditorContent() {
   const [githubToken, setGithubToken] = useState("");
   const [commitMessage, setCommitMessage] = useState("");
   const [publishingGitHub, setPublishingGitHub] = useState(false);
+
+  // Review Comments panel states (R4)
+  const [rightPanelTab, setRightPanelTab] = useState<"crosscheck" | "comments">("crosscheck");
+  const [reviewComments, setReviewComments] = useState<ReviewCommentItem[]>([]);
+  const [loadingReviewComments, setLoadingReviewComments] = useState<boolean>(false);
+  const [resolvingCommentId, setResolvingCommentId] = useState<number | null>(null);
+
+  const fetchReviewComments = useCallback(async (id: number) => {
+    setLoadingReviewComments(true);
+    try {
+      const data = await reviewService.getDocumentComments(id);
+      setReviewComments(data);
+    } catch (err) {
+      console.warn("Không tải được review comments:", err);
+      setReviewComments([]);
+    } finally {
+      setLoadingReviewComments(false);
+    }
+  }, []);
+
+  const handleResolveComment = async (commentId: number) => {
+    if (!docId) return;
+    setResolvingCommentId(commentId);
+    try {
+      const updated = await reviewService.resolveDocumentComment(docId, commentId);
+      setReviewComments((prev) =>
+        prev.map((c) =>
+          c.commentId === commentId
+            ? { ...c, status: "RESOLVED", resolvedAt: updated.resolvedAt || new Date().toISOString() }
+            : c
+        )
+      );
+      notify("success", "Đã đánh dấu đã khắc phục nhận xét.");
+    } catch (err) {
+      console.error("Lỗi khi giải quyết nhận xét:", err);
+      notify("error", "Không thể cập nhật trạng thái nhận xét.");
+    } finally {
+      setResolvingCommentId(null);
+    }
+  };
 
   const handleReopenDraft = async () => {
     if (!docId) return;
@@ -584,6 +626,7 @@ function EditorContent() {
           handleRunCrossCheck(doc.latestVersion.content || "", doc.repoId, doc.targetPath || undefined);
         }
         setIsDirty(false);
+        fetchReviewComments(doc.docId);
       } catch (err: any) {
         const savedDraft = typeof window !== "undefined" ? sessionStorage.getItem(`drift_alert_draft_${docIdParam}`) : null;
         if (savedDraft) {
@@ -683,6 +726,7 @@ function EditorContent() {
           setLatestHash(updated.latestVersion.hash);
         }
         setIsDirty(false);
+        if (docId) fetchReviewComments(docId);
         notify("success", `Đã lưu bản nháp thành công! (Phiên bản v${updated.currentVersion})`);
       } else {
         // Tạo tài liệu mới -> tạo Genesis v1
@@ -702,6 +746,7 @@ function EditorContent() {
           setLatestHash(created.latestVersion.hash);
         }
         setIsDirty(false);
+        if (created.docId) fetchReviewComments(created.docId);
         notify("success", `Đã tạo mới và lưu bản nháp thành công! (Phiên bản v1)`);
         // Thay đổi URL mà không reload trang
         router.replace(`/tai-lieu-cua-toi/editor?docId=${created.docId}`);
@@ -760,6 +805,7 @@ function EditorContent() {
         setStatus(reviewed.status);
         setCurrentVersion(reviewed.currentVersion);
         setIsDirty(false);
+        if (activeDocId) fetchReviewComments(activeDocId);
         notify("success", "Đã gửi tài liệu để review thành công! Trạng thái: Chờ duyệt (Staff Reviewer).");
       }
     } catch (err: any) {
@@ -2081,25 +2127,81 @@ function EditorContent() {
               overflow: "hidden",
             }}
           >
-            {/* Header Right Panel */}
+            {/* Header Right Panel with Tab Switcher */}
             <div
               style={{
-                padding: "10px 14px",
+                padding: "6px 10px",
                 borderBottom: "1px solid var(--color-border)",
                 background: "var(--color-muted)",
                 display: "flex",
                 alignItems: "center",
-                justifyContent: "space-between",
+                gap: 6,
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <Sparkles size={14} style={{ color: "#087f5b" }} />
-                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.05em", color: "var(--color-text-secondary)", textTransform: "uppercase" }}>
-                  Đối chiếu Template & AI
-                </span>
-              </div>
+              <button
+                type="button"
+                onClick={() => setRightPanelTab("crosscheck")}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  padding: "5px 10px",
+                  borderRadius: 6,
+                  border: "none",
+                  background: rightPanelTab === "crosscheck" ? "#ffffff" : "transparent",
+                  color: rightPanelTab === "crosscheck" ? "#087f5b" : "var(--color-text-secondary)",
+                  fontWeight: rightPanelTab === "crosscheck" ? 700 : 500,
+                  fontSize: 11,
+                  cursor: "pointer",
+                  boxShadow: rightPanelTab === "crosscheck" ? "0 1px 2px rgba(0,0,0,0.05)" : "none",
+                }}
+              >
+                <Sparkles size={13} style={{ color: rightPanelTab === "crosscheck" ? "#087f5b" : "inherit" }} />
+                <span>Template & AI</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setRightPanelTab("comments");
+                  if (docId) fetchReviewComments(docId);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  padding: "5px 10px",
+                  borderRadius: 6,
+                  border: "none",
+                  background: rightPanelTab === "comments" ? "#ffffff" : "transparent",
+                  color: rightPanelTab === "comments" ? "#087f5b" : "var(--color-text-secondary)",
+                  fontWeight: rightPanelTab === "comments" ? 700 : 500,
+                  fontSize: 11,
+                  cursor: "pointer",
+                  boxShadow: rightPanelTab === "comments" ? "0 1px 2px rgba(0,0,0,0.05)" : "none",
+                }}
+              >
+                <MessageSquare size={13} style={{ color: rightPanelTab === "comments" ? "#087f5b" : "inherit" }} />
+                <span>Nhận xét Reviewer</span>
+                {reviewComments.length > 0 && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      padding: "1px 5px",
+                      borderRadius: 10,
+                      background: reviewComments.some((c) => c.status === "OPEN") ? "#fed7aa" : "#dcfce7",
+                      color: reviewComments.some((c) => c.status === "OPEN") ? "#c2410c" : "#15803d",
+                    }}
+                  >
+                    {reviewComments.filter((c) => c.status === "OPEN").length || reviewComments.length}
+                  </span>
+                )}
+              </button>
             </div>
 
+            {rightPanelTab === "crosscheck" ? (
+              <>
             {/* Template Selector & Run Button */}
             <div style={{ padding: 12, borderBottom: "1px solid var(--color-border)", background: "#fafafa" }}>
               <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 4 }}>
@@ -2418,6 +2520,132 @@ function EditorContent() {
                         </div>
                       )}
                     </div>
+                  )}
+                </div>
+              </div>
+            )}
+              </>
+            ) : (
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--color-border)", background: "#fafafa", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#1e293b" }}>
+                    Nhận xét từ Staff / Manager ({reviewComments.length})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => docId && fetchReviewComments(docId)}
+                    disabled={loadingReviewComments}
+                    className="ld-btn ld-btn-ghost ld-btn-sm"
+                    style={{ fontSize: 11, padding: "2px 6px" }}
+                  >
+                    <RefreshCw size={11} className={loadingReviewComments ? "animate-spin" : ""} />
+                    Tải lại
+                  </button>
+                </div>
+
+                <div style={{ flex: 1, padding: 12, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10 }}>
+                  {loadingReviewComments ? (
+                    <div style={{ padding: 24, textAlign: "center", color: "#64748b", fontSize: 12 }}>
+                      <RefreshCw size={16} className="animate-spin" style={{ margin: "0 auto 6px", color: "#087f5b" }} />
+                      Đang nạp nhận xét...
+                    </div>
+                  ) : reviewComments.length === 0 ? (
+                    <div style={{ padding: 32, textAlign: "center", color: "#64748b" }}>
+                      <CheckCircle2 size={32} style={{ color: "#10b981", margin: "0 auto 8px", opacity: 0.7 }} />
+                      <p style={{ fontSize: 13, fontWeight: 600, color: "#1e293b", margin: "0 0 4px" }}>
+                        Chưa có nhận xét nào
+                      </p>
+                      <p style={{ fontSize: 11, margin: 0 }}>
+                        Staff Reviewer và Manager chưa để lại nhận xét chỉnh sửa nào cho tài liệu này.
+                      </p>
+                    </div>
+                  ) : (
+                    reviewComments.map((c) => (
+                      <div
+                        key={c.commentId}
+                        style={{
+                          padding: "10px 12px",
+                          background: c.status === "RESOLVED" ? "#f8fafc" : "#fffbeb",
+                          border: `1px solid ${c.status === "RESOLVED" ? "#e2e8f0" : "#fde68a"}`,
+                          borderRadius: 8,
+                          fontSize: 12,
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                          <span style={{ fontWeight: 700, color: "#0f766e", fontSize: 11 }}>
+                            {c.authorRole || "REVIEWER"} {c.authorEmail ? `(${c.authorEmail})` : ""}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 10,
+                              fontWeight: 700,
+                              padding: "2px 6px",
+                              borderRadius: 4,
+                              background: c.status === "RESOLVED" ? "#dcfce7" : "#fed7aa",
+                              color: c.status === "RESOLVED" ? "#15803d" : "#c2410c",
+                            }}
+                          >
+                            {c.status === "RESOLVED" ? "Đã giải quyết" : "Cần sửa đổi"}
+                          </span>
+                        </div>
+
+                        {c.textSegment && (
+                          <blockquote
+                            style={{
+                              margin: "0 0 6px",
+                              paddingLeft: 8,
+                              borderLeft: "3px solid #087f5b",
+                              fontStyle: "italic",
+                              color: "#475569",
+                              background: "#f1f5f9",
+                              borderRadius: "0 4px 4px 0",
+                              padding: "4px 8px",
+                              fontSize: 11,
+                            }}
+                          >
+                            &quot;{c.textSegment}&quot;
+                          </blockquote>
+                        )}
+
+                        <p style={{ margin: "0 0 8px", color: "#1e293b", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+                          {c.detailedComment}
+                        </p>
+
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid #f1f5f9", paddingTop: 6 }}>
+                          <span style={{ fontSize: 10, color: "#94a3b8" }}>
+                            {c.createdAt ? new Date(c.createdAt).toLocaleString("vi-VN") : ""}
+                          </span>
+
+                          {c.status === "OPEN" ? (
+                            <button
+                              type="button"
+                              onClick={() => handleResolveComment(c.commentId)}
+                              disabled={resolvingCommentId === c.commentId}
+                              className="ld-btn ld-btn-sm"
+                              style={{
+                                fontSize: 11,
+                                padding: "3px 8px",
+                                background: "#087f5b",
+                                color: "#ffffff",
+                                borderRadius: 4,
+                                fontWeight: 600,
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 4,
+                              }}
+                            >
+                              <Check size={11} />
+                              {resolvingCommentId === c.commentId ? "Đang lưu..." : "Đã khắc phục (Resolve)"}
+                            </button>
+                          ) : (
+                            <span style={{ fontSize: 10, color: "#16a34a", fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}>
+                              <CheckCircle2 size={11} />
+                              Đã khắc phục
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))
                   )}
                 </div>
               </div>

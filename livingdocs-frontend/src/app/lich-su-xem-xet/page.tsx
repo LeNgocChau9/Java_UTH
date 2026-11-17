@@ -13,6 +13,7 @@ const ACTION_META: Record<string, { label: string; icon: React.ReactNode; bg: st
   approved: { label: "Đã duyệt", icon: <CheckCircle size={12} />, bg: "#ecfdf5", color: "#059669" },
   rejected: { label: "Từ chối", icon: <XCircle size={12} />, bg: "#fef2f2", color: "#b91c1c" },
   returned: { label: "Trả về sửa", icon: <Clock size={12} />, bg: "#fffbeb", color: "#b45309" },
+  pending: { label: "Chờ xử lý", icon: <Clock size={12} />, bg: "#eff6ff", color: "#1d4ed8" },
 };
 
 function formatReviewedAt(iso: string): string {
@@ -36,7 +37,7 @@ export default function LichSuXemXetPage() {
   const [history, setHistory] = useState<ReviewHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | "approved" | "rejected" | "returned">("all");
+  const [filter, setFilter] = useState<"all" | "approved" | "rejected" | "returned" | "pending">("all");
   const [search, setSearch] = useState("");
   const [previewDoc, setPreviewDoc] = useState<DocumentDetail | null>(null);
   const [previewHistoryItem, setPreviewHistoryItem] = useState<ReviewHistoryItem | null>(null);
@@ -119,7 +120,7 @@ export default function LichSuXemXetPage() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        {(["all", "approved", "rejected", "returned"] as const).map((f) => {
+        {(["all", "approved", "rejected", "returned", "pending"] as const).map((f) => {
           const meta = f !== "all" ? ACTION_META[f] : null;
           const count = f === "all" ? history.length : history.filter((h) => h.action === f).length;
           return (
@@ -176,7 +177,7 @@ export default function LichSuXemXetPage() {
               </tr>
             ) : (
               shown.map((h) => {
-                const meta = ACTION_META[h.action] || ACTION_META.approved;
+                const meta = ACTION_META[h.action] || ACTION_META.pending;
                 return (
                   <tr key={h.id}>
                     <td>
