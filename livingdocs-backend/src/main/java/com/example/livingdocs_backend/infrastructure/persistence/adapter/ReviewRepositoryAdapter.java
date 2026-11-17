@@ -43,6 +43,11 @@ public class ReviewRepositoryAdapter implements ReviewRepositoryPort {
     }
 
     @Override
+    public Optional<Review> findFirstByDocIdAndResultOrderByCreatedAtDesc(Long docId, String result) {
+        return springDataReviewRepository.findFirstByDocIdAndResultOrderByCreatedAtDesc(docId, result).map(this::toDomain);
+    }
+
+    @Override
     public List<Review> findAll() {
         return springDataReviewRepository.findAllByOrderByCreatedAtDesc()
                 .stream()

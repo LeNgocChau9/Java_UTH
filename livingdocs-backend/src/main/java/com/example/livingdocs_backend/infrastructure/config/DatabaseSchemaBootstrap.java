@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Component;
  */
 @Slf4j
 @Component
+@Order(10)
 @RequiredArgsConstructor
 public class DatabaseSchemaBootstrap implements ApplicationRunner {
 
@@ -46,6 +48,76 @@ public class DatabaseSchemaBootstrap implements ApplicationRunner {
                     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
             """);
+
+            // R4: Review comments persistence enhancements
+            try {
+                jdbcTemplate.execute("ALTER TABLE review_comments ADD COLUMN IF NOT EXISTS doc_id BIGINT");
+                jdbcTemplate.execute("ALTER TABLE review_comments ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'OPEN'");
+                jdbcTemplate.execute("ALTER TABLE review_comments ADD COLUMN IF NOT EXISTS author_email VARCHAR(100)");
+                jdbcTemplate.execute("ALTER TABLE review_comments ADD COLUMN IF NOT EXISTS author_role VARCHAR(50)");
+                jdbcTemplate.execute("ALTER TABLE review_comments ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP");
+                try {
+                    jdbcTemplate.execute("ALTER TABLE review_comments ALTER COLUMN review_id DROP NOT NULL");
+                } catch (Exception ignore) {}
+                try {
+                    jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_review_comments_doc_id ON review_comments(doc_id)");
+                    jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_review_comments_status ON review_comments(status)");
+                } catch (Exception ignore) {}
+            } catch (Exception e) {
+                log.debug("[DatabaseSchemaBootstrap] review_comments DDL update skipped/failed: {}", e.getMessage());
+            }
+
+            // R6: Relational manager approval policies & delegations
+            try {
+                jdbcTemplate.execute("""
+                    CREATE TABLE IF NOT EXISTS manager_approval_policies (
+                        policy_id BIGSERIAL PRIMARY KEY,
+                        workspace_id BIGINT NOT NULL DEFAULT 1,
+                        document_type VARCHAR(100) NOT NULL,
+                        approval_required BOOLEAN NOT NULL DEFAULT true,
+                        merge_policy VARCHAR(20) NOT NULL DEFAULT 'WARN',
+                        tiers INTEGER NOT NULL DEFAULT 2,
+                        description TEXT,
+                        updated_by BIGINT,
+                        updated_by_email VARCHAR(255),
+                        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        CONSTRAINT uk_manager_policy_workspace_type UNIQUE (workspace_id, document_type)
+                    )
+                """);
+                jdbcTemplate.execute("ALTER TABLE manager_approval_policies ADD COLUMN IF NOT EXISTS tiers INTEGER DEFAULT 2");
+                jdbcTemplate.execute("ALTER TABLE manager_approval_policies ADD COLUMN IF NOT EXISTS description TEXT");
+                jdbcTemplate.execute("ALTER TABLE manager_approval_policies ADD COLUMN IF NOT EXISTS updated_by_email VARCHAR(255)");
+
+                jdbcTemplate.execute("""
+                    CREATE TABLE IF NOT EXISTS manager_approval_delegations (
+                        delegation_id BIGSERIAL PRIMARY KEY,
+                        workspace_id BIGINT NOT NULL DEFAULT 1,
+                        delegator_id BIGINT NOT NULL,
+                        delegate_id BIGINT NOT NULL,
+                        delegator_name VARCHAR(150),
+                        delegator_email VARCHAR(255),
+                        delegatee_name VARCHAR(150),
+                        delegatee_email VARCHAR(255),
+                        active BOOLEAN NOT NULL DEFAULT true,
+                        starts_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        ends_at TIMESTAMP WITH TIME ZONE,
+                        reason TEXT,
+                        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                """);
+                jdbcTemplate.execute("ALTER TABLE manager_approval_delegations ADD COLUMN IF NOT EXISTS delegator_name VARCHAR(150)");
+                jdbcTemplate.execute("ALTER TABLE manager_approval_delegations ADD COLUMN IF NOT EXISTS delegatee_name VARCHAR(150)");
+                jdbcTemplate.execute("ALTER TABLE manager_approval_delegations ADD COLUMN IF NOT EXISTS delegator_email VARCHAR(255)");
+                jdbcTemplate.execute("ALTER TABLE manager_approval_delegations ADD COLUMN IF NOT EXISTS delegatee_email VARCHAR(255)");
+                jdbcTemplate.execute("ALTER TABLE manager_approval_delegations ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true");
+                try {
+                    jdbcTemplate.execute("ALTER TABLE manager_approval_delegations ALTER COLUMN delegator_id DROP NOT NULL");
+                    jdbcTemplate.execute("ALTER TABLE manager_approval_delegations ALTER COLUMN delegate_id DROP NOT NULL");
+                } catch (Exception ignore) {}
+            } catch (Exception e) {
+                log.debug("[DatabaseSchemaBootstrap] manager_approval DDL update skipped/failed: {}", e.getMessage());
+            }
 
             // Tự động seed 5 vai trò chuẩn (ADMIN, TECH_LEAD, MANAGER, STAFF, DEVELOPER) và default workspace (workspace_id = 1)
             // để không bao giờ lỗi khi đổi role sang STAFF hoặc gán thành viên trên DB mới

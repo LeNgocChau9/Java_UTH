@@ -15,5 +15,7 @@ public interface ReviewRepositoryPort {
 
     Optional<Review> findLatestByDocId(Long docId);
 
+    Optional<Review> findFirstByDocIdAndResultOrderByCreatedAtDesc(Long docId, String result);
+
     List<Review> findAll();
 }
