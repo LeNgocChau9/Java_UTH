@@ -14,5 +14,7 @@ public interface SpringDataReviewRepository extends JpaRepository<ReviewEntity, 
 
     Optional<ReviewEntity> findFirstByDocIdOrderByCreatedAtDesc(Long docId);
 
+    Optional<ReviewEntity> findFirstByDocIdAndResultOrderByCreatedAtDesc(Long docId, String result);
+
     List<ReviewEntity> findAllByOrderByCreatedAtDesc();
 }

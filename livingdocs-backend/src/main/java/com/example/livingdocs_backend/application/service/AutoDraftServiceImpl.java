@@ -171,15 +171,25 @@ public class AutoDraftServiceImpl implements AutoDraftServicePort {
         document.setStatus(DocumentStatus.UNDER_REVIEW_STAFF);
         documentRepository.save(document);
 
-        // 6. Gửi thông báo đến hàng đợi xem xét của nhân viên (tạo mục trong bảng reviews với trạng thái PENDING)
-        ReviewEntity reviewItem = ReviewEntity.builder()
-                .docId(docId)
-                .versionId(savedVersion.getVersionId())
-                .reviewer("AI_AGENT")
-                .generalComment("Bản nháp tự động sinh do phát hiện thay đổi mã nguồn (Commit " + commitHash + "): " + summary)
-                .result("PENDING")
-                .createdAt(Instant.now())
-                .build();
+        // 6. Gửi thông báo đến hàng đợi xem xét của nhân viên (tạo/cập nhật mục trong bảng reviews với trạng thái PENDING)
+        Optional<ReviewEntity> existingPendingOpt = reviewRepository.findFirstByDocIdAndResultOrderByCreatedAtDesc(docId, "PENDING");
+        ReviewEntity reviewItem;
+        if (existingPendingOpt.isPresent()) {
+            reviewItem = existingPendingOpt.get();
+            reviewItem.setVersionId(savedVersion.getVersionId());
+            reviewItem.setReviewer("AI_AGENT");
+            reviewItem.setGeneralComment("Bản nháp tự động sinh do phát hiện thay đổi mã nguồn (Commit " + commitHash + "): " + summary);
+            reviewItem.setCreatedAt(Instant.now());
+        } else {
+            reviewItem = ReviewEntity.builder()
+                    .docId(docId)
+                    .versionId(savedVersion.getVersionId())
+                    .reviewer("AI_AGENT")
+                    .generalComment("Bản nháp tự động sinh do phát hiện thay đổi mã nguồn (Commit " + commitHash + "): " + summary)
+                    .result("PENDING")
+                    .createdAt(Instant.now())
+                    .build();
+        }
         ReviewEntity savedReview = reviewRepository.save(reviewItem);
 
         // 7. Ghi nhận Changelog và Audit log
@@ -284,15 +294,25 @@ public class AutoDraftServiceImpl implements AutoDraftServicePort {
         document.setStatus(DocumentStatus.UNDER_REVIEW_STAFF);
         documentRepository.save(document);
 
-        // Đẩy vào hàng đợi xem xét của nhân viên
-        ReviewEntity reviewItem = ReviewEntity.builder()
-                .docId(docId)
-                .versionId(savedVersion.getVersionId())
-                .reviewer("AI_AGENT")
-                .generalComment("Đề xuất cập nhật tài liệu đã được chuyển thành bản nháp chính thức (Drift Alert #" + alertId + "): " + summary)
-                .result("PENDING")
-                .createdAt(Instant.now())
-                .build();
+        // Đẩy vào hàng đợi xem xét của nhân viên (tạo/cập nhật mục PENDING)
+        Optional<ReviewEntity> existingPendingOpt = reviewRepository.findFirstByDocIdAndResultOrderByCreatedAtDesc(docId, "PENDING");
+        ReviewEntity reviewItem;
+        if (existingPendingOpt.isPresent()) {
+            reviewItem = existingPendingOpt.get();
+            reviewItem.setVersionId(savedVersion.getVersionId());
+            reviewItem.setReviewer("AI_AGENT");
+            reviewItem.setGeneralComment("Đề xuất cập nhật tài liệu đã được chuyển thành bản nháp chính thức (Drift Alert #" + alertId + "): " + summary);
+            reviewItem.setCreatedAt(Instant.now());
+        } else {
+            reviewItem = ReviewEntity.builder()
+                    .docId(docId)
+                    .versionId(savedVersion.getVersionId())
+                    .reviewer("AI_AGENT")
+                    .generalComment("Đề xuất cập nhật tài liệu đã được chuyển thành bản nháp chính thức (Drift Alert #" + alertId + "): " + summary)
+                    .result("PENDING")
+                    .createdAt(Instant.now())
+                    .build();
+        }
         ReviewEntity savedReview = reviewRepository.save(reviewItem);
 
         // Cập nhật liên kết bản nháp vào alert

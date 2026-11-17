@@ -65,4 +65,37 @@ public interface ReviewServicePort {
             Long actorId,
             String actorEmail
     );
+
+    /**
+     * Lấy danh sách nhận xét cho tài liệu (GET /api/reviews/documents/{docId}/comments).
+     */
+    List<com.example.livingdocs_backend.application.dto.ReviewCommentDto> getDocumentComments(Long docId, String status);
+
+    /**
+     * Tạo nhận xét mới cho tài liệu (POST /api/reviews/documents/{docId}/comments).
+     */
+    com.example.livingdocs_backend.application.dto.ReviewCommentDto addDocumentComment(
+            Long docId,
+            com.example.livingdocs_backend.application.dto.CreateReviewCommentRequest request,
+            Long actorId,
+            String actorRole,
+            String actorEmail
+    );
+
+    /**
+     * Cập nhật trạng thái nhận xét (PATCH /api/reviews/documents/{docId}/comments/{commentId}).
+     */
+    com.example.livingdocs_backend.application.dto.ReviewCommentDto updateCommentStatus(
+            Long docId,
+            Long commentId,
+            com.example.livingdocs_backend.application.dto.UpdateReviewCommentRequest request,
+            Long actorId,
+            String actorRole,
+            String actorEmail
+    );
+
+    /**
+     * Lấy danh sách Manager/Admin đang hoạt động trong workspace (GET /api/reviews/workspace-managers).
+     */
+    List<com.example.livingdocs_backend.application.dto.WorkspaceManagerResponse> getWorkspaceManagers();
 }

@@ -69,8 +69,8 @@ class UserProfileAndNotificationPreferencesTest {
 
         when(userRepositoryPort.findByEmail("dev@uth.edu.vn")).thenReturn(Optional.of(mockUser));
         when(userRepositoryPort.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(passwordEncoder.matches("OldPass123", "HASHED_OLD_PASS")).thenReturn(true);
-        when(passwordEncoder.matches(argThat(s -> !"OldPass123".equals(s)), eq("HASHED_OLD_PASS"))).thenReturn(false);
+        when(passwordEncoder.matches(any(CharSequence.class), anyString()))
+                .thenAnswer(inv -> "OldPass123".equals(inv.getArgument(0).toString()) && "HASHED_OLD_PASS".equals(inv.getArgument(1)));
         when(passwordEncoder.encode("NewPass456")).thenReturn("HASHED_NEW_PASS");
 
         when(notificationPreferenceRepository.findById(anyLong()))
@@ -92,13 +92,13 @@ class UserProfileAndNotificationPreferencesTest {
                 .emailEnabled(false)
                 .build();
 
-        UpdateProfileRequest request = new UpdateProfileRequest(
-                "Le Ngoc Chau",
-                "https://avatar.example/chau.png",
-                "OldPass123",
-                "NewPass456",
-                prefReq
-        );
+        UpdateProfileRequest request = UpdateProfileRequest.builder()
+                .fullName("Le Ngoc Chau")
+                .avatarUrl("https://avatar.example/chau.png")
+                .oldPassword("OldPass123")
+                .newPassword("NewPass456")
+                .notificationPreferences(prefReq)
+                .build();
 
         UserProfileResponse response = authService.updateProfile("dev@uth.edu.vn", request);
 
@@ -125,13 +125,11 @@ class UserProfileAndNotificationPreferencesTest {
 
     @Test
     void testUpdateProfile_WrongOldPasswordThrowsException() {
-        UpdateProfileRequest request = new UpdateProfileRequest(
-                "Le Ngoc Chau",
-                null,
-                "WrongPass",
-                "NewPass456",
-                null
-        );
+        UpdateProfileRequest request = UpdateProfileRequest.builder()
+                .fullName("Le Ngoc Chau")
+                .oldPassword("WrongPass")
+                .newPassword("NewPass456")
+                .build();
 
         assertThrows(AuthenticationException.class, () -> authService.updateProfile("dev@uth.edu.vn", request));
         assertEquals("HASHED_OLD_PASS", mockUser.getPasswordHash());

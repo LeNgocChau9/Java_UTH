@@ -1,15 +1,17 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { diffLines, type Change } from "diff";
 import { AppShell } from "@/components/AppShell";
 import { documentService } from "@/services/documentService";
-import { reviewService, type ReviewQueueItem } from "@/services/reviewService";
+import { reviewService, type ReviewQueueItem, type ReviewCommentItem } from "@/services/reviewService";
 import { codeEntityService, type CodeEntityDto } from "@/services/codeEntityService";
 import { repoService, type RepoItem } from "@/services/repoService";
-import type { DocumentDetail } from "@/types/document";
+import { templateService, type DocumentCrossCheckResponse } from "@/services/templateService";
+import { aiChatService } from "@/services/aiChatService";
+import type { DocumentDetail, GroundingEvidenceItem, DocumentAuditLogItem } from "@/types/document";
 
 function splitMarkdownSections(markdown: string): { heading: string; body: string }[] {
   const lines = markdown.split(/\r?\n/);
@@ -43,6 +45,8 @@ import {
   Search,
   RefreshCw,
   AlertCircle,
+  AlertTriangle,
+  Check,
   Code2,
   FileCode2,
   Save,
@@ -54,6 +58,9 @@ import {
   CheckCircle2,
   Maximize2,
   Minimize2,
+  History,
+  RotateCcw,
+  Info,
 } from "lucide-react";
 
 export default function HangDoiXemXetStaffPage() {
@@ -67,6 +74,10 @@ export default function HangDoiXemXetStaffPage() {
 
   // Tài liệu đang được chọn để đối chiếu và xem xét
   const [selectedDocId, setSelectedDocId] = useState<number | null>(null);
+  const selectedDocIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    selectedDocIdRef.current = selectedDocId;
+  }, [selectedDocId]);
   const [selectedDocDetail, setSelectedDocDetail] = useState<DocumentDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState<boolean>(false);
 
@@ -78,7 +89,7 @@ export default function HangDoiXemXetStaffPage() {
   const [editingContent, setEditingContent] = useState<string>("");
   const [activeHeading, setActiveHeading] = useState<string | null>(null);
   const [savingEdit, setSavingEdit] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<"diff" | "preview" | "edit">("diff");
+  const [activeTab, setActiveTab] = useState<"diff" | "preview" | "edit" | "audit">("diff");
   const [compareVersionNum, setCompareVersionNum] = useState<number | null>(null);
   const [isWideDiff, setIsWideDiff] = useState<boolean>(false);
   const [showRejectModal, setShowRejectModal] = useState<boolean>(false);
@@ -88,6 +99,112 @@ export default function HangDoiXemXetStaffPage() {
   const [reviewComment, setReviewComment] = useState<string>("");
   const [processingAction, setProcessingAction] = useState<"APPROVE" | "REJECT" | null>(null);
   const [actionSuccessMessage, setActionSuccessMessage] = useState<string | null>(null);
+
+  // Dữ liệu đối chiếu sâu (Deep Data Loading)
+  const [codeLinks, setCodeLinks] = useState<GroundingEvidenceItem[]>([]);
+  const [auditLogs, setAuditLogs] = useState<DocumentAuditLogItem[]>([]);
+  const [sourceCode, setSourceCode] = useState<string | null>(null);
+  const [crossCheckData, setCrossCheckData] = useState<DocumentCrossCheckResponse | null>(null);
+  const [reviewCommentsList, setReviewCommentsList] = useState<ReviewCommentItem[]>([]);
+
+  // Thao tác hàng loạt (Batch Actions)
+  const [selectedDocIds, setSelectedDocIds] = useState<Set<number>>(new Set());
+  const [batchActionLoading, setBatchActionLoading] = useState<boolean>(false);
+  const [showBatchRejectModal, setShowBatchRejectModal] = useState<boolean>(false);
+  const [batchRejectReason, setBatchRejectReason] = useState<string>("");
+
+  // AI Proofread
+  const [isProofreading, setIsProofreading] = useState<boolean>(false);
+  const [proofreadResult, setProofreadResult] = useState<string | null>(null);
+  const [showProofreadModal, setShowProofreadModal] = useState<boolean>(false);
+
+  // Nhận xét đoạn văn bản cụ thể (Inline Review Comments)
+  const [selectedTextSnippet, setSelectedTextSnippet] = useState<string>("");
+  const [inlineCommentInput, setInlineCommentInput] = useState<string>("");
+  const [creatingComment, setCreatingComment] = useState<boolean>(false);
+  const [resolvingCommentId, setResolvingCommentId] = useState<number | null>(null);
+
+  // 2. Tải chi tiết tài liệu và AST Code Entities tham chiếu khi chọn tài liệu
+  const handleSelectDoc = useCallback(async (docId: number) => {
+    setSelectedDocId(docId);
+    setLoadingDetail(true);
+    setLoadingEntities(true);
+    setError(null);
+    setActionSuccessMessage(null);
+    setActiveTab("diff");
+    setCompareVersionNum(null);
+    setIsWideDiff(false);
+    setShowRejectModal(false);
+    setReviewComment("");
+    setSectionComments({});
+    setCodeLinks([]);
+    setAuditLogs([]);
+    setSourceCode(null);
+    setCrossCheckData(null);
+    setReviewCommentsList([]);
+    setSelectedTextSnippet("");
+    setInlineCommentInput("");
+
+    try {
+      const [detail, links, logs, comments] = await Promise.all([
+        documentService.getDocumentById(docId),
+        documentService.getDocumentCodeLinks(docId).catch(() => [] as GroundingEvidenceItem[]),
+        documentService.getDocumentAuditTrail(docId).catch(() => [] as DocumentAuditLogItem[]),
+        reviewService.getDocumentComments(docId).catch(() => [] as ReviewCommentItem[]),
+      ]);
+
+      setSelectedDocDetail(detail);
+      setCodeLinks(links);
+      setAuditLogs(logs);
+      setReviewCommentsList(comments);
+
+      const content = detail.latestVersion?.content || "";
+      setEditingContent(content);
+
+      // Lấy danh sách code entities của repository này để đối chiếu
+      try {
+        const entities = await codeEntityService.getByRepository(detail.repoId);
+        // Nếu document có targetPath (ví dụ: src/.../UserService.java.md), lọc các entity theo filePath tương ứng
+        const rawSourcePath = detail.targetPath ? detail.targetPath.replace(/\.md$/, "") : "";
+        const matchedEntities = rawSourcePath
+          ? entities.filter((e) => e.filePath.includes(rawSourcePath) || rawSourcePath.includes(e.filePath))
+          : entities;
+
+        setCodeEntities(matchedEntities.length > 0 ? matchedEntities : entities);
+      } catch (entityErr) {
+        console.warn("Không tải được code entities tương ứng:", entityErr);
+        setCodeEntities([]);
+      }
+
+      // Tải mã nguồn file gốc nếu có repoId & targetPath
+      const rawSourcePath = detail.targetPath ? detail.targetPath.replace(/\.md$/, "") : "";
+      if (detail.repoId && rawSourcePath) {
+        repoService
+          .getFileContent(detail.repoId, rawSourcePath)
+          .then((res) => setSourceCode(res.content))
+          .catch(() => setSourceCode(null));
+      }
+
+      // Chạy cross-check cấu trúc template
+      if (detail.repoId && detail.latestVersion?.content) {
+        templateService
+          .crossCheck({
+            templateId: detail.templateId ?? undefined,
+            repositoryId: detail.repoId,
+            markdown: detail.latestVersion.content,
+            targetPath: detail.targetPath ?? undefined,
+          })
+          .then((res) => setCrossCheckData(res))
+          .catch(() => setCrossCheckData(null));
+      }
+    } catch (err) {
+      console.error("Lỗi khi tải chi tiết tài liệu:", err);
+      setError("Không thể tải chi tiết tài liệu hoặc phiên bản mới nhất.");
+    } finally {
+      setLoadingDetail(false);
+      setLoadingEntities(false);
+    }
+  }, []);
 
   // 1. Tải danh sách tài liệu UNDER_REVIEW_STAFF và Repository thật từ CSDL
   const fetchQueue = useCallback(async () => {
@@ -106,8 +223,9 @@ export default function HangDoiXemXetStaffPage() {
       });
       setRepositories(repoMap);
 
+      const currentId = selectedDocIdRef.current;
       // Nếu có docId trên URL (?docId=...), tự động chọn mở tài liệu đó để đối chiếu
-      if (!selectedDocId && typeof window !== "undefined") {
+      if (!currentId && typeof window !== "undefined") {
         const urlDocId = new URLSearchParams(window.location.search).get("docId");
         const parsedId = urlDocId ? parseInt(urlDocId, 10) : NaN;
         if (!Number.isNaN(parsedId) && parsedId > 0) {
@@ -117,7 +235,7 @@ export default function HangDoiXemXetStaffPage() {
       }
 
       // Nếu tài liệu đang chọn không còn trong hàng đợi, reset selection
-      if (selectedDocId && !staffQueue.some((d) => d.docId === selectedDocId)) {
+      if (currentId && !staffQueue.some((d) => d.docId === currentId)) {
         setSelectedDocId(null);
         setSelectedDocDetail(null);
       }
@@ -127,52 +245,174 @@ export default function HangDoiXemXetStaffPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedDocId]);
+  }, [handleSelectDoc]);
 
   useEffect(() => {
     fetchQueue();
   }, [fetchQueue]);
 
-  // 2. Tải chi tiết tài liệu và AST Code Entities tham chiếu khi chọn tài liệu
-  const handleSelectDoc = async (docId: number) => {
-    setSelectedDocId(docId);
-    setLoadingDetail(true);
-    setLoadingEntities(true);
-    setError(null);
-    setActionSuccessMessage(null);
-    setActiveTab("diff");
-    setCompareVersionNum(null);
-    setIsWideDiff(false);
-    setShowRejectModal(false);
-    setReviewComment("");
-    setSectionComments({});
+  const returnStaffLog = useMemo(() => {
+    const matches = auditLogs.filter(
+      (l) =>
+        l.action === "DOCUMENT_RETURNED_STAFF" ||
+        (l.detail && l.detail.includes("Manager yêu cầu sửa đổi"))
+    );
+    if (matches.length === 0) return null;
+    return [...matches].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    )[0];
+  }, [auditLogs]);
 
-    try {
-      const detail = await documentService.getDocumentById(docId);
-      setSelectedDocDetail(detail);
-      const content = detail.latestVersion?.content || "";
-      setEditingContent(content);
-
-      // Lấy danh sách code entities của repository này để đối chiếu
-      try {
-        const entities = await codeEntityService.getByRepository(detail.repoId);
-        // Nếu document có targetPath (ví dụ: src/.../UserService.java.md), lọc các entity theo filePath tương ứng
-        const rawSourcePath = detail.targetPath ? detail.targetPath.replace(/\.md$/, "") : "";
-        const matchedEntities = rawSourcePath
-          ? entities.filter((e) => e.filePath.includes(rawSourcePath) || rawSourcePath.includes(e.filePath))
-          : entities;
-
-        setCodeEntities(matchedEntities.length > 0 ? matchedEntities : entities);
-      } catch (entityErr) {
-        console.warn("Không tải được code entities tương ứng:", entityErr);
-        setCodeEntities([]);
+  const toggleSelectDoc = (docId: number, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setSelectedDocIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(docId)) {
+        next.delete(docId);
+      } else {
+        next.add(docId);
       }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedDocIds.size === documents.length) {
+      setSelectedDocIds(new Set());
+    } else {
+      setSelectedDocIds(new Set(documents.map((d) => d.docId)));
+    }
+  };
+
+  const handleBatchApprove = async () => {
+    if (selectedDocIds.size === 0) return;
+    setBatchActionLoading(true);
+    setError(null);
+    try {
+      for (const id of Array.from(selectedDocIds)) {
+        const item = documents.find((d) => d.docId === id);
+        const oneTier = item?.approvalTiers === 1;
+        await reviewService.processStaffAction(id, {
+          decision: "APPROVE",
+          comment: oneTier
+            ? "Staff đã phê duyệt hàng loạt và xuất bản theo chính sách 1 cấp."
+            : "Staff đã đối chiếu trực quan diff hai cột và phê duyệt chuyển Manager.",
+        });
+      }
+      setActionSuccessMessage(`Đã phê duyệt thành công ${selectedDocIds.size} tài liệu.`);
+      setSelectedDocIds(new Set());
+      await fetchQueue();
     } catch (err) {
-      console.error("Lỗi khi tải chi tiết tài liệu:", err);
-      setError("Không thể tải chi tiết tài liệu hoặc phiên bản mới nhất.");
+      console.error("Lỗi khi phê duyệt hàng loạt:", err);
+      setError("Có lỗi khi thực hiện phê duyệt hàng loạt.");
     } finally {
-      setLoadingDetail(false);
-      setLoadingEntities(false);
+      setBatchActionLoading(false);
+    }
+  };
+
+  const handleBatchReject = async () => {
+    if (selectedDocIds.size === 0) return;
+    setBatchActionLoading(true);
+    setError(null);
+    try {
+      const reason = batchRejectReason.trim() || "Staff từ chối hàng loạt yêu cầu kiểm tra lại.";
+      for (const id of Array.from(selectedDocIds)) {
+        await reviewService.processStaffAction(id, {
+          decision: "REJECT",
+          comment: reason,
+        });
+      }
+      setActionSuccessMessage(`Đã từ chối thành công ${selectedDocIds.size} tài liệu.`);
+      setSelectedDocIds(new Set());
+      setShowBatchRejectModal(false);
+      setBatchRejectReason("");
+      await fetchQueue();
+    } catch (err) {
+      console.error("Lỗi khi từ chối hàng loạt:", err);
+      setError("Có lỗi khi thực hiện từ chối hàng loạt.");
+    } finally {
+      setBatchActionLoading(false);
+    }
+  };
+
+  const handleAiProofread = async () => {
+    const textToProofread = editingContent || selectedDocDetail?.latestVersion?.content || "";
+    if (!textToProofread) return;
+    setIsProofreading(true);
+    setError(null);
+    try {
+      const prompt = `Bạn là chuyên gia biên tập tài liệu kỹ thuật cao cấp (Technical Documentation Editor). Hãy rà soát chính tả, ngữ pháp, tính rõ ràng và phong cách viết kỹ thuật, đề xuất bản sửa hoàn chỉnh cho tài liệu sau:\n\n${textToProofread}`;
+      const res = await aiChatService.sendMessage(prompt, [], {
+        repositoryId: selectedDocDetail?.repoId,
+        docId: selectedDocDetail?.docId,
+      });
+      setProofreadResult(res.reply);
+      setShowProofreadModal(true);
+    } catch (err) {
+      console.error("Lỗi khi AI Proofread:", err);
+      setError("Không thể gọi dịch vụ AI Proofread. Vui lòng thử lại sau.");
+    } finally {
+      setIsProofreading(false);
+    }
+  };
+
+  const handleApplyProofread = () => {
+    if (proofreadResult) {
+      setEditingContent(proofreadResult);
+      setActiveTab("edit");
+      setShowProofreadModal(false);
+      setActionSuccessMessage("Đã áp dụng đề xuất của AI vào nội dung đang chỉnh sửa.");
+    }
+  };
+
+  const handleCaptureSelection = () => {
+    if (typeof window !== "undefined") {
+      const sel = window.getSelection()?.toString().trim();
+      if (sel) {
+        setSelectedTextSnippet(sel);
+      }
+    }
+  };
+
+  const handleCreateComment = async () => {
+    if (!selectedDocDetail || !inlineCommentInput.trim()) return;
+    setCreatingComment(true);
+    setError(null);
+    try {
+      const newComment = await reviewService.createDocumentComment(selectedDocDetail.docId, {
+        textSegment: selectedTextSnippet.trim(),
+        detailedComment: inlineCommentInput.trim(),
+        authorRole: "STAFF",
+      });
+      setReviewCommentsList((prev) => [newComment, ...prev]);
+      setInlineCommentInput("");
+      setSelectedTextSnippet("");
+      setActionSuccessMessage("Đã thêm nhận xét cho tài liệu.");
+    } catch (err) {
+      console.error("Lỗi khi tạo nhận xét:", err);
+      setError("Không thể tạo nhận xét.");
+    } finally {
+      setCreatingComment(false);
+    }
+  };
+
+  const handleResolveComment = async (commentId: number) => {
+    if (!selectedDocDetail) return;
+    setResolvingCommentId(commentId);
+    try {
+      const updated = await reviewService.resolveDocumentComment(selectedDocDetail.docId, commentId);
+      setReviewCommentsList((prev) =>
+        prev.map((c) =>
+          c.commentId === commentId
+            ? { ...c, status: "RESOLVED", resolvedAt: updated.resolvedAt || new Date().toISOString() }
+            : c
+        )
+      );
+    } catch (err) {
+      console.error("Lỗi khi đánh dấu giải quyết:", err);
+      setError("Không thể cập nhật trạng thái nhận xét.");
+    } finally {
+      setResolvingCommentId(null);
     }
   };
 
@@ -546,13 +786,53 @@ export default function HangDoiXemXetStaffPage() {
           {/* Bảng danh sách hàng đợi */}
           <div className="ld-card" style={{ padding: 0, overflow: "hidden", border: "1px solid #dfe7e4" }}>
             <div style={{ padding: "12px 16px", borderBottom: "1px solid #dfe7e4", background: "#f8faf9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <p style={{ fontSize: 13, fontWeight: 600, color: "#0f766e", margin: 0 }}>
-                Danh sách tài liệu cần đối chiếu ({filteredDocs.length})
-              </p>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {filteredDocs.length > 0 && (
+                  <input
+                    type="checkbox"
+                    checked={selectedDocIds.size > 0 && selectedDocIds.size === filteredDocs.length}
+                    onChange={toggleSelectAll}
+                    style={{ cursor: "pointer" }}
+                    title="Chọn tất cả để thao tác hàng loạt"
+                  />
+                )}
+                <p style={{ fontSize: 13, fontWeight: 600, color: "#0f766e", margin: 0 }}>
+                  Danh sách tài liệu cần đối chiếu ({filteredDocs.length})
+                </p>
+              </div>
               <span style={{ fontSize: 12, color: "#64748b" }}>
                 Nguồn: CSDL thực tế (bảng documents)
               </span>
             </div>
+
+            {selectedDocIds.size > 0 && (
+              <div style={{ padding: "10px 16px", background: "#f0fdf4", borderBottom: "1px solid #bbf7d0", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: "#166534" }}>
+                  Đã chọn {selectedDocIds.size} / {filteredDocs.length} tài liệu
+                </span>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={handleBatchApprove}
+                    disabled={batchActionLoading}
+                    className="ld-btn ld-btn-primary ld-btn-sm"
+                    style={{ fontSize: 12, padding: "5px 12px", gap: 6 }}
+                  >
+                    {batchActionLoading ? <RefreshCw size={12} className="animate-spin" /> : <CheckCircle size={13} />}
+                    Phê duyệt hàng loạt ({selectedDocIds.size})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowBatchRejectModal(true)}
+                    disabled={batchActionLoading}
+                    style={{ fontSize: 12, padding: "5px 12px", background: "#ffffff", border: "1px solid #ef4444", color: "#dc2626", borderRadius: 6, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}
+                  >
+                    <XCircle size={13} />
+                    Từ chối hàng loạt ({selectedDocIds.size})
+                  </button>
+                </div>
+              </div>
+            )}
 
             {loading ? (
               <div style={{ padding: "48px 0", textAlign: "center", color: "#64748b" }}>
@@ -606,6 +886,14 @@ export default function HangDoiXemXetStaffPage() {
                         </div>
                         <div>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            <input
+                              type="checkbox"
+                              checked={selectedDocIds.has(doc.docId)}
+                              onChange={() => toggleSelectDoc(doc.docId)}
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ cursor: "pointer", marginRight: 4 }}
+                              title="Chọn tài liệu này"
+                            />
                             <span style={{ fontSize: 14, fontWeight: 600, color: "#0f172a" }}>
                               {doc.title}
                             </span>
@@ -621,6 +909,19 @@ export default function HangDoiXemXetStaffPage() {
                               }}
                             >
                               Chờ Staff duyệt
+                            </span>
+                            <span
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 600,
+                                background: doc.approvalTiers === 1 ? "#ecfdf5" : "#eff6ff",
+                                color: doc.approvalTiers === 1 ? "#047857" : "#1d4ed8",
+                                border: `1px solid ${doc.approvalTiers === 1 ? "#a7f3d0" : "#bfdbfe"}`,
+                                padding: "2px 8px",
+                                borderRadius: 4,
+                              }}
+                            >
+                              {doc.approvalTiers === 1 ? "1 cấp ➔ Xuất bản ngay" : "2 cấp ➔ Trình Manager"}
                             </span>
                             {doc.structureWarning && (
                               <span
@@ -718,7 +1019,7 @@ export default function HangDoiXemXetStaffPage() {
               Quay lại danh sách hàng đợi
             </button>
 
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <span style={{ fontSize: 12, color: "#64748b" }}>
                 Đang xem xét: <strong style={{ color: "#0f172a" }}>{selectedDocDetail?.title}</strong>
               </span>
@@ -735,8 +1036,44 @@ export default function HangDoiXemXetStaffPage() {
               >
                 UNDER_REVIEW_STAFF
               </span>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  background: documents.find((item) => item.docId === selectedDocId)?.approvalTiers === 1 ? "#ecfdf5" : "#eff6ff",
+                  color: documents.find((item) => item.docId === selectedDocId)?.approvalTiers === 1 ? "#047857" : "#1d4ed8",
+                  border: `1px solid ${documents.find((item) => item.docId === selectedDocId)?.approvalTiers === 1 ? "#a7f3d0" : "#bfdbfe"}`,
+                  padding: "2px 8px",
+                  borderRadius: 4,
+                }}
+              >
+                Đích đến: {documents.find((item) => item.docId === selectedDocId)?.approvalTiers === 1 ? "PUBLISHED (Xuất bản ngay)" : "UNDER_REVIEW_MANAGER (Trình Quản lý)"}
+              </span>
             </div>
           </div>
+
+          {returnStaffLog && (
+            <div
+              style={{
+                padding: "12px 16px",
+                borderRadius: 8,
+                background: "#fffbeb",
+                border: "1px solid #fde68a",
+                color: "#92400e",
+                fontSize: 13,
+                marginBottom: 8,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700, fontSize: 13, marginBottom: 4 }}>
+                <AlertTriangle size={16} />
+                Quản lý (Manager) đã trả lại tài liệu yêu cầu Staff hiệu chỉnh:
+              </div>
+              <p style={{ margin: 0, fontSize: 13, whiteSpace: "pre-wrap", color: "#78350f" }}>{returnStaffLog.detail}</p>
+              <div style={{ fontSize: 11, color: "#b45309", marginTop: 6 }}>
+                Thời gian: {new Date(returnStaffLog.createdAt).toLocaleString("vi-VN")} {returnStaffLog.actorEmail ? `· Bởi: ${returnStaffLog.actorEmail}` : ""}
+              </div>
+            </div>
+          )}
 
           {selectedDocDetail?.structureWarning && (
             <div
@@ -766,7 +1103,7 @@ export default function HangDoiXemXetStaffPage() {
                 className="comparison-grid"
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "1.15fr 0.85fr",
+                  gridTemplateColumns: isWideDiff ? "1fr" : "1.15fr 0.85fr",
                   gap: 16,
                   alignItems: "start",
                 }}
@@ -863,6 +1200,53 @@ export default function HangDoiXemXetStaffPage() {
                         Sửa trực tiếp lỗi nhỏ
                       </button>
 
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab("audit");
+                        }}
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: "5px 10px",
+                          borderRadius: 4,
+                          border: "none",
+                          background: activeTab === "audit" ? "#0f766e" : "#e2e8f0",
+                          color: activeTab === "audit" ? "#ffffff" : "#475569",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 5,
+                        }}
+                      >
+                        <History size={12} />
+                        Audit Trail ({auditLogs.length})
+                      </button>
+
+                      {/* Nút AI Proofread & Gợi ý sửa */}
+                      <button
+                        type="button"
+                        onClick={handleAiProofread}
+                        disabled={isProofreading}
+                        title="AI rà soát chính tả, ngữ pháp và phong cách kỹ thuật"
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: "5px 10px",
+                          borderRadius: 4,
+                          border: "1px solid #ddd6fe",
+                          background: "#f5f3ff",
+                          color: "#7c3aed",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 5,
+                        }}
+                      >
+                        {isProofreading ? <RefreshCw size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                        AI Proofread & Gợi ý sửa
+                      </button>
+
                       {/* Nút mở rộng toàn màn hình cho khung so sánh Diff */}
                       <button
                         type="button"
@@ -889,7 +1273,7 @@ export default function HangDoiXemXetStaffPage() {
 
                   {/* VÙNG NỘI DUNG: TAB DIFF HAI CỘT HOẶC PREVIEW HOẶC EDIT */}
                   {activeTab === "diff" ? (
-                    <div>
+                    <div onMouseUp={handleCaptureSelection}>
                       {/* THANH THAO TÁC NHANH (QUICK ACTIONS TOOLBAR) VÀ THỐNG KÊ DIFF */}
                       <div
                         style={{
@@ -1269,7 +1653,7 @@ export default function HangDoiXemXetStaffPage() {
                       </div>
                     </div>
                   ) : activeTab === "preview" ? (
-                    <div style={{ padding: 18, maxHeight: "560px", overflowY: "auto" }}>
+                    <div onMouseUp={handleCaptureSelection} style={{ padding: 18, maxHeight: "560px", overflowY: "auto" }}>
                       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                         {splitMarkdownSections(editingContent || selectedDocDetail?.latestVersion?.content || "").map((section) => (
                           <div
@@ -1307,6 +1691,102 @@ export default function HangDoiXemXetStaffPage() {
                           </div>
                         ))}
                       </div>
+                    </div>
+                  ) : activeTab === "audit" ? (
+                    <div style={{ padding: 18, maxHeight: "560px", overflowY: "auto", background: "#ffffff" }}>
+                      {auditLogs.length === 0 ? (
+                        <div style={{ textAlign: "center", padding: 32, color: "#64748b", fontSize: 13 }}>
+                          <Info size={24} style={{ margin: "0 auto 8px", color: "#94a3b8" }} />
+                          Chưa có sự kiện Audit trail ghi nhận riêng cho tài liệu này.
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                          {[...auditLogs]
+                            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                            .map((logItem, index) => {
+                              const isApproval =
+                                logItem.action === "DOCUMENT_APPROVED" ||
+                                logItem.action === "DOCUMENT_PUBLISHED" ||
+                                logItem.action === "DOCUMENT_STAFF_REVIEWED";
+                              const isReturn = logItem.action === "DOCUMENT_RETURNED_STAFF";
+                              const isReject = logItem.action === "DOCUMENT_REJECTED";
+
+                              const badgeBg = isApproval
+                                ? "#f0fdf4"
+                                : isReturn
+                                ? "#fffbeb"
+                                : isReject
+                                ? "#fef2f2"
+                                : "#f8fafc";
+                              const badgeColor = isApproval
+                                ? "#166534"
+                                : isReturn
+                                ? "#b45309"
+                                : isReject
+                                ? "#b91c1c"
+                                : "#475569";
+
+                              return (
+                                <div
+                                  key={logItem.logId || index}
+                                  style={{
+                                    padding: "10px 12px",
+                                    border: "1px solid #e2e8f0",
+                                    borderRadius: 8,
+                                    background: "#fafafa",
+                                    display: "flex",
+                                    alignItems: "flex-start",
+                                    gap: 10,
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      width: 28,
+                                      height: 28,
+                                      borderRadius: 6,
+                                      background: badgeBg,
+                                      color: badgeColor,
+                                      display: "grid",
+                                      placeItems: "center",
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    {isApproval ? (
+                                      <Check size={14} />
+                                    ) : isReturn ? (
+                                      <RotateCcw size={14} />
+                                    ) : isReject ? (
+                                      <XCircle size={14} />
+                                    ) : (
+                                      <Clock size={14} />
+                                    )}
+                                  </div>
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                                      <span
+                                        className="ld-badge"
+                                        style={{ background: badgeBg, color: badgeColor, fontSize: 11, fontWeight: 600 }}
+                                      >
+                                        {logItem.action}
+                                      </span>
+                                      <span style={{ fontSize: 11, color: "#64748b" }}>
+                                        {new Date(logItem.createdAt).toLocaleString("vi-VN")}
+                                      </span>
+                                    </div>
+                                    <p style={{ fontSize: 12, color: "#334155", margin: 0, lineHeight: 1.4, whiteSpace: "pre-wrap" }}>
+                                      {logItem.detail || "(Không có nội dung chi tiết)"}
+                                    </p>
+                                    {(logItem.actorEmail || logItem.actorId) && (
+                                      <span style={{ fontSize: 11, color: "#94a3b8", marginTop: 4, display: "inline-block" }}>
+                                        Người thực hiện: {logItem.actorEmail || `User #${logItem.actorId}`}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div style={{ padding: 18, maxHeight: "560px", overflowY: "auto" }}>
@@ -1433,6 +1913,230 @@ export default function HangDoiXemXetStaffPage() {
                               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 10, color: "#64748b" }}>
                                 <span>Trạng thái: <strong>{ent.docStatus}</strong></span>
                                 <span>Commit: <code>{ent.commitHash?.substring(0, 7) || "head"}</code></span>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Bằng chứng AST Grounding & Đối chiếu Template / File gốc */}
+                  <div className="ld-card" style={{ padding: 0, overflow: "hidden", border: "1px solid #dfe7e4" }}>
+                    <div style={{ padding: "12px 16px", borderBottom: "1px solid #dfe7e4", background: "#f8faf9" }}>
+                      <p style={{ fontSize: 13, fontWeight: 600, color: "#0f766e", margin: 0, display: "flex", alignItems: "center", gap: 6 }}>
+                        <FileCode2 size={15} />
+                        Đối chiếu AST Grounding & Mã nguồn gốc
+                      </p>
+                    </div>
+
+                    <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 12 }}>
+                      {/* Bằng chứng Grounding */}
+                      <div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: "#475569", textTransform: "uppercase" }}>
+                            Liên kết Grounding (doc_code_links: {codeLinks.length})
+                          </span>
+                        </div>
+                        {codeLinks.length === 0 ? (
+                          <p style={{ fontSize: 11, color: "#64748b", margin: 0 }}>
+                            Chưa có doc_code_links nào được gắn trực tiếp.
+                          </p>
+                        ) : (
+                          <div style={{ maxHeight: "120px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
+                            {codeLinks.map((link) => (
+                              <div
+                                key={link.linkId ?? `${link.filePath}-${link.methodName}`}
+                                style={{ fontSize: 11, padding: "4px 8px", background: "#f8fafc", borderRadius: 4, border: "1px solid #e2e8f0" }}
+                              >
+                                <code>{link.filePath}</code>
+                                {link.className ? ` · ${link.className}` : ""}
+                                {link.methodName ? `.${link.methodName}` : ""}
+                                {link.startLine ? ` (dòng ${link.startLine}${link.endLine ? `–${link.endLine}` : ""})` : ""}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Đối chiếu template */}
+                      {crossCheckData && (
+                        <div style={{ padding: 10, background: "#f0fdf4", borderRadius: 6, border: "1px solid #bbf7d0", fontSize: 11 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                            <span style={{ fontWeight: 600, color: "#166534" }}>Độ phủ thực thể code:</span>
+                            <strong style={{ color: "#166534" }}>{crossCheckData.coveragePercentage}%</strong>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between" }}>
+                            <span style={{ color: "#475569" }}>Cấu trúc template:</span>
+                            <span style={{ fontWeight: 600, color: crossCheckData.templateValid ? "#16a34a" : "#dc2626" }}>
+                              {crossCheckData.templateValid ? "✓ Đầy đủ đề mục" : `Thiếu ${crossCheckData.missingTemplateHeadings?.length || 0} đề mục`}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Mã nguồn file gốc */}
+                      {sourceCode && (
+                        <div>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: "#475569", textTransform: "uppercase", display: "block", marginBottom: 4 }}>
+                            Nội dung mã nguồn gốc ({selectedDocDetail?.targetPath?.replace(/\.md$/, "")})
+                          </span>
+                          <pre
+                            style={{
+                              maxHeight: "140px",
+                              overflowY: "auto",
+                              background: "#0f172a",
+                              color: "#e2e8f0",
+                              padding: 8,
+                              borderRadius: 4,
+                              fontSize: 10,
+                              fontFamily: "monospace",
+                              margin: 0,
+                              whiteSpace: "pre-wrap",
+                            }}
+                          >
+                            {sourceCode.slice(0, 1500)}
+                            {sourceCode.length > 1500 ? "\n... (còn tiếp)" : ""}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Nhận xét tài liệu (Review Comments) */}
+                  <div className="ld-card" style={{ padding: 0, overflow: "hidden", border: "1px solid #dfe7e4" }}>
+                    <div style={{ padding: "12px 16px", borderBottom: "1px solid #dfe7e4", background: "#f8faf9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <p style={{ fontSize: 13, fontWeight: 600, color: "#0f766e", margin: 0, display: "flex", alignItems: "center", gap: 6 }}>
+                        <MessageSquare size={15} />
+                        Nhận xét từng mục (Review Comments)
+                      </p>
+                      <span className="ld-badge" style={{ background: "#e0f2fe", color: "#0369a1", fontSize: 11 }}>
+                        {reviewCommentsList.length} nhận xét
+                      </span>
+                    </div>
+
+                    <div style={{ padding: 14 }}>
+                      {/* Form thêm nhận xét inline */}
+                      <div style={{ marginBottom: 14, padding: 10, background: "#f8fafc", borderRadius: 6, border: "1px solid #e2e8f0" }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: "#334155", display: "block", marginBottom: 4 }}>
+                          Thêm nhận xét mới {selectedTextSnippet ? "(kèm đoạn trích)" : ""}:
+                        </span>
+                        {selectedTextSnippet && (
+                          <div style={{ padding: "4px 8px", background: "#fef3c7", border: "1px solid #fde68a", borderRadius: 4, fontSize: 11, color: "#92400e", marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span style={{ fontStyle: "italic", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              &quot;{selectedTextSnippet}&quot;
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedTextSnippet("")}
+                              style={{ background: "none", border: "none", cursor: "pointer", color: "#92400e", padding: "0 4px" }}
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                        )}
+                        <textarea
+                          className="ld-input"
+                          style={{ minHeight: 50, fontSize: 11, marginBottom: 6, background: "#ffffff" }}
+                          placeholder="Nhập nội dung nhận xét chi tiết..."
+                          value={inlineCommentInput}
+                          onChange={(e) => setInlineCommentInput(e.target.value)}
+                        />
+                        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                          <button
+                            type="button"
+                            onClick={handleCreateComment}
+                            disabled={creatingComment || !inlineCommentInput.trim()}
+                            className="ld-btn ld-btn-primary ld-btn-sm"
+                            style={{ fontSize: 11, padding: "4px 10px", gap: 4 }}
+                          >
+                            {creatingComment ? <RefreshCw size={11} className="animate-spin" /> : <Save size={11} />}
+                            Thêm nhận xét
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Danh sách các nhận xét hiện có */}
+                      <div style={{ maxHeight: "280px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+                        {reviewCommentsList.length === 0 ? (
+                          <p style={{ fontSize: 11, color: "#64748b", margin: 0, textAlign: "center", padding: "10px 0" }}>
+                            Chưa có nhận xét nào cho tài liệu này. Bôi đen văn bản để trích dẫn hoặc nhập nhận xét ở trên.
+                          </p>
+                        ) : (
+                          reviewCommentsList.map((c) => (
+                            <div
+                              key={c.commentId}
+                              style={{
+                                padding: "8px 10px",
+                                background: c.status === "RESOLVED" ? "#f8faf9" : "#ffffff",
+                                border: `1px solid ${c.status === "RESOLVED" ? "#cbd5e1" : "#fde68a"}`,
+                                borderRadius: 6,
+                                fontSize: 11,
+                              }}
+                            >
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                                <span style={{ fontWeight: 600, color: "#0f766e" }}>
+                                  {c.authorRole || "STAFF"} {c.authorEmail ? `(${c.authorEmail})` : ""}
+                                </span>
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    padding: "1px 6px",
+                                    borderRadius: 3,
+                                    background: c.status === "RESOLVED" ? "#ecfdf5" : "#fffbeb",
+                                    color: c.status === "RESOLVED" ? "#047857" : "#b45309",
+                                  }}
+                                >
+                                  {c.status === "RESOLVED" ? "Đã giải quyết" : "Cần sửa"}
+                                </span>
+                              </div>
+                              {c.textSegment && (
+                                <blockquote
+                                  style={{
+                                    margin: "0 0 4px",
+                                    paddingLeft: 6,
+                                    borderLeft: "2px solid #0f766e",
+                                    fontStyle: "italic",
+                                    color: "#475569",
+                                    background: "#f1f5f9",
+                                    borderRadius: "0 4px 4px 0",
+                                    padding: "2px 6px",
+                                  }}
+                                >
+                                  {c.textSegment}
+                                </blockquote>
+                              )}
+                              <p style={{ margin: "0 0 6px", color: "#1e293b", whiteSpace: "pre-wrap" }}>
+                                {c.detailedComment}
+                              </p>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <span style={{ fontSize: 10, color: "#94a3b8" }}>
+                                  {c.createdAt ? new Date(c.createdAt).toLocaleString("vi-VN") : ""}
+                                </span>
+                                {c.status === "OPEN" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleResolveComment(c.commentId)}
+                                    disabled={resolvingCommentId === c.commentId}
+                                    style={{
+                                      fontSize: 10,
+                                      padding: "2px 8px",
+                                      borderRadius: 4,
+                                      background: "#f0fdf4",
+                                      border: "1px solid #86efac",
+                                      color: "#166534",
+                                      cursor: "pointer",
+                                      fontWeight: 600,
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: 3,
+                                    }}
+                                  >
+                                    <Check size={10} />
+                                    {resolvingCommentId === c.commentId ? "Đang xử lý..." : "Đã khắc phục (Resolve)"}
+                                  </button>
+                                )}
                               </div>
                             </div>
                           ))
@@ -1615,6 +2319,171 @@ export default function HangDoiXemXetStaffPage() {
               >
                 <XCircle size={14} />
                 Xác nhận loại bỏ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL TỪ CHỐI HÀNG LOẠT */}
+      {showBatchRejectModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(15, 23, 42, 0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            backdropFilter: "blur(2px)",
+          }}
+          onClick={() => setShowBatchRejectModal(false)}
+        >
+          <div
+            style={{
+              background: "#ffffff",
+              borderRadius: 8,
+              padding: 24,
+              width: "90%",
+              maxWidth: 520,
+              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: "#dc2626", margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
+                <XCircle size={18} />
+                Từ chối hàng loạt ({selectedDocIds.size} tài liệu)
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowBatchRejectModal(false)}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "#64748b" }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <p style={{ fontSize: 13, color: "#475569", marginBottom: 12, lineHeight: 1.5 }}>
+              Vui lòng nhập lý do từ chối để gửi lại cho các nhà phát triển của {selectedDocIds.size} tài liệu đã chọn:
+            </p>
+            <textarea
+              className="ld-input"
+              style={{ minHeight: 90, fontSize: 12, width: "100%", marginBottom: 16, background: "#ffffff" }}
+              value={batchRejectReason}
+              onChange={(e) => setBatchRejectReason(e.target.value)}
+              placeholder="Nhập lý do từ chối chung cho toàn bộ tài liệu đã chọn..."
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button
+                type="button"
+                className="ld-btn ld-btn-secondary ld-btn-sm"
+                onClick={() => setShowBatchRejectModal(false)}
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                className="ld-btn ld-btn-sm"
+                onClick={handleBatchReject}
+                disabled={batchActionLoading}
+                style={{
+                  background: "#dc2626",
+                  color: "#ffffff",
+                  fontWeight: 600,
+                  gap: 6,
+                  display: "flex",
+                  alignItems: "center",
+                }}
+              >
+                {batchActionLoading ? <RefreshCw size={13} className="animate-spin" /> : <XCircle size={14} />}
+                Xác nhận từ chối hàng loạt
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL AI PROOFREAD & GỢI Ý SỬA ĐOẠN VĂN */}
+      {showProofreadModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(15, 23, 42, 0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            backdropFilter: "blur(2px)",
+          }}
+          onClick={() => setShowProofreadModal(false)}
+        >
+          <div
+            style={{
+              background: "#ffffff",
+              borderRadius: 8,
+              padding: 24,
+              width: "90%",
+              maxWidth: 720,
+              maxHeight: "85vh",
+              display: "flex",
+              flexDirection: "column",
+              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: "#7c3aed", margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
+                <Sparkles size={18} />
+                Kết quả AI Proofread & Gợi ý sửa đổi
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowProofreadModal(false)}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "#64748b" }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: "auto", marginBottom: 16, padding: 14, background: "#f8fafc", borderRadius: 6, border: "1px solid #e2e8f0" }}>
+              <div className="markdown-viewer" style={{ fontSize: 13, lineHeight: 1.6 }}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {proofreadResult || ""}
+                </ReactMarkdown>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button
+                type="button"
+                className="ld-btn ld-btn-secondary ld-btn-sm"
+                onClick={() => setShowProofreadModal(false)}
+              >
+                Đóng
+              </button>
+              <button
+                type="button"
+                className="ld-btn ld-btn-sm"
+                onClick={handleApplyProofread}
+                style={{
+                  background: "#7c3aed",
+                  color: "#ffffff",
+                  fontWeight: 600,
+                  gap: 6,
+                  display: "flex",
+                  alignItems: "center",
+                }}
+              >
+                <CheckCircle2 size={14} />
+                Áp dụng vào bản sửa
               </button>
             </div>
           </div>

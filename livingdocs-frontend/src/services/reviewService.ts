@@ -63,7 +63,7 @@ export interface ReviewHistoryItem {
   title: string;
   repo: string;
   reviewer: string;
-  action: "approved" | "rejected" | "returned";
+  action: "approved" | "rejected" | "returned" | "pending";
   result: string;
   note: string;
   reviewedAt: string;
@@ -90,6 +90,27 @@ export interface ManagerDelegationItem {
   reason?: string;
   active?: boolean;
   createdAt?: string;
+}
+
+export interface ReviewCommentItem {
+  commentId: number;
+  reviewId?: number | null;
+  docId: number;
+  textSegment?: string | null;
+  detailedComment: string;
+  status: "OPEN" | "RESOLVED";
+  authorEmail?: string | null;
+  authorRole?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  resolvedAt?: string | null;
+}
+
+export interface WorkspaceManagerItem {
+  userId: number;
+  fullName: string;
+  email: string;
+  roles: string[];
 }
 
 export const reviewService = {
@@ -194,6 +215,53 @@ export const reviewService = {
    */
   async createManagerDelegation(delegation: ManagerDelegationItem): Promise<ManagerDelegationItem> {
     const res = await apiClient.post<ManagerDelegationItem>("/api/reviews/delegations", delegation);
+    return res.data;
+  },
+
+  /**
+   * GET /api/reviews/documents/{docId}/comments
+   * Lấy danh sách nhận xét từng mục của tài liệu.
+   */
+  async getDocumentComments(docId: number, status?: string): Promise<ReviewCommentItem[]> {
+    const params = status ? { status } : undefined;
+    const res = await apiClient.get<ReviewCommentItem[]>(`/api/reviews/documents/${docId}/comments`, { params });
+    return res.data;
+  },
+
+  /**
+   * POST /api/reviews/documents/{docId}/comments
+   * Gửi nhận xét cho đoạn văn bản hoặc tiêu đề được chọn.
+   */
+  async createDocumentComment(
+    docId: number,
+    data: { reviewId?: number; textSegment?: string; detailedComment: string; authorEmail?: string; authorRole?: string }
+  ): Promise<ReviewCommentItem> {
+    const res = await apiClient.post<ReviewCommentItem>(`/api/reviews/documents/${docId}/comments`, data);
+    return res.data;
+  },
+
+  /**
+   * PATCH /api/reviews/documents/{docId}/comments/{commentId}
+   * Đánh dấu nhận xét đã được giải quyết / khắc phục (RESOLVED).
+   */
+  async resolveDocumentComment(
+    docId: number,
+    commentId: number,
+    detailedComment?: string
+  ): Promise<ReviewCommentItem> {
+    const res = await apiClient.patch<ReviewCommentItem>(`/api/reviews/documents/${docId}/comments/${commentId}`, {
+      status: "RESOLVED",
+      detailedComment,
+    });
+    return res.data;
+  },
+
+  /**
+   * GET /api/reviews/workspace-managers
+   * Lấy danh sách Manager/Admin đang hoạt động để chọn người ủy quyền.
+   */
+  async getWorkspaceManagers(): Promise<WorkspaceManagerItem[]> {
+    const res = await apiClient.get<WorkspaceManagerItem[]>("/api/reviews/workspace-managers");
     return res.data;
   },
 };
