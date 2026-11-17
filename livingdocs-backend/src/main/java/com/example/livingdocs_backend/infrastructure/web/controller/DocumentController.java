@@ -57,6 +57,7 @@ public class DocumentController {
     private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Tạo tài liệu mới", description = "Tạo mới tài liệu và tự động tạo phiên bản v1 kèm chuỗi băm khởi tạo (Genesis Hash).")
     public ResponseEntity<DocumentResponse> createDocument(
             @Valid @RequestBody CreateDocumentRequest request,
@@ -116,6 +117,7 @@ public class DocumentController {
     }
 
     @PutMapping("/{docId}/collection")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Gán hoặc gỡ tài liệu khỏi Bộ sưu tập", description = "Cập nhật trực tiếp collectionId cho tài liệu mà không tạo phiên bản nội dung mới.")
     public ResponseEntity<DocumentDetailResponse> assignDocumentCollection(
             @PathVariable Long docId,
@@ -140,6 +142,7 @@ public class DocumentController {
     }
 
     @PostMapping("/{docId}/submit-review")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Gửi tài liệu để review", description = "Chuyển trạng thái tài liệu từ DRAFT sang UNDER_REVIEW_STAFF tuân theo máy trạng thái.")
     public ResponseEntity<DocumentResponse> submitForReview(
             @PathVariable Long docId,
@@ -193,18 +196,21 @@ public class DocumentController {
     }
 
     @GetMapping("/{docId}/audit-trail")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Xem nhật ký lịch sử thay đổi (Audit trail)", description = "Lấy toàn bộ lịch sử các hành động thay đổi, gửi duyệt, nhận xét của Staff và phê duyệt của Manager đối với tài liệu.")
     public ResponseEntity<List<DocumentAuditLogResponse>> getDocumentAuditTrail(@PathVariable Long docId) {
         return ResponseEntity.ok(documentServicePort.getDocumentAuditLogs(docId));
     }
 
     @GetMapping("/{docId}")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Xem chi tiết tài liệu", description = "Lấy thông tin tài liệu kèm nội dung phiên bản mới nhất và danh sách các phiên bản trong lịch sử.")
     public ResponseEntity<DocumentDetailResponse> getDocument(@PathVariable Long docId) {
         return ResponseEntity.ok(documentServicePort.getDocumentById(docId));
     }
 
     @GetMapping(value = "/{docId}/export/docx", produces = "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Xuất tài liệu sang file Word (.docx)", description = "Chuyển đổi tài liệu hiện tại sang định dạng Microsoft Word (.docx).")
     public ResponseEntity<byte[]> exportDocumentToDocx(@PathVariable Long docId) {
         DocumentDetailResponse doc = documentServicePort.getDocumentById(docId);
@@ -219,6 +225,7 @@ public class DocumentController {
     }
 
     @PostMapping(value = "/export/docx", produces = "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Xuất nội dung Markdown sang file Word (.docx)", description = "Nhận nội dung Markdown và trả về file Word (.docx).")
     public ResponseEntity<byte[]> exportRawMarkdownToDocx(@RequestBody ExportDocxRequest request) {
         String markdown = request != null && request.markdown() != null ? request.markdown() : "";
@@ -236,6 +243,7 @@ public class DocumentController {
 
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Danh sách tài liệu", description = "Lấy danh sách toàn bộ tài liệu, hỗ trợ lọc theo repoId hoặc collectionId.")
     public ResponseEntity<List<DocumentResponse>> listDocuments(
             @RequestParam(required = false) Long repoId,
@@ -263,12 +271,14 @@ public class DocumentController {
     }
 
     @GetMapping("/{docId}/versions")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Xem lịch sử tất cả các phiên bản", description = "Lấy danh sách các phiên bản đã lưu của tài liệu, sắp xếp từ mới nhất đến cũ nhất.")
     public ResponseEntity<List<DocumentVersionResponse>> getVersions(@PathVariable Long docId) {
         return ResponseEntity.ok(documentServicePort.getDocumentVersions(docId));
     }
 
     @GetMapping("/{docId}/versions/{versionNum}")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Xem chi tiết một phiên bản cụ thể", description = "Lấy thông tin chi tiết và nội dung của một phiên bản cụ thể theo số versionNum.")
     public ResponseEntity<DocumentVersionResponse> getVersion(
             @PathVariable Long docId,
@@ -277,6 +287,7 @@ public class DocumentController {
     }
 
     @GetMapping("/{docId}/verify-integrity")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Kiểm tra toàn vẹn chuỗi băm (Anti-Tamper Verification)", description = "Xác minh toàn bộ chuỗi băm SHA-256 từ v1 đến vN để đảm bảo không có phiên bản nào bị chỉnh sửa trái phép ngoài luồng.")
     public ResponseEntity<IntegrityCheckResponse> verifyIntegrity(@PathVariable Long docId) {
         return ResponseEntity.ok(documentServicePort.verifyIntegrity(docId));
@@ -369,6 +380,7 @@ public class DocumentController {
     }
 
     @PostMapping("/{docId}/reopen-draft")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Mở lại bản nháp từ trạng thái REJECTED", description = "Chuyển trạng thái tài liệu từ REJECTED về DRAFT để tiếp tục chỉnh sửa.")
     public ResponseEntity<DocumentResponse> reopenDraft(
             @PathVariable Long docId,
@@ -380,6 +392,7 @@ public class DocumentController {
     }
 
     @GetMapping("/{docId}/changelogs")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Lấy danh sách nhật ký thay đổi của tài liệu", description = "Truy xuất danh sách changelogs được tự động ghi lại mỗi khi tài liệu được tạo mới, chỉnh sửa, duyệt hoặc khôi phục.")
     public ResponseEntity<List<ChangelogResponse>> getDocumentChangelogs(@PathVariable Long docId) {
         List<ChangelogResponse> changelogs = documentServicePort.getDocumentChangelogs(docId);
@@ -451,6 +464,7 @@ public class DocumentController {
 
 
     @GetMapping("/{docId}/code-links")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Lấy danh sách bằng chứng xác thực Grounding (doc_code_links) của tài liệu",
                description = "Trả về danh sách các tệp nguồn, lớp, hàm và khoảng dòng code được liên kết với tài liệu này.")
     public ResponseEntity<List<com.example.livingdocs_backend.application.dto.GroundingEvidenceItem>> getDocumentCodeLinks(
@@ -495,6 +509,7 @@ public class DocumentController {
     }
 
     @PostMapping("/{docId}/regenerate-entity")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(
             summary = "Táº¡o láº¡i hoáº·c cáº­p nháº­t riÃªng tÃ i liá»‡u cá»§a má»™t thá»±c thá»ƒ mÃ£ nguá»“n (hÃ m/lá»›p)",
             description = "Cho phÃ©p láº­p trÃ¬nh viÃªn táº¡o láº¡i hoáº·c cáº­p nháº­t riÃªng tÃ i liá»‡u cá»§a má»™t hÃ m/lá»›p cá»¥ thá»ƒ khi hÃ m Ä‘Ã³ cÃ³ sá»­a Ä‘á»•i nhá» mÃ  khÃ´ng cáº§n sinh láº¡i toÃ n bá»™ file. Há»‡ thá»‘ng trÃ­ch xuáº¥t mÃ£ nguá»“n hÃ m/lá»›p, gá»i AI Engine (/v1/docs/rewrite-suggestion) viáº¿t láº¡i vÃ  cáº­p nháº­t trá»±c tiáº¿p vÃ o tÃ i liá»‡u tá»•ng thá»ƒ kÃ¨m phiÃªn báº£n má»›i."

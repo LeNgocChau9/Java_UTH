@@ -12,6 +12,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Collections;
@@ -19,6 +20,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/code-diff")
+@PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
 @RequiredArgsConstructor
 @Tag(name = "Code Diff Pipeline", description = "Bộ kéo Git Diff thời gian thực và Đối chiếu AST (Tự động bóc tách hàm thay đổi khi có PR)")
 public class CodeDiffController {

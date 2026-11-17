@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestClient;
@@ -28,21 +29,25 @@ public class AiSettingController {
     public static final String AI_SETTING_KEY = "ai_configuration";
 
     @GetMapping("/ai")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     public ResponseEntity<AiSettingDto> getAiSettings() {
         return ResponseEntity.ok(aiRuntimeConfigService.getMaskedSettings());
     }
 
     @PostMapping("/ai")
+    @PreAuthorize("hasAnyRole('ADMIN','TECH_LEAD','MANAGER')")
     public ResponseEntity<AiSettingDto> saveAiSettings(@RequestBody AiSettingDto dto) {
         return ResponseEntity.ok(aiRuntimeConfigService.saveSettings(dto));
     }
 
     @PutMapping("/ai")
+    @PreAuthorize("hasAnyRole('ADMIN','TECH_LEAD','MANAGER')")
     public ResponseEntity<AiSettingDto> updateAiSettings(@RequestBody AiSettingDto dto) {
         return ResponseEntity.ok(aiRuntimeConfigService.saveSettings(dto));
     }
 
     @GetMapping("/ai/scan-local-models")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     public ResponseEntity<Map<String, Object>> scanLocalModels(@RequestParam(name = "url", required = false) String customUrl) {
         String baseUrl = StringUtils.hasText(customUrl) ? customUrl.trim() : "http://127.0.0.1:11434";
         String tagsUrl = baseUrl.replaceAll("/+$", "") + "/api/tags";

@@ -2,17 +2,23 @@ package com.example.livingdocs_backend.infrastructure.web.controller;
 
 import com.example.livingdocs_backend.application.dto.github.WebhookProcessingResult;
 import com.example.livingdocs_backend.application.port.GitHubWebhookServicePort;
+import com.example.livingdocs_backend.application.service.WebhookDeliveryService;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.WebhookDeliveryEntity;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -25,7 +31,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Slf4j
 @RestController
-@RequestMapping("/api/webhooks/github")
+@RequestMapping("/api/webhooks")
 @RequiredArgsConstructor
 @Tag(name = "GitHub Webhooks", description = "Cổng tiếp nhận sự kiện tự động từ GitHub (push, pull_request)")
 public class GitHubWebhookController {
@@ -34,7 +40,10 @@ public class GitHubWebhookController {
     private final ConcurrentHashMap<String, Long> processedDeliveries = new ConcurrentHashMap<>();
     private static final long DELIVERY_TTL_MS = 10 * 60 * 1000L; // 10 phút
 
-    @PostMapping
+    @Autowired(required = false)
+    private WebhookDeliveryService webhookDeliveryService;
+
+    @PostMapping("/github")
     @Operation(summary = "Tiếp nhận và xử lý sự kiện Webhook từ GitHub", description = "Bắt các sự kiện thay đổi mã nguồn (push, pull_request), xác thực chữ ký X-Hub-Signature-256 và đẩy vào luồng phân tích")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Tiếp nhận thành công và đã đẩy vào hàng đợi phân tích"),
@@ -54,6 +63,11 @@ public class GitHubWebhookController {
         if (!isValid) {
             long duration = System.currentTimeMillis() - startTime;
             log.warn("[Webhook] Chữ ký X-Hub-Signature-256 không hợp lệ. Từ chối yêu cầu (thời gian: {}ms)", duration);
+            if (webhookDeliveryService != null) {
+                webhookDeliveryService.recordDelivery(
+                        deliveryId, eventType, null, "REJECTED", 401, duration, rawPayload,
+                        "Chữ ký X-Hub-Signature-256 không hợp lệ hoặc không khớp secret key");
+            }
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of(
                             "status", 401,
@@ -69,7 +83,13 @@ public class GitHubWebhookController {
             }
             Long existingTimestamp = processedDeliveries.putIfAbsent(deliveryId.trim(), now);
             if (existingTimestamp != null && (now - existingTimestamp) <= DELIVERY_TTL_MS) {
+                long duration = System.currentTimeMillis() - startTime;
                 log.warn("[Webhook] Phát hiện yêu cầu trùng lặp / Replay Attack với Delivery ID: {}", deliveryId);
+                if (webhookDeliveryService != null) {
+                    webhookDeliveryService.recordDelivery(
+                            deliveryId, eventType, null, "REJECTED", 401, duration, rawPayload,
+                            "Sự kiện Webhook đã được xử lý trước đó (Duplicate Delivery / Replay Attack)");
+                }
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                         .body(Map.of(
                                 "status", 401,
@@ -78,16 +98,37 @@ public class GitHubWebhookController {
             }
         }
 
-        // 2. Phân tích payload, trích xuất metadata và đẩy vào luồng phân tích ngầm
+        // 3. Phân tích payload, trích xuất metadata và đẩy vào luồng phân tích ngầm
         WebhookProcessingResult result = webhookService.processWebhook(eventType, rawPayload);
         long duration = System.currentTimeMillis() - startTime;
 
         if (!result.success()) {
             log.warn("[Webhook] Xử lý sự kiện [{}] thất bại sau {}ms: {}", eventType, duration, result.message());
+            if (webhookDeliveryService != null) {
+                webhookDeliveryService.recordDelivery(
+                        deliveryId, eventType, result.repoFullName(), "FAILED", 400, duration, rawPayload,
+                        result.message());
+            }
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(result);
         }
 
+        if (webhookDeliveryService != null) {
+            webhookDeliveryService.recordDelivery(
+                    deliveryId, eventType, result.repoFullName(), "SUCCESS", 200, duration, rawPayload, null);
+        }
         log.info("[Webhook] Hoàn tất tiếp nhận sự kiện [{}] thành công trong {}ms (< 500ms)", eventType, duration);
         return ResponseEntity.ok(result);
+    }
+
+    @GetMapping("/deliveries")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
+    @SecurityRequirement(name = "BearerAuth")
+    @Operation(summary = "Xem lịch sử giao nhận GitHub Webhook (Delivery Logs)", description = "Trả về 100 bản ghi giao nhận webhook gần nhất, có thể lọc theo repositoryId.")
+    public ResponseEntity<List<WebhookDeliveryEntity>> getWebhookDeliveries(
+            @RequestParam(value = "repositoryId", required = false) Long repositoryId) {
+        if (webhookDeliveryService == null) {
+            return ResponseEntity.ok(List.of());
+        }
+        return ResponseEntity.ok(webhookDeliveryService.getDeliveriesByRepository(repositoryId));
     }
 }

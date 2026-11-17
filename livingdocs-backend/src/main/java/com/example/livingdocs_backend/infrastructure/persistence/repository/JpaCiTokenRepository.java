@@ -16,7 +16,7 @@ public interface JpaCiTokenRepository extends JpaRepository<CiTokenEntity, Long>
     List<CiTokenEntity> findByRepositoryIdOrderByCreatedAtDesc(Long repositoryId);
     List<CiTokenEntity> findAllByOrderByCreatedAtDesc();
 
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE CiTokenEntity t SET t.isRevoked = true, t.updatedAt = CURRENT_TIMESTAMP WHERE t.tokenId = :tokenId")
     void revokeToken(@Param("tokenId") Long tokenId);
 }

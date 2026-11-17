@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
@@ -23,6 +24,7 @@ public class AutoDraftController {
     private final AutoDraftServicePort autoDraftService;
 
     @PostMapping("/api/drift-alerts/{alertId}/auto-draft")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(
             summary = "Tự động sinh bản nháp từ AI gợi ý khi phát hiện Drift (Task S4-10)",
             description = "Gọi AI Engine (/v1/docs/rewrite-suggestion) viết lại các phần bị ảnh hưởng, tạo 1 bản ghi mới trong document_versions ở trạng thái PENDING_REVIEW với actor_role là AI_AGENT và đẩy vào hàng đợi xem xét của nhân viên."
@@ -36,6 +38,7 @@ public class AutoDraftController {
     }
 
     @PostMapping("/api/auto-draft/apply-suggestion")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(
             summary = "Chuyển đề xuất AI thành bản nháp chính thức",
             description = "Đầu ra nghiệp vụ: Nhận request chuyển đề xuất viết lại từ AI thành bản nháp chính thức (PENDING_REVIEW), ghi rõ tác nhân AI_AGENT và gửi thông báo đến hàng đợi xem xét của nhân viên."
@@ -49,6 +52,7 @@ public class AutoDraftController {
     }
 
     @PostMapping("/api/drift-alerts/{alertId}/accept-draft")
+    @PreAuthorize("hasAnyRole('STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(
             summary = "Chấp nhận bản nháp chỉ trong 1 click",
             description = "Duyệt bản nháp do AI sinh, cập nhật tài liệu sang APPROVED và đánh dấu cảnh báo drift là RESOLVED."

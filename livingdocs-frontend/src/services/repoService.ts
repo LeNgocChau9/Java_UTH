@@ -87,6 +87,20 @@ export interface SyncResult {
   message: string;
 }
 
+export interface WebhookDeliveryItem {
+  id: number;
+  deliveryId?: string | null;
+  eventType: string;
+  repositoryId?: number | null;
+  repoFullName?: string | null;
+  status: "SUCCESS" | "FAILED" | "REJECTED" | "IGNORED" | string;
+  httpStatus: number;
+  latencyMs?: number | null;
+  payloadSummary?: string | null;
+  errorMessage?: string | null;
+  deliveredAt: string;
+}
+
 export const repoService = {
   async getRepositories(workspaceId?: number): Promise<RepoItem[]> {
     const res = await apiClient.get<RepoItem[]>("/api/repos", {
@@ -120,6 +134,11 @@ export const repoService = {
   async getRepoCommits(id: number): Promise<CommitItem[]> {
     const res = await apiClient.get<CommitItem[]>(`/api/repos/${id}/commits`);
     return res.data;
+  },
+
+  async getWebhookDeliveries(id: number): Promise<WebhookDeliveryItem[]> {
+    const res = await apiClient.get<WebhookDeliveryItem[]>(`/api/repos/${id}/webhook-deliveries`);
+    return Array.isArray(res.data) ? res.data : [];
   },
 
   async getRepositoryTree(id: number, sha?: string): Promise<GitHubFileItem[]> {

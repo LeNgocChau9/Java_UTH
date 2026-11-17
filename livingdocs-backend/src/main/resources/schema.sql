@@ -470,6 +470,23 @@ CREATE TABLE IF NOT EXISTS public.doc_code_links (
 CREATE INDEX IF NOT EXISTS idx_doc_code_links_doc ON public.doc_code_links(document_id);
 CREATE INDEX IF NOT EXISTS idx_doc_code_links_file ON public.doc_code_links(file_path);
 
+CREATE TABLE IF NOT EXISTS public.webhook_deliveries (
+    id bigserial NOT NULL,
+    delivery_id character varying(128),
+    event_type character varying(64) NOT NULL,
+    repository_id bigint,
+    repo_full_name character varying(255),
+    status character varying(32) NOT NULL,
+    http_status integer NOT NULL DEFAULT 200,
+    latency_ms bigint,
+    payload_summary text,
+    error_message text,
+    delivered_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT webhook_deliveries_pkey PRIMARY KEY (id)
+);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_repo_time ON public.webhook_deliveries(repository_id, delivered_at DESC);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_delivered_at ON public.webhook_deliveries(delivered_at DESC);
+
 -- Foreign Keys & Constraints
 ALTER TABLE IF EXISTS public.admin_settings
     ADD CONSTRAINT admin_settings_updated_by_fkey FOREIGN KEY (updated_by)
