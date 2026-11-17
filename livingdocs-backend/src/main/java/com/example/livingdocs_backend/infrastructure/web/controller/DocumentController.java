@@ -47,6 +47,9 @@ public class DocumentController {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentRepository springDataDocumentRepository;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.example.livingdocs_backend.application.port.ReviewServicePort reviewServicePort;
+
     @PostMapping
     @Operation(summary = "Tạo tài liệu mới", description = "Tạo mới tài liệu và tự động tạo phiên bản v1 kèm chuỗi băm khởi tạo (Genesis Hash).")
     public ResponseEntity<DocumentResponse> createDocument(
@@ -143,7 +146,7 @@ public class DocumentController {
 
     @PostMapping("/{docId}/staff-review")
     @PreAuthorize("hasAnyRole('STAFF','MANAGER','TECH_LEAD','ADMIN')")
-    @Operation(summary = "Staff đánh giá tài liệu (Duyệt cấp 1)", description = "Chỉ Staff hoặc Manager mới có quyền duyệt cấp 1 để chuyển tài liệu từ UNDER_REVIEW_STAFF sang UNDER_REVIEW_MANAGER hoặc REJECTED.")
+    @Operation(summary = "Staff đánh giá tài liệu (Duyệt cấp 1)", description = "Chỉ Staff hoặc Manager mới có quyền duyệt cấp 1 để chuyển tài liệu từ UNDER_REVIEW_STAFF sang UNDER_REVIEW_MANAGER hoặc REJECTED hoặc PUBLISHED.")
     public ResponseEntity<DocumentResponse> processStaffReview(
             @PathVariable Long docId,
             @RequestBody(required = false) StaffReviewDecisionRequest request,
@@ -151,6 +154,20 @@ public class DocumentController {
 
         Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
         String actorRole = extractRole(userPrincipal);
+        String actorEmail = userPrincipal != null ? userPrincipal.getEmail() : null;
+
+        if (reviewServicePort != null) {
+            com.example.livingdocs_backend.application.dto.StaffActionRequest actionReq =
+                    com.example.livingdocs_backend.application.dto.StaffActionRequest.builder()
+                            .decision(request != null ? request.getDecision() : "APPROVE")
+                            .comment(request != null ? request.getComment() : null)
+                            .actorRole(actorRole)
+                            .build();
+            com.example.livingdocs_backend.application.dto.ReviewActionResponse actionResp =
+                    reviewServicePort.handleStaffAction(docId, actionReq, actorId, actorRole, actorEmail);
+            return ResponseEntity.ok(actionResp.getDocument());
+        }
+
         DocumentResponse response = documentServicePort.processStaffReview(docId, request, actorId, actorRole);
         return ResponseEntity.ok(response);
     }

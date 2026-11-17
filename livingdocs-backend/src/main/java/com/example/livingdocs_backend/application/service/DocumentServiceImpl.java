@@ -784,9 +784,22 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 ? request.getDecision().trim().toUpperCase()
                 : "APPROVE";
 
-        DocumentStatus targetStatus = "REJECT".equals(decisionStr) || "REJECTED".equals(decisionStr)
-                ? DocumentStatus.REJECTED
-                : DocumentStatus.UNDER_REVIEW_MANAGER;
+        boolean isOneTier = false;
+        String path = (document.getTargetPath() != null ? document.getTargetPath() : "").toLowerCase();
+        String title = (document.getTitle() != null ? document.getTitle() : "").toLowerCase();
+        if (path.contains("api") || title.contains("api") || path.contains("readme") || title.contains("readme")
+                || path.contains("guide") || path.contains("manual") || path.contains("release")) {
+            isOneTier = true;
+        }
+
+        DocumentStatus targetStatus;
+        if ("REJECT".equals(decisionStr) || "REJECTED".equals(decisionStr)) {
+            targetStatus = DocumentStatus.REJECTED;
+        } else if (isOneTier) {
+            targetStatus = DocumentStatus.PUBLISHED;
+        } else {
+            targetStatus = DocumentStatus.UNDER_REVIEW_MANAGER;
+        }
 
         // Chuyển đổi trạng thái kèm kiểm tra nghiêm ngặt quyền hạn (Chỉ STAFF hoặc
         // MANAGER mới được duyệt cấp 1)
@@ -805,11 +818,16 @@ public class DocumentServiceImpl implements DocumentServicePort {
 
         if (auditServicePort != null) {
             AuditAction action = (nextStatus == DocumentStatus.REJECTED) ? AuditAction.DOCUMENT_REJECTED
-                    : AuditAction.DOCUMENT_STAFF_REVIEWED;
+                    : (nextStatus == DocumentStatus.PUBLISHED ? AuditAction.DOCUMENT_PUBLISHED : AuditAction.DOCUMENT_STAFF_REVIEWED);
             String detailMsg = (nextStatus == DocumentStatus.REJECTED)
                     ? "Staff đã từ chối tài liệu. Lý do: " + (comment.isEmpty() ? "Không có lý do chi tiết" : comment)
-                    : "Staff đã phê duyệt tài liệu và chuyển Manager duyệt cấp 2. Nhận xét: "
-                            + (comment.isEmpty() ? "Tài liệu đạt chuẩn chất lượng." : comment);
+                    : (nextStatus == DocumentStatus.PUBLISHED
+                            ? "Staff đã phê duyệt xuất bản trực tiếp theo chính sách 1 cấp (PUBLISHED). " + (comment.isEmpty() ? "" : "Ghi chú: " + comment)
+                            : "Staff đã phê duyệt tài liệu và chuyển Manager duyệt cấp 2. Nhận xét: "
+                            + (comment.isEmpty() ? "Tài liệu đạt chuẩn chất lượng." : comment));
+            if (nextStatus == DocumentStatus.PUBLISHED) {
+                auditServicePort.recordDocumentApproval(actorId, docId);
+            }
             auditServicePort.recordDocumentAction(actorId, docId, action, detailMsg);
         }
 
@@ -817,8 +835,10 @@ public class DocumentServiceImpl implements DocumentServicePort {
         if (changelogServicePort != null) {
             String summary = (nextStatus == DocumentStatus.REJECTED)
                     ? "Staff đã từ chối tài liệu. Lý do: " + (comment.isEmpty() ? "Không có lý do chi tiết" : comment)
-                    : "Staff đã phê duyệt tài liệu cấp 1 (chuyển sang Manager). "
-                            + (comment.isEmpty() ? "" : "Ghi chú: " + comment);
+                    : (nextStatus == DocumentStatus.PUBLISHED
+                            ? "Staff đã phê duyệt xuất bản trực tiếp theo chính sách 1 cấp (PUBLISHED). " + (comment.isEmpty() ? "" : "Ghi chú: " + comment)
+                            : "Staff đã phê duyệt tài liệu cấp 1 (chuyển sang Manager). "
+                            + (comment.isEmpty() ? "" : "Ghi chú: " + comment));
             changelogServicePort.logChange(
                     docId,
                     latest != null ? latest.getVersionId() : null,

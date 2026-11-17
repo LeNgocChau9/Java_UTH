@@ -159,6 +159,8 @@ export interface RollbackRequestPayload {
 export interface DocumentAuditLogItem {
   logId: number;
   actorId: number | null;
+  actorEmail?: string | null;
+  actorRole?: string | null;
   action: string;
   resourceType: string;
   resourceId: string;

@@ -256,10 +256,15 @@ CREATE TABLE IF NOT EXISTS public.reviews
 CREATE TABLE IF NOT EXISTS public.review_comments
 (
     comment_id bigserial NOT NULL,
-    review_id bigint NOT NULL,
+    review_id bigint,
+    doc_id bigint,
     text_segment character varying(255) COLLATE pg_catalog."default",
     detailed_comment text COLLATE pg_catalog."default" NOT NULL,
+    status character varying(20) COLLATE pg_catalog."default" DEFAULT 'OPEN'::character varying,
+    author_email character varying(100) COLLATE pg_catalog."default",
+    author_role character varying(50) COLLATE pg_catalog."default",
     created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT review_comments_pkey PRIMARY KEY (comment_id)
 );
 
@@ -312,11 +317,14 @@ CREATE TABLE IF NOT EXISTS public.document_update_policies
 CREATE TABLE IF NOT EXISTS public.manager_approval_policies
 (
     policy_id bigserial NOT NULL,
-    workspace_id bigint NOT NULL,
+    workspace_id bigint NOT NULL DEFAULT 1,
     document_type character varying(100) COLLATE pg_catalog."default" NOT NULL,
     approval_required boolean NOT NULL DEFAULT true,
     merge_policy character varying(20) COLLATE pg_catalog."default" NOT NULL DEFAULT 'WARN'::character varying,
+    tiers integer NOT NULL DEFAULT 2,
+    description text COLLATE pg_catalog."default",
     updated_by bigint,
+    updated_by_email character varying(255) COLLATE pg_catalog."default",
     created_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT manager_approval_policies_pkey PRIMARY KEY (policy_id),
@@ -326,9 +334,14 @@ CREATE TABLE IF NOT EXISTS public.manager_approval_policies
 CREATE TABLE IF NOT EXISTS public.manager_approval_delegations
 (
     delegation_id bigserial NOT NULL,
-    workspace_id bigint NOT NULL,
-    delegator_id bigint NOT NULL,
-    delegate_id bigint NOT NULL,
+    workspace_id bigint NOT NULL DEFAULT 1,
+    delegator_id bigint,
+    delegate_id bigint,
+    delegator_name character varying(150) COLLATE pg_catalog."default",
+    delegator_email character varying(255) COLLATE pg_catalog."default",
+    delegatee_name character varying(150) COLLATE pg_catalog."default",
+    delegatee_email character varying(255) COLLATE pg_catalog."default",
+    active boolean NOT NULL DEFAULT true,
     starts_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
     ends_at timestamp with time zone,
     reason text COLLATE pg_catalog."default",

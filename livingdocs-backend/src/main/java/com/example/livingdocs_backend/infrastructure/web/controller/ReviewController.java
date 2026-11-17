@@ -9,6 +9,7 @@ import com.example.livingdocs_backend.infrastructure.security.UserPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -119,6 +120,61 @@ public class ReviewController {
         Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
         String actorEmail = userPrincipal != null ? userPrincipal.getEmail() : null;
         return ResponseEntity.ok(reviewServicePort.createManagerDelegation(delegation, actorId, actorEmail));
+    }
+
+    @GetMapping("/documents/{docId}/comments")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
+    @Operation(summary = "Lấy danh sách nhận xét của tài liệu", description = "Lấy toàn bộ nhận xét từng mục của tài liệu, có thể lọc theo ?status=OPEN hoặc ?status=RESOLVED")
+    public ResponseEntity<List<com.example.livingdocs_backend.application.dto.ReviewCommentDto>> getDocumentComments(
+            @PathVariable Long docId,
+            @RequestParam(required = false) String status) {
+        return ResponseEntity.ok(reviewServicePort.getDocumentComments(docId, status));
+    }
+
+    @PostMapping("/documents/{docId}/comments")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
+    @Operation(summary = "Thêm nhận xét vào tài liệu", description = "Tạo nhận xét cho đoạn văn bản hoặc tiêu đề được chọn")
+    public ResponseEntity<com.example.livingdocs_backend.application.dto.ReviewCommentDto> addDocumentComment(
+            @PathVariable Long docId,
+            @Valid @RequestBody com.example.livingdocs_backend.application.dto.CreateReviewCommentRequest request,
+            @RequestHeader(value = "X-Role", required = false) String roleHeader,
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+
+        Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
+        String actorEmail = userPrincipal != null ? userPrincipal.getEmail() : null;
+        String actorRole = principalRole(userPrincipal);
+        if (actorRole == null) {
+            actorRole = resolveRole(null, request != null ? request.getAuthorRole() : null, roleHeader, "STAFF");
+        }
+
+        return ResponseEntity.ok(reviewServicePort.addDocumentComment(docId, request, actorId, actorRole, actorEmail));
+    }
+
+    @PatchMapping("/documents/{docId}/comments/{commentId}")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
+    @Operation(summary = "Cập nhật trạng thái nhận xét", description = "Đánh dấu nhận xét là RESOLVED hoặc cập nhật nội dung nhận xét")
+    public ResponseEntity<com.example.livingdocs_backend.application.dto.ReviewCommentDto> updateDocumentComment(
+            @PathVariable Long docId,
+            @PathVariable Long commentId,
+            @RequestBody(required = false) com.example.livingdocs_backend.application.dto.UpdateReviewCommentRequest request,
+            @RequestHeader(value = "X-Role", required = false) String roleHeader,
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+
+        Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
+        String actorEmail = userPrincipal != null ? userPrincipal.getEmail() : null;
+        String actorRole = principalRole(userPrincipal);
+        if (actorRole == null) {
+            actorRole = resolveRole(null, null, roleHeader, "DEVELOPER");
+        }
+
+        return ResponseEntity.ok(reviewServicePort.updateCommentStatus(docId, commentId, request, actorId, actorRole, actorEmail));
+    }
+
+    @GetMapping("/workspace-managers")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
+    @Operation(summary = "Lấy danh sách Manager/Admin trong workspace", description = "Trả về danh sách người dùng có vai trò MANAGER, TECH_LEAD, ADMIN để chọn người ủy quyền")
+    public ResponseEntity<List<com.example.livingdocs_backend.application.dto.WorkspaceManagerResponse>> getWorkspaceManagers() {
+        return ResponseEntity.ok(reviewServicePort.getWorkspaceManagers());
     }
 
     private String principalRole(UserPrincipal userPrincipal) {
