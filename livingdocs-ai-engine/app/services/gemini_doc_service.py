@@ -67,6 +67,46 @@ class GeminiDocService:
         return "PROJECT_DOCUMENTATION"
 
     @classmethod
+    def _calculate_real_confidence_score(
+        cls,
+        markdown: str,
+        entities: List[CodeEntityItem]
+    ) -> float:
+        """
+        Tính điểm tin cậy thật (0.0 - 1.0) đối chiếu văn bản với danh sách CodeEntity từ AST thật.
+        Xóa bỏ hoàn toàn giá trị gán cứng (0.88 / 0.98).
+        - Độ phủ thực thể (Entity Coverage)
+        - Độ phủ tham số (Param Coverage)
+        - Kiểm tra tính đầy đủ của tài liệu
+        """
+        if not entities:
+            return 0.85 if len(markdown) > 200 else 0.50
+
+        total_entities = len(entities)
+        matched_entities = 0
+        total_params = 0
+        matched_params = 0
+
+        for e in entities:
+            name = e.method_name or e.class_name
+            if name and name in markdown:
+                matched_entities += 1
+            if e.parameters and e.parameters not in ("None", "()", ""):
+                parts = e.parameters.replace("(", "").replace(")", "").split(",")
+                for p in parts:
+                    clean_p = p.strip().split()[-1] if p.strip() else ""
+                    if len(clean_p) >= 2:
+                        total_params += 1
+                        if clean_p in markdown:
+                            matched_params += 1
+
+        ent_ratio = matched_entities / total_entities if total_entities > 0 else 1.0
+        param_ratio = matched_params / total_params if total_params > 0 else 1.0
+
+        real_score = (ent_ratio * 0.70) + (param_ratio * 0.30)
+        return round(max(0.10, min(1.0, real_score)), 2)
+
+    @classmethod
     def _build_grounding_box_markdown(
         cls,
         file_path: str,
@@ -540,12 +580,6 @@ Tài liệu PHẢI tuân thủ chính xác các đề mục sau:
                 )
             )
 
-        # Tính toán điểm tin cậy dựa trên tỷ lệ entity và AST grounding
-        total_count = len(entities_list) if entities_list else 1
-        documented_count = sum(1 for e in entities_list if e.javadoc) if entities_list else 0
-        base_score = 0.88 + min(0.10, (documented_count / total_count) * 0.10)
-        confidence_score = round(base_score, 2)
-
         grounding_box_md = cls._build_grounding_box_markdown(
             file_path=request.file_path,
             commit_hash=commit_hash,
@@ -558,6 +592,7 @@ Tài liệu PHẢI tuân thủ chính xác các đề mục sau:
             synthesized_md = cls._build_smart_ast_markdown(request, target_name, entities_summary)
             if "Khối Bằng chứng Xác thực Nguồn" not in synthesized_md:
                 synthesized_md = synthesized_md.rstrip() + "\n\n" + grounding_box_md.strip()
+            confidence_score = cls._calculate_real_confidence_score(synthesized_md, entities_list)
             return DocGenerateResponse(
                 status="success",
                 mode="ast-synthesis",
@@ -625,6 +660,8 @@ Tài liệu PHẢI tuân thủ chính xác các đề mục sau:
             if "Khối Bằng chứng Xác thực Nguồn" not in clean_markdown and "Grounding Evidence Box" not in clean_markdown:
                 clean_markdown = clean_markdown.rstrip() + "\n\n" + grounding_box_md.strip()
 
+            confidence_score = cls._calculate_real_confidence_score(clean_markdown, entities_list)
+
             return DocGenerateResponse(
                 status="success",
                 mode="real",
@@ -650,6 +687,7 @@ Tài liệu PHẢI tuân thủ chính xác các đề mục sau:
             synthesized_md = cls._build_smart_ast_markdown(request, target_name, entities_summary)
             if "Khối Bằng chứng Xác thực Nguồn" not in synthesized_md:
                 synthesized_md = synthesized_md.rstrip() + "\n\n" + grounding_box_md.strip()
+            confidence_score = cls._calculate_real_confidence_score(synthesized_md, entities_list)
             return DocGenerateResponse(
                 status="success",
                 mode="ast-synthesis",

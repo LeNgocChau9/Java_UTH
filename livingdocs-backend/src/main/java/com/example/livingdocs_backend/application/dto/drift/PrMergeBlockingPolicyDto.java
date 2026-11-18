@@ -38,6 +38,18 @@ public class PrMergeBlockingPolicyDto {
     @Builder.Default
     private Boolean autoUnlockOnApproval = true;
 
+    @Schema(description = "Bật/Tắt điều kiện chặn PR Gate dựa trên điểm chất lượng tài liệu & chống ảo giác AI (Anti-Hallucination Gate)", example = "true")
+    @Builder.Default
+    private Boolean qualityGateEnabled = true;
+
+    @Schema(description = "Ngưỡng điểm chất lượng tài liệu tối thiểu để vượt qua PR Gate (0.0 - 1.0)", example = "0.75")
+    @Builder.Default
+    private Double minQualityScore = 0.75;
+
+    @Schema(description = "Ngưỡng điểm chống ảo giác tối thiểu (0.0 - 1.0)", example = "0.80")
+    @Builder.Default
+    private Double minAntiHallucinationScore = 0.80;
+
     @Schema(description = "Thời điểm cập nhật cấu hình gần nhất")
     private Instant updatedAt;
 

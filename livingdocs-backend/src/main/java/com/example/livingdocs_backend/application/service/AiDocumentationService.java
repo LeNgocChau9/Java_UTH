@@ -502,9 +502,23 @@ public class AiDocumentationService implements AiDocumentationServicePort {
                 .template_type(context.templateType)
                 .file_path(context.targetSourcePath)
                 .generated_content(fallbackMarkdown)
-                .confidence_score(0.95)
+                .confidence_score(calculateRealConfidenceScore(fallbackMarkdown, context.aiEntities))
                 .grounding_evidence(Collections.emptyList())
                 .build();
+    }
+
+    private double calculateRealConfidenceScore(String markdown, List<AiDocGenerateRequestDto.CodeEntityItemDto> entities) {
+        if (!StringUtils.hasText(markdown) || entities == null || entities.isEmpty()) {
+            return StringUtils.hasText(markdown) && markdown.length() > 200 ? 0.85 : 0.50;
+        }
+        long matched = entities.stream()
+                .filter(e -> {
+                    String name = e.method_name() != null ? e.method_name() : e.class_name();
+                    return name != null && markdown.contains(name);
+                })
+                .count();
+        double ratio = (double) matched / entities.size();
+        return Math.round(Math.max(0.10, Math.min(1.0, ratio)) * 100.0) / 100.0;
     }
 
     /**

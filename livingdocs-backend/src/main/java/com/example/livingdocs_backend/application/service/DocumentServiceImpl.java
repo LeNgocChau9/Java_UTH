@@ -349,7 +349,12 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 log.warn("[SearchDocuments] SQL Hybrid Search không thực thi được (fallback sang tìm kiếm an toàn): {}", ex.getMessage());
             }
         }
-        return fallbackSearch(repoId, collectionId, keyword, status, templateId);
+        try {
+            return fallbackSearch(repoId, collectionId, keyword, status, templateId);
+        } catch (Exception ex) {
+            log.error("[SearchDocuments] Fallback search không thực thi được: {}", ex.getMessage(), ex);
+            return Collections.emptyList();
+        }
     }
 
     private List<DocumentResponse> executeSqlHybridSearch(Long repoId, Long collectionId, String keyword, String status, Long templateId) {

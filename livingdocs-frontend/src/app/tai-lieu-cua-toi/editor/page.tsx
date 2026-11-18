@@ -55,6 +55,11 @@ import {
   GitBranch,
   RotateCcw,
   MessageSquare,
+  ShieldAlert,
+  XCircle,
+  AlertOctagon,
+  Bug,
+  Info,
 } from "lucide-react";
 import { reviewService, type ReviewCommentItem } from "@/services/reviewService";
 import {
@@ -62,6 +67,14 @@ import {
   type DocTemplateDto,
   type DocumentCrossCheckResponse,
 } from "@/services/templateService";
+import {
+  docQualityService,
+  type DocumentQualityEvaluationResponse,
+  type PhantomSymbolDto,
+  type MissingEntityDto,
+  type MissingParamDto,
+  type QualityWarningDto,
+} from "@/services/docQualityService";
 import {
   InteractiveOptionModal,
   type InteractiveOptionChoice,
@@ -229,10 +242,15 @@ function EditorContent() {
   const [publishingGitHub, setPublishingGitHub] = useState(false);
 
   // Review Comments panel states (R4)
-  const [rightPanelTab, setRightPanelTab] = useState<"crosscheck" | "comments">("crosscheck");
+  const [rightPanelTab, setRightPanelTab] = useState<"crosscheck" | "quality" | "comments">("crosscheck");
   const [reviewComments, setReviewComments] = useState<ReviewCommentItem[]>([]);
   const [loadingReviewComments, setLoadingReviewComments] = useState<boolean>(false);
   const [resolvingCommentId, setResolvingCommentId] = useState<number | null>(null);
+
+  // Anti-Hallucination & Quality Gate states (Task Tuần 7)
+  const [qualityResult, setQualityResult] = useState<DocumentQualityEvaluationResponse | null>(null);
+  const [runningQualityEval, setRunningQualityEval] = useState<boolean>(false);
+  const [qualityActiveSubTab, setQualityActiveSubTab] = useState<"overview" | "phantoms" | "missing" | "warnings">("overview");
 
   const fetchReviewComments = useCallback(async (id: number) => {
     setLoadingReviewComments(true);
@@ -389,6 +407,63 @@ function EditorContent() {
   const notify = (type: "success" | "error" | "info", message: string) => {
     setToast({ type, message });
     setTimeout(() => setToast(null), 4000);
+  };
+
+  const handleRunQualityEvaluation = useCallback(
+    async (overrideContent?: string) => {
+      const contentToEval = overrideContent !== undefined ? overrideContent : content;
+      if (!contentToEval || contentToEval.trim().length === 0) {
+        notify("info", "Tài liệu chưa có nội dung để chấm điểm chất lượng.");
+        return;
+      }
+      setRunningQualityEval(true);
+      try {
+        const res = await docQualityService.evaluateQuality({
+          repositoryId: repoId || undefined,
+          documentId: docId || undefined,
+          filePath: targetPath || undefined,
+          markdown: contentToEval,
+          templateId: selectedTemplateId || undefined,
+          minQualityThreshold: 0.75,
+          minAntiHallucinationThreshold: 0.80,
+        });
+        setQualityResult(res);
+        if (res.passed) {
+          notify("success", `Điểm chất lượng: ${res.overallQualityScore?.toFixed(1)}% - ✅ ĐẠT CHUẨN PR GATE!`);
+        } else {
+          notify(
+            "info",
+            `Điểm chất lượng: ${res.overallQualityScore?.toFixed(1)}% - ⛔ BỊ CHẶN BỞI PR GATE (${res.phantomSymbolsCount} ảo giác, ${res.missingCodeEntitiesCount} thực thể thiếu).`
+          );
+        }
+      } catch (err) {
+        console.error("Lỗi khi chấm điểm chất lượng:", err);
+        notify("error", "Không thể hoàn thành chấm điểm chất lượng. Vui lòng kiểm tra kết nối backend!");
+      } finally {
+        setRunningQualityEval(false);
+      }
+    },
+    [content, repoId, docId, targetPath, selectedTemplateId]
+  );
+
+  const handleInsertMissingEntity = (entity: MissingEntityDto) => {
+    const snippet = `\n\n${entity.suggestedMarkdown || `### \`${entity.signature || entity.methodName || entity.className}\`\n- **Đường dẫn**: \`${entity.filePath}\`\n- **Mô tả**: Đặc tả chi tiết cho phương thức.\n`}`;
+    setContent((prev) => prev + snippet);
+    notify("success", `Đã bổ sung thực thể \`${entity.methodName || entity.className}\` vào tài liệu.`);
+  };
+
+  const handleFixPhantomSymbol = (phantom: PhantomSymbolDto) => {
+    if (phantom.suggestion && phantom.suggestion.includes("'")) {
+      const match = phantom.suggestion.match(/'([^']+)'/);
+      if (match && match[1]) {
+        const replacement = match[1];
+        setContent((prev) => prev.replaceAll(`\`${phantom.symbol}\``, `\`${replacement}\``).replaceAll(phantom.symbol, replacement));
+        notify("success", `Đã thay thế ảo giác \`${phantom.symbol}\` bằng ký hiệu thật \`${replacement}\`.`);
+        return;
+      }
+    }
+    setContent((prev) => prev.replaceAll(`\`${phantom.symbol}\``, `\`${phantom.symbol}/* phantom */\``));
+    notify("info", `Đã đánh dấu xử lý cho ký hiệu ảo giác \`${phantom.symbol}\`.`);
   };
 
   const filteredPaths = useMemo(() => {
@@ -2196,6 +2271,58 @@ function EditorContent() {
               <button
                 type="button"
                 onClick={() => {
+                  setRightPanelTab("quality");
+                  if (!qualityResult && content) {
+                    handleRunQualityEvaluation();
+                  }
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  padding: "5px 10px",
+                  borderRadius: 6,
+                  border: "none",
+                  background: rightPanelTab === "quality" ? "#ffffff" : "transparent",
+                  color: rightPanelTab === "quality" ? "#087f5b" : "var(--color-text-secondary)",
+                  fontWeight: rightPanelTab === "quality" ? 700 : 500,
+                  fontSize: 11,
+                  cursor: "pointer",
+                  boxShadow: rightPanelTab === "quality" ? "0 1px 2px rgba(0,0,0,0.05)" : "none",
+                }}
+              >
+                <ShieldAlert
+                  size={13}
+                  style={{
+                    color: qualityResult
+                      ? qualityResult.passed
+                        ? "#15803d"
+                        : "#dc2626"
+                      : rightPanelTab === "quality"
+                      ? "#087f5b"
+                      : "inherit",
+                  }}
+                />
+                <span>Chất lượng & Anti-Hallucination</span>
+                {qualityResult && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      padding: "1px 5px",
+                      borderRadius: 10,
+                      background: qualityResult.passed ? "#dcfce7" : "#fee2e2",
+                      color: qualityResult.passed ? "#15803d" : "#dc2626",
+                    }}
+                  >
+                    {qualityResult.overallQualityScore?.toFixed(0)}%
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
                   setRightPanelTab("comments");
                   if (docId) fetchReviewComments(docId);
                 }}
@@ -2558,6 +2685,535 @@ function EditorContent() {
               </div>
             )}
               </>
+            ) : rightPanelTab === "quality" ? (
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                {/* Control bar */}
+                <div
+                  style={{
+                    padding: "10px 12px",
+                    borderBottom: "1px solid var(--color-border)",
+                    background: "#f8fafc",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#1e293b", display: "flex", alignItems: "center", gap: 5 }}>
+                        <ShieldAlert size={14} style={{ color: "#087f5b" }} />
+                        Anti-Hallucination & Quality Gate
+                      </span>
+                      <span style={{ fontSize: 10, color: "#64748b" }}>
+                        Đối chiếu AST thật • Bắt Phantom Symbols • Chặn PR Gate
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRunQualityEvaluation()}
+                      disabled={runningQualityEval}
+                      className="ld-btn ld-btn-primary ld-btn-sm"
+                      style={{ fontSize: 11, padding: "4px 10px", gap: 5 }}
+                    >
+                      <RefreshCw size={12} className={runningQualityEval ? "animate-spin" : ""} />
+                      {runningQualityEval ? "Đang quét..." : "Quét chất lượng"}
+                    </button>
+                  </div>
+                </div>
+
+                {!qualityResult ? (
+                  <div
+                    style={{
+                      flex: 1,
+                      padding: 24,
+                      textAlign: "center",
+                      color: "#64748b",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <ShieldAlert size={40} style={{ color: "#087f5b", opacity: 0.5, marginBottom: 12 }} />
+                    <p style={{ fontSize: 13, fontWeight: 700, color: "#1e293b", margin: "0 0 6px" }}>
+                      Chưa thực hiện thẩm định chất lượng
+                    </p>
+                    <p style={{ fontSize: 11, lineHeight: 1.5, margin: "0 0 16px", maxWidth: 300 }}>
+                      Bấm &quot;Quét chất lượng&quot; để tính 3 chỉ số thật từ AST mã nguồn, quét bắt ký hiệu ảo giác AI (Phantom Symbols) và kiểm tra điều kiện chặn PR Gate.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => handleRunQualityEvaluation()}
+                      disabled={runningQualityEval}
+                      className="ld-btn ld-btn-primary ld-btn-sm"
+                      style={{ gap: 6 }}
+                    >
+                      <ShieldCheck size={14} />
+                      Bắt đầu thẩm định ngay
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                    {/* PR Gate Status Banner */}
+                    <div
+                      style={{
+                        padding: "10px 12px",
+                        borderBottom: "1px solid",
+                        borderColor: qualityResult.passed ? "#bbf7d0" : "#fecaca",
+                        background: qualityResult.passed ? "#f0fdf4" : "#fef2f2",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          {qualityResult.passed ? (
+                            <CheckCircle2 size={16} style={{ color: "#16a34a" }} />
+                          ) : (
+                            <AlertOctagon size={16} style={{ color: "#dc2626" }} />
+                          )}
+                          <span
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 800,
+                              color: qualityResult.passed ? "#15803d" : "#b91c1c",
+                              letterSpacing: 0.3,
+                            }}
+                          >
+                            {qualityResult.passed
+                              ? `✅ ĐẠT CHUẨN PR GATE (${qualityResult.overallQualityScore?.toFixed(1)}%)`
+                              : `⛔ BỊ CHẶN BỞI PR GATE (${qualityResult.overallQualityScore?.toFixed(1)}%)`}
+                          </span>
+                        </div>
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            padding: "2px 6px",
+                            borderRadius: 4,
+                            background: qualityResult.passed ? "#dcfce7" : "#fee2e2",
+                            color: qualityResult.passed ? "#15803d" : "#b91c1c",
+                          }}
+                        >
+                          {qualityResult.prGateStatus}
+                        </span>
+                      </div>
+                      <p style={{ fontSize: 11, color: qualityResult.passed ? "#166534" : "#991b1b", margin: 0, lineHeight: 1.4 }}>
+                        {qualityResult.recommendation}
+                      </p>
+                    </div>
+
+                    {/* 3 Real Metrics Cards */}
+                    <div style={{ padding: "10px 12px", borderBottom: "1px solid #f1f5f9", background: "#ffffff" }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                        3 Chỉ Số Thẩm Định Thật (AST Ground Truth)
+                      </span>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginTop: 6 }}>
+                        {/* Metric 1 */}
+                        <div style={{ padding: "6px 8px", background: "#f8fafc", borderRadius: 6, border: "1px solid #e2e8f0" }}>
+                          <span style={{ fontSize: 10, color: "#64748b", display: "block" }}>1. Entity Coverage</span>
+                          <span style={{ fontSize: 14, fontWeight: 800, color: "#0f172a" }}>
+                            {qualityResult.overallCoveragePercent?.toFixed(1)}%
+                          </span>
+                          <div style={{ height: 4, background: "#e2e8f0", borderRadius: 2, marginTop: 4, overflow: "hidden" }}>
+                            <div
+                              style={{
+                                height: "100%",
+                                width: `${Math.min(100, qualityResult.overallCoveragePercent || 0)}%`,
+                                background: (qualityResult.overallCoveragePercent || 0) >= 75 ? "#10b981" : "#f59e0b",
+                              }}
+                            />
+                          </div>
+                          <span style={{ fontSize: 9, color: "#64748b", marginTop: 2, display: "block" }}>
+                            {qualityResult.documentedCodeEntitiesCount}/{qualityResult.totalCodeEntitiesScanned} entities
+                          </span>
+                        </div>
+
+                        {/* Metric 2 */}
+                        <div
+                          style={{
+                            padding: "6px 8px",
+                            background: qualityResult.phantomSymbolsCount === 0 ? "#f8fafc" : "#fff1f2",
+                            borderRadius: 6,
+                            border: "1px solid",
+                            borderColor: qualityResult.phantomSymbolsCount === 0 ? "#e2e8f0" : "#fecdd3",
+                          }}
+                        >
+                          <span style={{ fontSize: 10, color: "#64748b", display: "block" }}>2. Anti-Hallucination</span>
+                          <span
+                            style={{
+                              fontSize: 14,
+                              fontWeight: 800,
+                              color: (qualityResult.antiHallucinationPercent || 0) >= 80 ? "#15803d" : "#dc2626",
+                            }}
+                          >
+                            {qualityResult.antiHallucinationPercent?.toFixed(1)}%
+                          </span>
+                          <div style={{ height: 4, background: "#e2e8f0", borderRadius: 2, marginTop: 4, overflow: "hidden" }}>
+                            <div
+                              style={{
+                                height: "100%",
+                                width: `${Math.min(100, qualityResult.antiHallucinationPercent || 0)}%`,
+                                background: (qualityResult.antiHallucinationPercent || 0) >= 80 ? "#10b981" : "#ef4444",
+                              }}
+                            />
+                          </div>
+                          <span
+                            style={{
+                              fontSize: 9,
+                              fontWeight: qualityResult.phantomSymbolsCount > 0 ? 700 : 400,
+                              color: qualityResult.phantomSymbolsCount > 0 ? "#dc2626" : "#64748b",
+                              marginTop: 2,
+                              display: "block",
+                            }}
+                          >
+                            {qualityResult.phantomSymbolsCount} Phantoms
+                          </span>
+                        </div>
+
+                        {/* Metric 3 */}
+                        <div style={{ padding: "6px 8px", background: "#f8fafc", borderRadius: 6, border: "1px solid #e2e8f0" }}>
+                          <span style={{ fontSize: 10, color: "#64748b", display: "block" }}>3. Template Tuân thủ</span>
+                          <span style={{ fontSize: 14, fontWeight: 800, color: "#0f172a" }}>
+                            {qualityResult.templateCompliancePercent?.toFixed(1)}%
+                          </span>
+                          <div style={{ height: 4, background: "#e2e8f0", borderRadius: 2, marginTop: 4, overflow: "hidden" }}>
+                            <div
+                              style={{
+                                height: "100%",
+                                width: `${Math.min(100, qualityResult.templateCompliancePercent || 0)}%`,
+                                background: (qualityResult.templateCompliancePercent || 0) >= 80 ? "#10b981" : "#f59e0b",
+                              }}
+                            />
+                          </div>
+                          <span style={{ fontSize: 9, color: "#64748b", marginTop: 2, display: "block" }}>
+                            {qualityResult.matchedHeadingsCount}/{qualityResult.requiredHeadingsCount} đề mục
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Sub-tab Navigation */}
+                    <div
+                      style={{
+                        display: "flex",
+                        borderBottom: "1px solid #e2e8f0",
+                        background: "#fafafa",
+                        padding: "4px 8px 0",
+                        gap: 4,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setQualityActiveSubTab("overview")}
+                        style={{
+                          padding: "5px 8px",
+                          fontSize: 11,
+                          fontWeight: qualityActiveSubTab === "overview" ? 700 : 500,
+                          border: "none",
+                          borderBottom: qualityActiveSubTab === "overview" ? "2px solid #087f5b" : "2px solid transparent",
+                          background: "transparent",
+                          color: qualityActiveSubTab === "overview" ? "#087f5b" : "#64748b",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Tổng quan
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setQualityActiveSubTab("phantoms")}
+                        style={{
+                          padding: "5px 8px",
+                          fontSize: 11,
+                          fontWeight: qualityActiveSubTab === "phantoms" ? 700 : 500,
+                          border: "none",
+                          borderBottom: qualityActiveSubTab === "phantoms" ? "2px solid #dc2626" : "2px solid transparent",
+                          background: "transparent",
+                          color: qualityActiveSubTab === "phantoms" ? "#dc2626" : "#64748b",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <span>Ảo giác AI</span>
+                        <span
+                          style={{
+                            fontSize: 9,
+                            fontWeight: 700,
+                            padding: "1px 5px",
+                            borderRadius: 10,
+                            background: qualityResult.phantomSymbolsCount > 0 ? "#fee2e2" : "#e2e8f0",
+                            color: qualityResult.phantomSymbolsCount > 0 ? "#dc2626" : "#475569",
+                          }}
+                        >
+                          {qualityResult.phantomSymbolsCount}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setQualityActiveSubTab("missing")}
+                        style={{
+                          padding: "5px 8px",
+                          fontSize: 11,
+                          fontWeight: qualityActiveSubTab === "missing" ? 700 : 500,
+                          border: "none",
+                          borderBottom: qualityActiveSubTab === "missing" ? "2px solid #d97706" : "2px solid transparent",
+                          background: "transparent",
+                          color: qualityActiveSubTab === "missing" ? "#d97706" : "#64748b",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <span>Thực thể thiếu</span>
+                        <span
+                          style={{
+                            fontSize: 9,
+                            fontWeight: 700,
+                            padding: "1px 5px",
+                            borderRadius: 10,
+                            background: qualityResult.missingCodeEntitiesCount > 0 ? "#fef3c7" : "#e2e8f0",
+                            color: qualityResult.missingCodeEntitiesCount > 0 ? "#b45309" : "#475569",
+                          }}
+                        >
+                          {qualityResult.missingCodeEntitiesCount}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setQualityActiveSubTab("warnings")}
+                        style={{
+                          padding: "5px 8px",
+                          fontSize: 11,
+                          fontWeight: qualityActiveSubTab === "warnings" ? 700 : 500,
+                          border: "none",
+                          borderBottom: qualityActiveSubTab === "warnings" ? "2px solid #087f5b" : "2px solid transparent",
+                          background: "transparent",
+                          color: qualityActiveSubTab === "warnings" ? "#087f5b" : "#64748b",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <span>Cảnh báo</span>
+                        <span
+                          style={{
+                            fontSize: 9,
+                            fontWeight: 700,
+                            padding: "1px 5px",
+                            borderRadius: 10,
+                            background: qualityResult.qualityWarnings.length > 0 ? "#e0e7ff" : "#e2e8f0",
+                            color: qualityResult.qualityWarnings.length > 0 ? "#3730a3" : "#475569",
+                          }}
+                        >
+                          {qualityResult.qualityWarnings.length}
+                        </span>
+                      </button>
+                    </div>
+
+                    {/* Sub-tab Body */}
+                    <div style={{ flex: 1, overflowY: "auto", padding: 12 }}>
+                      {qualityActiveSubTab === "overview" && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                          <div style={{ padding: 10, background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: "#1e293b", display: "block", marginBottom: 6 }}>
+                              📊 Thống kê chi tiết kiểm định
+                            </span>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, fontSize: 11, color: "#475569" }}>
+                              <div>Thực thể AST: <strong>{qualityResult.documentedCodeEntitiesCount}/{qualityResult.totalCodeEntitiesScanned}</strong></div>
+                              <div>Tham số kỹ thuật: <strong>{qualityResult.documentedParamsCount}/{qualityResult.totalParamsScanned}</strong></div>
+                              <div>Ký hiệu code đã quét: <strong>{qualityResult.totalSymbolsChecked}</strong></div>
+                              <div>Phantom Symbols: <strong style={{ color: qualityResult.phantomSymbolsCount > 0 ? "#dc2626" : "#16a34a" }}>{qualityResult.phantomSymbolsCount}</strong></div>
+                              <div>Đề mục Template: <strong>{qualityResult.matchedHeadingsCount}/{qualityResult.requiredHeadingsCount}</strong></div>
+                              <div>Ngưỡng PR Gate: <strong>{qualityResult.appliedQualityThreshold}%</strong></div>
+                            </div>
+                          </div>
+
+                          {qualityResult.missingTemplateHeadings && qualityResult.missingTemplateHeadings.length > 0 && (
+                            <div style={{ padding: 10, background: "#fffbeb", borderRadius: 8, border: "1px solid #fde68a" }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: "#92400e", display: "block", marginBottom: 4 }}>
+                                ⚠️ Đề mục Template bắt buộc còn thiếu ({qualityResult.missingTemplateHeadings.length})
+                              </span>
+                              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 11, color: "#78350f" }}>
+                                {qualityResult.missingTemplateHeadings.map((h, i) => (
+                                  <li key={i}>{h}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {qualityActiveSubTab === "phantoms" && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          {qualityResult.phantomSymbols.length === 0 ? (
+                            <div style={{ padding: 20, textAlign: "center", color: "#15803d", background: "#f0fdf4", borderRadius: 8, border: "1px solid #bbf7d0" }}>
+                              <CheckCircle2 size={28} style={{ margin: "0 auto 8px" }} />
+                              <p style={{ fontSize: 12, fontWeight: 700, margin: 0 }}>
+                                Không phát hiện ký hiệu ảo giác nào!
+                              </p>
+                              <p style={{ fontSize: 10, color: "#166534", margin: "4px 0 0" }}>
+                                Tất cả tên hàm, lớp, API paths quét trong văn bản đều có thực trong Ground Truth mã nguồn.
+                              </p>
+                            </div>
+                          ) : (
+                            qualityResult.phantomSymbols.map((phantom, i) => (
+                              <div
+                                key={i}
+                                style={{
+                                  padding: 10,
+                                  borderRadius: 8,
+                                  border: "1px solid #fecaca",
+                                  background: "#fef2f2",
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: 4,
+                                }}
+                              >
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                  <code style={{ fontSize: 11, fontWeight: 700, color: "#b91c1c", background: "#fee2e2", padding: "1px 5px", borderRadius: 4 }}>
+                                    {phantom.symbol}
+                                  </code>
+                                  <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: "#dc2626", color: "#ffffff" }}>
+                                    {phantom.severity} • Dòng {phantom.lineNumber}
+                                  </span>
+                                </div>
+                                <p style={{ fontSize: 10, color: "#7f1d1d", margin: "2px 0 0", fontStyle: "italic" }}>
+                                  &quot;{phantom.contextSnippet}&quot;
+                                </p>
+                                <p style={{ fontSize: 10, color: "#991b1b", margin: 0 }}>
+                                  {phantom.reason}
+                                </p>
+                                {phantom.suggestion && (
+                                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4, paddingTop: 4, borderTop: "1px dashed #fca5a5" }}>
+                                    <span style={{ fontSize: 10, color: "#15803d", fontWeight: 600 }}>
+                                      💡 {phantom.suggestion}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleFixPhantomSymbol(phantom)}
+                                      className="ld-btn ld-btn-ghost ld-btn-sm"
+                                      style={{ fontSize: 10, color: "#087f5b", padding: "2px 6px" }}
+                                    >
+                                      Sửa nhanh
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
+
+                      {qualityActiveSubTab === "missing" && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          {qualityResult.missingEntities.length === 0 ? (
+                            <div style={{ padding: 20, textAlign: "center", color: "#15803d", background: "#f0fdf4", borderRadius: 8, border: "1px solid #bbf7d0" }}>
+                              <CheckCircle2 size={28} style={{ margin: "0 auto 8px" }} />
+                              <p style={{ fontSize: 12, fontWeight: 700, margin: 0 }}>
+                                Đầy đủ 100% thực thể mã nguồn!
+                              </p>
+                            </div>
+                          ) : (
+                            qualityResult.missingEntities.map((ent, i) => (
+                              <div
+                                key={i}
+                                style={{
+                                  padding: 10,
+                                  borderRadius: 8,
+                                  border: "1px solid #fed7aa",
+                                  background: "#fffaf0",
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: 4,
+                                }}
+                              >
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                  <span style={{ fontSize: 11, fontWeight: 700, color: "#9a3412" }}>
+                                    {ent.className}.{ent.methodName || ent.entityType}
+                                  </span>
+                                  <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "#ea580c", color: "#fff" }}>
+                                    {ent.entityType}
+                                  </span>
+                                </div>
+                                <code style={{ fontSize: 10, color: "#475569", background: "#f1f5f9", padding: "2px 4px", borderRadius: 3 }}>
+                                  {ent.signature || ent.filePath}
+                                </code>
+                                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 2 }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleInsertMissingEntity(ent)}
+                                    className="ld-btn ld-btn-ghost ld-btn-sm"
+                                    style={{ fontSize: 10, color: "#087f5b", padding: "2px 6px" }}
+                                  >
+                                    + Chèn vào tài liệu
+                                  </button>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
+
+                      {qualityActiveSubTab === "warnings" && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          {qualityResult.qualityWarnings.length === 0 ? (
+                            <div style={{ padding: 20, textAlign: "center", color: "#15803d", background: "#f0fdf4", borderRadius: 8, border: "1px solid #bbf7d0" }}>
+                              <CheckCircle2 size={28} style={{ margin: "0 auto 8px" }} />
+                              <p style={{ fontSize: 12, fontWeight: 700, margin: 0 }}>
+                                Không có cảnh báo chất lượng nào!
+                              </p>
+                            </div>
+                          ) : (
+                            qualityResult.qualityWarnings.map((warn, i) => (
+                              <div
+                                key={i}
+                                style={{
+                                  padding: 10,
+                                  borderRadius: 8,
+                                  border: "1px solid",
+                                  borderColor: warn.severity === "CRITICAL" ? "#fecaca" : "#fed7aa",
+                                  background: warn.severity === "CRITICAL" ? "#fef2f2" : "#fffaf0",
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: 3,
+                                }}
+                              >
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                  <span style={{ fontSize: 11, fontWeight: 700, color: warn.severity === "CRITICAL" ? "#991b1b" : "#9a3412" }}>
+                                    {warn.title}
+                                  </span>
+                                  <span
+                                    style={{
+                                      fontSize: 9,
+                                      fontWeight: 700,
+                                      padding: "1px 5px",
+                                      borderRadius: 4,
+                                      background: warn.severity === "CRITICAL" ? "#dc2626" : "#f59e0b",
+                                      color: "#fff",
+                                    }}
+                                  >
+                                    {warn.severity}
+                                  </span>
+                                </div>
+                                <p style={{ fontSize: 10, color: "#475569", margin: 0 }}>
+                                  {warn.message}
+                                </p>
+                                {warn.actionRequired && (
+                                  <span style={{ fontSize: 9, color: "#087f5b", fontWeight: 600 }}>
+                                    👉 Hành động: {warn.actionRequired}
+                                  </span>
+                                )}
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : (
               <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                 <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--color-border)", background: "#fafafa", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
