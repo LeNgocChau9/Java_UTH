@@ -18,8 +18,8 @@ import {
   CheckCircle2,
   Sparkles,
 } from "lucide-react";
-import { loadTemplates, saveTemplates } from "@/services/templateStorage";
-import type { DocumentTemplate } from "@/types/template";
+import { templateService } from "@/services/templateService";
+import type { DocumentTemplate, DocumentTemplateSection } from "@/types/template";
 
 type DialogState =
   | { kind: "create" }
@@ -153,13 +153,22 @@ export function TemplateLibrary() {
   const [previewingTemplate, setPreviewingTemplate] = useState<DocumentTemplate | null>(null);
 
   useEffect(() => {
-    try {
-      setTemplates(loadTemplates());
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Không thể tải danh sách template.");
-    } finally {
-      setLoading(false);
-    }
+    let cancelled = false;
+    templateService.listLibrary()
+      .then((items) => {
+        if (!cancelled) setTemplates(items);
+      })
+      .catch((loadError: unknown) => {
+        if (!cancelled) {
+          setError(loadError instanceof Error ? loadError.message : "Không thể tải danh sách template.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -175,22 +184,20 @@ export function TemplateLibrary() {
     }
   }, [dialog]);
 
-  function persist(nextTemplates: DocumentTemplate[]): string | null {
-    try {
-      saveTemplates(nextTemplates);
-      setTemplates(nextTemplates);
-      setError(null);
-      return null;
-    } catch (saveError) {
-      const message = saveError instanceof Error
-        ? saveError.message
-        : "Không thể lưu thay đổi template.";
-      setError(message);
-      return message;
-    }
+  const starterSection: DocumentTemplateSection = {
+    key: "overview",
+    title: "1. Tổng quan",
+    description: "Mục đích và phạm vi của tài liệu.",
+    required: true,
+    contentPlaceholder: "Trình bày tổng quan mục đích tài liệu tại đây...",
+  };
+
+  async function reload() {
+    const items = await templateService.listLibrary();
+    setTemplates(items);
   }
 
-  function createTemplate(event: FormEvent<HTMLFormElement>) {
+  async function createTemplate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const name = String(formData.get("name") ?? "").trim();
@@ -202,104 +209,50 @@ export function TemplateLibrary() {
       return;
     }
 
-    const newTemplateId = crypto.randomUUID();
-    const template: DocumentTemplate = {
-      id: newTemplateId,
-      name,
-      type,
-      description,
-      status: "DRAFT",
-      currentVersion: 1,
-      createdAt: new Date().toISOString(),
-      documentCount: 0,
-      sections: [
-        {
-          id: `sec-${Date.now()}-1`,
-          title: "1. Tổng quan",
-          description: "Mục đích và phạm vi của tài liệu.",
-          required: true,
-          contentPlaceholder: "Trình bày tổng quan mục đích tài liệu tại đây...",
-        },
-      ],
-      versionHistory: [
-        {
-          versionId: `v1-${newTemplateId}`,
-          versionNum: 1,
-          createdAt: new Date().toISOString(),
-          createdBy: "Người khởi tạo",
-          changeNote: "Khởi tạo bản nháp mẫu tài liệu ban đầu",
-          sectionsCount: 1,
-          sections: [
-            {
-              id: `sec-${Date.now()}-1`,
-              title: "1. Tổng quan",
-              description: "Mục đích và phạm vi của tài liệu.",
-              required: true,
-              contentPlaceholder: "Trình bày tổng quan mục đích tài liệu tại đây...",
-            },
-          ],
-          isCurrent: true,
-        },
-      ],
-    };
-
-    const saveError = persist([template, ...templates]);
-    if (saveError) {
-      setDialogError(saveError);
-      return;
+    try {
+      const created = await templateService.createTemplate({
+        name,
+        type,
+        description,
+        sections: [starterSection],
+      });
+      setDialog(null);
+      setNotice(`Đã tạo template ${created.name}. Mẫu này dùng được ngay ở Editor, AI, hàng đợi xem xét và chính sách phê duyệt.`);
+      router.push(`/quan-ly-template/${created.id}`);
+    } catch (saveError) {
+      setDialogError(saveError instanceof Error ? saveError.message : "Không thể lưu thay đổi template.");
     }
-
-    setDialog(null);
-    setNotice(`Đã tạo template ${template.name}.`);
-    router.push(`/quan-ly-template/${encodeURIComponent(template.id)}`);
   }
 
-  function copyTemplate(template: DocumentTemplate) {
-    const copyId = crypto.randomUUID();
-    const copy: DocumentTemplate = {
-      ...template,
-      id: copyId,
-      name: `${template.name} (Bản sao)`,
-      status: "DRAFT",
-      currentVersion: 1,
-      createdAt: new Date().toISOString(),
-      documentCount: 0,
-      sections: JSON.parse(JSON.stringify(template.sections)),
-      versionHistory: [
-        {
-          versionId: `v1-${copyId}`,
-          versionNum: 1,
-          createdAt: new Date().toISOString(),
-          createdBy: "Người sao chép",
-          changeNote: `Sao chép từ mẫu "${template.name}"`,
-          sectionsCount: template.sections.length,
-          sections: JSON.parse(JSON.stringify(template.sections)),
-          isCurrent: true,
-        },
-      ],
-    };
-
-    const saveError = persist([copy, ...templates]);
-    if (saveError) {
-      return;
+  async function copyTemplate(template: DocumentTemplate) {
+    try {
+      await templateService.createTemplate({
+        name: `${template.name} (Bản sao)`,
+        type: `${template.type}_COPY_${Date.now()}`,
+        description: template.description,
+        sections: template.sections,
+      });
+      await reload();
+      setNotice(`Đã nhân bản ${template.name}.`);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Không thể nhân bản template.");
     }
-    setNotice(`Đã nhân bản ${template.name}.`);
   }
 
-  function deleteTemplate() {
+  async function deleteTemplate() {
     if (!dialog || dialog.kind !== "delete") {
       return;
     }
 
     const { template } = dialog;
-    const saveError = persist(templates.filter((item) => item.id !== template.id));
-    if (saveError) {
-      setDialogError(saveError);
-      return;
+    try {
+      await templateService.deleteTemplate(Number(template.id));
+      setTemplates((current) => current.filter((item) => item.id !== template.id));
+      setDialog(null);
+      setNotice(`Đã xóa template ${template.name}.`);
+    } catch (saveError) {
+      setDialogError(saveError instanceof Error ? saveError.message : "Không thể xóa template.");
     }
-
-    setDialog(null);
-    setNotice(`Đã xóa template ${template.name}.`);
   }
 
   function openDialog(nextDialog: DialogState) {

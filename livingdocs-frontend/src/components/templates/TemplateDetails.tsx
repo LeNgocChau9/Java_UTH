@@ -29,12 +29,7 @@ import {
   BookOpen,
   Check,
 } from "lucide-react";
-import {
-  loadTemplates,
-  updateTemplate,
-  publishTemplate,
-  rollbackTemplateVersion,
-} from "@/services/templateStorage";
+import { templateService } from "@/services/templateService";
 import type {
   DocumentTemplate,
   DocumentTemplateSection,
@@ -94,20 +89,22 @@ export function TemplateDetails({ templateId }: { templateId: string }) {
   const [isNewVersionModalOpen, setIsNewVersionModalOpen] = useState(false);
   const [newVersionNote, setNewVersionNote] = useState("");
 
-  const refreshTemplate = useCallback(() => {
-    try {
-      const all = loadTemplates();
-      const current = all.find((item) => item.id === templateId);
-      if (current) {
-        setTemplate(current);
-      } else {
-        setError("Không tìm thấy mẫu tài liệu với mã: " + templateId);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Lỗi khi tải mẫu tài liệu");
-    } finally {
+  const refreshTemplate = useCallback((): Promise<void> => {
+    const numericId = Number(templateId);
+    if (!Number.isFinite(numericId)) {
+      setError("Mã mẫu không hợp lệ: " + templateId);
       setLoading(false);
+      return Promise.resolve();
     }
+    return templateService.loadLibraryItem(numericId)
+      .then((current) => {
+        setTemplate(current);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : "Lỗi khi tải mẫu tài liệu");
+      })
+      .finally(() => setLoading(false));
   }, [templateId]);
 
   useEffect(() => {
@@ -123,13 +120,26 @@ export function TemplateDetails({ templateId }: { templateId: string }) {
   }, [toastMessage]);
 
   // Hành động: Xuất bản vào thư viện dùng chung
-  const handlePublish = () => {
+  const handlePublish = async () => {
     if (!template) return;
     try {
-      const res = publishTemplate(template.id);
-      setTemplate(res.template);
+      await templateService.saveVersion(Number(template.id), {
+        name: template.name,
+        type: template.type,
+        description: template.description,
+        sections: template.sections,
+        changeNote: "Xuất bản mẫu vào thư viện dùng chung",
+      });
+      await templateService.updateTemplate(Number(template.id), {
+        name: template.name,
+        type: template.type,
+        description: template.description,
+        sections: template.sections,
+        isDefault: true,
+      });
+      refreshTemplate();
       setToastMessage({
-        text: `Mẫu "${res.template.name}" đã được xuất bản chính thức vào Thư viện dùng chung với phiên bản v${res.template.currentVersion}.0!`,
+        text: `Mẫu "${template.name}" đã được lưu trên hệ thống và dùng được ngay ở Editor, AI, hàng đợi xem xét và chính sách phê duyệt.`,
         type: "success",
       });
     } catch (err) {
@@ -141,16 +151,16 @@ export function TemplateDetails({ templateId }: { templateId: string }) {
   };
 
   // Hành động: Xác nhận khôi phục phiên bản
-  const handleConfirmRollback = () => {
+  const handleConfirmRollback = async () => {
     if (!template || !rollbackTarget) return;
     setIsRollbacking(true);
 
     try {
-      const result = rollbackTemplateVersion(template.id, rollbackTarget.versionNum);
-      setTemplate(result.template);
+      const restored = await templateService.rollbackVersion(Number(template.id), Number(rollbackTarget.versionId));
+      refreshTemplate();
       setRollbackTarget(null);
       setToastMessage({
-        text: result.message,
+        text: `Đã khôi phục cấu trúc từ phiên bản đã chọn. Phiên bản hiện tại là v${restored.versionNum}.`,
         type: "success",
       });
       // Tự động chuyển về tab "preview" để xem trước phiên bản vừa khôi phục
@@ -166,44 +176,54 @@ export function TemplateDetails({ templateId }: { templateId: string }) {
   };
 
   // Hành động: Lưu phiên bản mới
-  const handleSaveNewVersion = (e: React.FormEvent) => {
+  const persistStructure = async (next: DocumentTemplate, changeNote?: string) => {
+    await templateService.updateTemplate(Number(next.id), {
+      name: next.name,
+      type: next.type,
+      description: next.description,
+      sections: next.sections,
+      isDefault: next.status === "PUBLISHED",
+    });
+    if (changeNote) {
+      await templateService.saveVersion(Number(next.id), {
+        name: next.name,
+        type: next.type,
+        description: next.description,
+        sections: next.sections,
+        changeNote,
+      });
+    }
+    await refreshTemplate();
+  };
+
+  const handleSaveNewVersion = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!template) return;
-
-    const nextVer = (template.currentVersion || 1) + 1;
-    const nowIso = new Date().toISOString();
-    const newHistoryItem: TemplateVersionItem = {
-      versionId: `v${nextVer}-${template.id}-${Date.now()}`,
-      versionNum: nextVer,
-      createdAt: nowIso,
-      createdBy: "Quản trị viên LivingDocs",
-      changeNote: newVersionNote.trim() || `Cập nhật cấu trúc mẫu phiên bản v${nextVer}.0`,
-      sectionsCount: template.sections.length,
-      sections: JSON.parse(JSON.stringify(template.sections)),
-      isCurrent: true,
-    };
-
-    const updatedTemplate: DocumentTemplate = {
-      ...template,
-      currentVersion: nextVer,
-      versionHistory: [
-        newHistoryItem,
-        ...(template.versionHistory || []).map((v) => ({ ...v, isCurrent: false })),
-      ],
-    };
-
-    updateTemplate(updatedTemplate);
-    setTemplate(updatedTemplate);
-    setIsNewVersionModalOpen(false);
-    setNewVersionNote("");
-    setToastMessage({
-      text: `Đã lưu phiên bản mới v${nextVer}.0 vào lịch sử mẫu thành công!`,
-      type: "success",
-    });
+    try {
+      const saved = await templateService.saveVersion(Number(template.id), {
+        name: template.name,
+        type: template.type,
+        description: template.description,
+        sections: template.sections,
+        changeNote: newVersionNote.trim() || "Cập nhật cấu trúc mẫu",
+      });
+      refreshTemplate();
+      setIsNewVersionModalOpen(false);
+      setNewVersionNote("");
+      setToastMessage({
+        text: `Đã lưu phiên bản v${saved.versionNum} vào PostgreSQL.`,
+        type: "success",
+      });
+    } catch (err) {
+      setToastMessage({
+        text: err instanceof Error ? err.message : "Không lưu được phiên bản",
+        type: "warning",
+      });
+    }
   };
 
   // Hành động: Lưu đề mục (Thêm mới hoặc Cập nhật)
-  const handleSaveSection = (e: React.FormEvent) => {
+  const handleSaveSection = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!template || !editingSection) return;
 
@@ -229,10 +249,17 @@ export function TemplateDetails({ templateId }: { templateId: string }) {
     const updated: DocumentTemplate = {
       ...template,
       sections: updatedSections,
-      status: "DRAFT", // Khi sửa cấu trúc, chuyển về DRAFT để chờ xuất bản
     };
 
-    updateTemplate(updated);
+    try {
+      await persistStructure(updated);
+    } catch (err) {
+      setToastMessage({
+        text: err instanceof Error ? err.message : "Không lưu được đề mục",
+        type: "warning",
+      });
+      return;
+    }
     setTemplate(updated);
     setEditingSection(null);
     setToastMessage({
@@ -242,7 +269,7 @@ export function TemplateDetails({ templateId }: { templateId: string }) {
   };
 
   // Hành động: Xóa đề mục
-  const handleDeleteSection = (index: number) => {
+  const handleDeleteSection = async (index: number) => {
     if (!template) return;
     if (!confirm("Bạn có chắc chắn muốn xóa đề mục này khỏi cấu trúc mẫu?")) return;
 
@@ -252,7 +279,15 @@ export function TemplateDetails({ templateId }: { templateId: string }) {
       sections: updatedSections,
       status: "DRAFT",
     };
-    updateTemplate(updated);
+    try {
+      await persistStructure(updated);
+    } catch (err) {
+      setToastMessage({
+        text: err instanceof Error ? err.message : "Không xóa được đề mục",
+        type: "warning",
+      });
+      return;
+    }
     setTemplate(updated);
     setToastMessage({
       text: "Đã xóa đề mục khỏi cấu trúc mẫu",
@@ -261,7 +296,7 @@ export function TemplateDetails({ templateId }: { templateId: string }) {
   };
 
   // Hành động: Di chuyển thứ tự đề mục
-  const handleMoveSection = (index: number, direction: "up" | "down") => {
+  const handleMoveSection = async (index: number, direction: "up" | "down") => {
     if (!template) return;
     const targetIndex = direction === "up" ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= template.sections.length) return;
@@ -274,10 +309,16 @@ export function TemplateDetails({ templateId }: { templateId: string }) {
     const updated: DocumentTemplate = {
       ...template,
       sections: updatedSections,
-      status: "DRAFT",
     };
-    updateTemplate(updated);
-    setTemplate(updated);
+    try {
+      await persistStructure(updated);
+      setTemplate(updated);
+    } catch (err) {
+      setToastMessage({
+        text: err instanceof Error ? err.message : "Không đổi được thứ tự đề mục",
+        type: "warning",
+      });
+    }
   };
 
   // Thống kê đề mục

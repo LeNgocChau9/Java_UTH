@@ -364,8 +364,28 @@ export const documentService = {
   },
 
   /**
-   * Xóa bộ sưu tập
+   * Khôi phục đồng loạt mọi tài liệu trong bộ sưu tập về mốc thời gian đã chọn.
    */
+  async rollbackCollection(
+    collectionId: number,
+    payload: {
+      beforeTimestamp?: string;
+      stepsBack?: number;
+      reason?: string;
+      actorRole?: string;
+    },
+  ): Promise<{
+    collectionId: number;
+    collectionName: string;
+    totalDocuments: number;
+    rolledBackCount: number;
+    skippedCount: number;
+    message: string;
+  }> {
+    const res = await apiClient.post(`/api/collections/${collectionId}/rollback`, payload);
+    return res.data;
+  },
+
   async deleteCollection(id: number): Promise<void> {
     await apiClient.delete(`/api/collections/${id}`);
   },
