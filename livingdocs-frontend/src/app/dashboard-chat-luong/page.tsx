@@ -396,7 +396,7 @@ export default function QualityDashboardPage() {
   const [selectedRepoId, setSelectedRepoId] = useState<string>("all");
   const [healthReport, setHealthReport] = useState<DocumentHealthReport | null>(null);
   const [coverageGaps, setCoverageGaps] = useState<CoverageGapsResponse | null>(null);
-  const [activeTab, setActiveTab] = useState<"overview" | "gaps">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "gaps" | "gate">("overview");
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [entityTypeFilter, setEntityTypeFilter] = useState<string>("ALL");
   const [expandedPackages, setExpandedPackages] = useState<Record<string, boolean>>({});

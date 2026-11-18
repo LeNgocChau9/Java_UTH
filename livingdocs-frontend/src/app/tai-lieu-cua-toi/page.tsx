@@ -8,7 +8,7 @@ import { useSession } from "@/hooks/useSession";
 import { documentService } from "@/services/documentService";
 import { repoService, type RepoItem } from "@/services/repoService";
 import { templateService, type DocTemplateDto } from "@/services/templateService";
-import type { CollectionOwnerItem, DocCollection, DocumentItem, IntegrityCheckResult } from "@/types/document";
+import type { CollectionOwnerItem, DocCollection, DocumentDetail, DocumentItem, IntegrityCheckResult } from "@/types/document";
 import {
   FileText,
   GitBranch,
@@ -175,6 +175,10 @@ function DocumentListPageContent() {
 
   // Modal xác nhận xóa Bộ sưu tập
   const [collectionToDelete, setCollectionToDelete] = useState<DocCollection | null>(null);
+  const [collectionToRollback, setCollectionToRollback] = useState<DocCollection | null>(null);
+  const [rollbackAt, setRollbackAt] = useState("");
+  const [rollbackReason, setRollbackReason] = useState("");
+  const [rollingBackCollection, setRollingBackCollection] = useState(false);
   const [deletingCol, setDeletingCol] = useState(false);
 
   // Modal kiểm tra tính toàn vẹn Hash Chain
@@ -250,6 +254,39 @@ function DocumentListPageContent() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  const linkedDocId = searchParams.get("docId");
+  const [linkedPreview, setLinkedPreview] = useState<DocumentDetail | null>(null);
+
+  useEffect(() => {
+    if (!linkedDocId || loading) return;
+    const id = Number(linkedDocId);
+    if (!Number.isFinite(id) || id <= 0) return;
+    const found = documents.find((doc) => doc.docId === id);
+    if (found) {
+      setSelectedCollectionId(found.collectionId ?? null);
+      setSelectedStatus("ALL");
+      setSelectedTemplateId("ALL");
+      setSelectedRepoId("ALL");
+      setSearchQuery("");
+    }
+    let cancelled = false;
+    documentService.getDocumentById(id).then((detail) => {
+      if (cancelled) return;
+      setLinkedPreview(detail);
+      if (detail.collectionId) setSelectedCollectionId(detail.collectionId);
+    }).catch(() => {
+      if (!cancelled) notify("error", "Không mở được tài liệu từ liên kết docId.");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [linkedDocId, loading, documents, notify]);
+
+  useEffect(() => {
+    if (!linkedDocId || loading) return;
+    document.getElementById(`doc-row-${linkedDocId}`)?.scrollIntoView({ block: "center" });
+  }, [linkedDocId, loading, documents, selectedCollectionId]);
 
   // Map repoId thành repoName
   const repoMap = useMemo(() => {
@@ -693,6 +730,47 @@ function DocumentListPageContent() {
         </div>
       )}
 
+      {linkedPreview && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 80,
+            background: "rgba(15, 23, 42, 0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 24,
+          }}
+          onClick={() => setLinkedPreview(null)}
+        >
+          <div
+            className="ld-card"
+            style={{ width: "min(760px, 100%)", maxHeight: "80vh", overflow: "auto", padding: 20, background: "#fff" }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+              <div>
+                <p style={{ margin: 0, fontSize: 12, color: "#64748b" }}>Mở từ liên kết docId</p>
+                <h2 style={{ margin: "4px 0 0", fontSize: 18 }}>{linkedPreview.title}</h2>
+              </div>
+              <button type="button" className="ld-btn ld-btn-secondary" onClick={() => setLinkedPreview(null)}>
+                Đóng
+              </button>
+            </div>
+            <pre style={{ marginTop: 16, whiteSpace: "pre-wrap", fontSize: 13, lineHeight: 1.6, color: "#1e293b" }}>
+              {linkedPreview.latestVersion?.content || linkedPreview.versionHistory?.[0]?.content || "Tài liệu chưa có nội dung."}
+            </pre>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+              <Link href={`/tai-lieu-cua-toi/editor?docId=${linkedPreview.docId}`} className="ld-btn ld-btn-primary">
+                <Edit3 size={14} />
+                <span>Mở trong Editor</span>
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Tiêu đề Trang & Nút Làm mới duy nhất ở trên */}
       <div className="ld-page-header" style={{ marginBottom: 16 }}>
         <div>
@@ -1100,6 +1178,19 @@ function DocumentListPageContent() {
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <button
                   type="button"
+                  onClick={() => {
+                    setCollectionToRollback(activeCol);
+                    setRollbackAt("");
+                    setRollbackReason("");
+                  }}
+                  className="ld-btn ld-btn-secondary ld-btn-sm"
+                  style={{ background: "#ffffff" }}
+                >
+                  <RotateCcw size={13} />
+                  <span>Khôi phục về mốc thời gian</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => openEditCollectionModal(activeCol)}
                   className="ld-btn ld-btn-secondary ld-btn-sm"
                   style={{ background: "#ffffff" }}
@@ -1397,6 +1488,7 @@ function DocumentListPageContent() {
             return (
               <div
                 key={doc.docId}
+                id={`doc-row-${doc.docId}`}
                 className="ld-card"
                 style={{
                   display: "flex",
@@ -1405,6 +1497,7 @@ function DocumentListPageContent() {
                   gap: 16,
                   padding: "16px 20px",
                   transition: "border-color 150ms, box-shadow 150ms",
+                  outline: linkedDocId === String(doc.docId) ? "2px solid #0f766e" : undefined,
                 }}
               >
                 {/* Thông tin chính của Tài liệu */}
@@ -2615,6 +2708,75 @@ function DocumentListPageContent() {
       )}
 
       {/* MODAL XÁC NHẬN XÓA BỘ SƯU TẬP */}
+      {collectionToRollback && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+            <h3 className="text-base font-bold text-slate-900">Khôi phục bộ sưu tập</h3>
+            <p className="mt-2 text-sm text-slate-600">
+              Toàn bộ tài liệu trong <strong>{collectionToRollback.name}</strong> sẽ được đưa về phiên bản mới nhất tạo trước mốc đã chọn.
+            </p>
+            <label className="mt-4 block text-xs font-semibold text-slate-700">
+              Mốc thời gian
+              <input
+                type="datetime-local"
+                value={rollbackAt}
+                onChange={(e) => setRollbackAt(e.target.value)}
+                className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="mt-3 block text-xs font-semibold text-slate-700">
+              Lý do
+              <input
+                type="text"
+                value={rollbackReason}
+                onChange={(e) => setRollbackReason(e.target.value)}
+                placeholder="Ví dụ: hoàn tác đợt cập nhật lỗi"
+                className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setCollectionToRollback(null)}
+                className="rounded px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={rollingBackCollection || !rollbackAt}
+                onClick={async () => {
+                  setRollingBackCollection(true);
+                  try {
+                    const result = await documentService.rollbackCollection(collectionToRollback.id, {
+                      beforeTimestamp: new Date(rollbackAt).toISOString(),
+                      reason: rollbackReason.trim() || undefined,
+                      actorRole: "DEVELOPER",
+                    });
+                    setCollectionToRollback(null);
+                    await loadData();
+                    notify(
+                      "success",
+                      result.message || `Đã khôi phục ${result.rolledBackCount}/${result.totalDocuments} tài liệu.`,
+                    );
+                  } catch (err) {
+                    const apiMessage = typeof err === "object" && err !== null && "response" in err
+                      ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
+                      : undefined;
+                    notify("error", apiMessage || "Không khôi phục được bộ sưu tập.");
+                  } finally {
+                    setRollingBackCollection(false);
+                  }
+                }}
+                className="rounded bg-emerald-700 px-4 py-2 text-xs font-semibold text-white disabled:opacity-60"
+              >
+                {rollingBackCollection ? "Đang khôi phục..." : "Khôi phục cả bộ"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {collectionToDelete && (
         <div
           style={{

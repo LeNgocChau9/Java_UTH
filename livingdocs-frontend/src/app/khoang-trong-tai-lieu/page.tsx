@@ -24,6 +24,7 @@ import {
   Percent,
 } from "lucide-react";
 import { repoService, type RepoItem } from "@/services/repoService";
+import { templateService, type DocTemplateDto } from "@/services/templateService";
 import {
   codeEntityService,
   type DocGapSummaryDto,
@@ -54,6 +55,8 @@ function KhoangTrongTaiLieuContent() {
 
   // Feedback copy
   const [copiedSig, setCopiedSig] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<DocTemplateDto[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
 
   // 1. Tải danh sách Repositories
   useEffect(() => {
@@ -103,6 +106,15 @@ function KhoangTrongTaiLieuContent() {
   };
 
   useEffect(() => {
+    templateService.getTemplates()
+      .then((list) => {
+        setTemplates(list);
+        setSelectedTemplateId((current) => current || (list[0] ? String(list[0].id) : ""));
+      })
+      .catch(() => setTemplates([]));
+  }, []);
+
+  useEffect(() => {
     fetchGaps();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRepoId, selectedType, selectedPackage]);
@@ -135,7 +147,7 @@ function KhoangTrongTaiLieuContent() {
       className: targetClass,
       methodName: targetMethod,
       entityType: targetType,
-      templateId: "1", // Mặc định API Reference
+      ...(selectedTemplateId ? { templateId: selectedTemplateId } : {}),
       note: `Tự động sinh tài liệu kỹ thuật cho ${targetType} ${targetClass}${targetMethod ? "." + targetMethod : ""}`,
     });
 
@@ -164,7 +176,22 @@ function KhoangTrongTaiLieuContent() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+              Mẫu tài liệu
+              <select
+                value={selectedTemplateId}
+                onChange={(event) => setSelectedTemplateId(event.target.value)}
+                className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-800"
+              >
+                {templates.length === 0 && <option value="">Chưa có mẫu trong cơ sở dữ liệu</option>}
+                {templates.map((template) => (
+                  <option key={template.id} value={String(template.id)}>
+                    {template.name}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button
               onClick={fetchGaps}
               disabled={loadingGaps}
