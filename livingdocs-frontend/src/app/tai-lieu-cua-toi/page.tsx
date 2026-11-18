@@ -192,14 +192,21 @@ function DocumentListPageContent() {
   const [uploadTargetPath, setUploadTargetPath] = useState("");
   const [uploading, setUploading] = useState(false);
 
-  // Modal 2: Kết nối MCP riêng (Google Docs, Confluence, Jira)
+  // Modal 2: Kết nối MCP riêng (Google Docs, Confluence, Notion, GitHub Raw, Jira)
   const [showMcpModal, setShowMcpModal] = useState(false);
-  const [mcpPlatform, setMcpPlatform] = useState<"GOOGLE_DOCS" | "CONFLUENCE" | "JIRA">("GOOGLE_DOCS");
+  const [mcpPlatform, setMcpPlatform] = useState<"GOOGLE_DOCS" | "CONFLUENCE" | "NOTION" | "GITHUB_RAW" | "JIRA">("GOOGLE_DOCS");
   const [mcpRepoId, setMcpRepoId] = useState<string>("");
   const [mcpTitle, setMcpTitle] = useState("");
   const [mcpTargetPath, setMcpTargetPath] = useState("");
   const [mcpUrlOrId, setMcpUrlOrId] = useState("");
   const [mcpConnecting, setMcpConnecting] = useState(false);
+
+  // Tự động mở modal MCP khi URL có ?tab=mcp
+  useEffect(() => {
+    if (searchParams.get("tab") === "mcp") {
+      setShowMcpModal(true);
+    }
+  }, [searchParams]);
 
   // Hiển thị thông báo
   const notify = useCallback((type: "success" | "error" | "info", message: string) => {
@@ -2035,7 +2042,7 @@ function DocumentListPageContent() {
                     Kết nối MCP (Model Context Protocol)
                   </h3>
                   <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: 0 }}>
-                    Đồng bộ tài liệu kỹ thuật từ Google Docs, Confluence hoặc Jira
+                    Đồng bộ tài liệu kỹ thuật thật từ Google Docs, Confluence, Notion, GitHub Raw hoặc Jira vào bản nháp DRAFT
                   </p>
                 </div>
               </div>
@@ -2063,6 +2070,8 @@ function DocumentListPageContent() {
               {[
                 { key: "GOOGLE_DOCS", label: "Google Docs", icon: <Globe size={14} /> },
                 { key: "CONFLUENCE", label: "Confluence", icon: <ExternalLink size={14} /> },
+                { key: "NOTION", label: "Notion", icon: <FileText size={14} /> },
+                { key: "GITHUB_RAW", label: "GitHub Raw", icon: <GitBranch size={14} /> },
                 { key: "JIRA", label: "Jira", icon: <CheckCircle2 size={14} /> },
               ].map((tab) => {
                 const active = mcpPlatform === tab.key;
@@ -2071,10 +2080,14 @@ function DocumentListPageContent() {
                     key={tab.key}
                     type="button"
                     onClick={() => {
-                      setMcpPlatform(tab.key as any);
-                      if (tab.key === "GOOGLE_DOCS") setMcpTitle("Google Docs Tài liệu");
-                      else if (tab.key === "CONFLUENCE") setMcpTitle("Confluence Wiki");
-                      else if (tab.key === "JIRA") setMcpTitle("Jira Đặc tả Yêu cầu");
+                      setMcpPlatform(tab.key as "GOOGLE_DOCS" | "CONFLUENCE" | "NOTION" | "GITHUB_RAW" | "JIRA");
+                      if (!mcpTitle.trim() || mcpTitle === "Google Docs Tài liệu" || mcpTitle === "Confluence Wiki" || mcpTitle === "Notion Spec" || mcpTitle === "GitHub Raw Markdown" || mcpTitle === "Jira Đặc tả Yêu cầu") {
+                        if (tab.key === "GOOGLE_DOCS") setMcpTitle("Google Docs Tài liệu");
+                        else if (tab.key === "CONFLUENCE") setMcpTitle("Confluence Wiki");
+                        else if (tab.key === "NOTION") setMcpTitle("Notion Spec");
+                        else if (tab.key === "GITHUB_RAW") setMcpTitle("GitHub Raw Markdown");
+                        else if (tab.key === "JIRA") setMcpTitle("Jira Đặc tả Yêu cầu");
+                      }
                     }}
                     style={{
                       flex: 1,
@@ -2142,9 +2155,11 @@ function DocumentListPageContent() {
                     color: "var(--color-text-primary)",
                   }}
                 >
-                  {mcpPlatform === "GOOGLE_DOCS" && "Google Doc URL hoặc Document ID"}
-                  {mcpPlatform === "CONFLUENCE" && "Confluence Page URL hoặc Page ID"}
-                  {mcpPlatform === "JIRA" && "Mã Jira Issue Key / Epic Key"}
+                  {mcpPlatform === "GOOGLE_DOCS" && "Google Doc URL công khai hoặc Document ID"}
+                  {mcpPlatform === "CONFLUENCE" && "Confluence Page URL hoặc REST Content ID"}
+                  {mcpPlatform === "NOTION" && "Notion Page URL hoặc Page ID"}
+                  {mcpPlatform === "GITHUB_RAW" && "GitHub Blob URL hoặc Raw URL"}
+                  {mcpPlatform === "JIRA" && "Mã Jira Issue Key hoặc URL"}
                   <span style={{ color: "#ef4444" }}> *</span>
                 </label>
                 <input
@@ -2157,7 +2172,11 @@ function DocumentListPageContent() {
                       ? "https://docs.google.com/document/d/.../edit hoặc Doc ID"
                       : mcpPlatform === "CONFLUENCE"
                       ? "https://your-domain.atlassian.net/wiki/spaces/.../pages/12345"
-                      : "Ví dụ: PROJ-101, LD-W6-20"
+                      : mcpPlatform === "NOTION"
+                      ? "https://www.notion.so/workspace/Page-Title-32hexid"
+                      : mcpPlatform === "GITHUB_RAW"
+                      ? "https://github.com/owner/repo/blob/main/README.md"
+                      : "Ví dụ: PROJ-101 hoặc https://..."
                   }
                   className="ld-input"
                   style={{ width: "100%", padding: "8px 12px", fontSize: 13 }}

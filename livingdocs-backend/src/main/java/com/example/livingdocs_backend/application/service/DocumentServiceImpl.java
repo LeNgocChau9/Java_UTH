@@ -96,6 +96,12 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private AiRuntimeConfigService aiRuntimeConfigService;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.notification.ExternalIntegrationWebhookDispatcher webhookDispatcher;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ExternalDocumentFetchService externalDocumentFetchService;
+
     @org.springframework.beans.factory.annotation.Value("${ai.engine.url:http://localhost:8000}")
     private String aiEngineUrl;
 
@@ -762,6 +768,10 @@ public class DocumentServiceImpl implements DocumentServicePort {
                     "Tác giả đã gửi tài liệu sang trạng thái UNDER_REVIEW_STAFF để Staff xem xét");
         }
 
+        if (webhookDispatcher != null) {
+            webhookDispatcher.dispatchReviewSubmitted(saved.getDocId(), saved.getTitle(), actorId, nextStatus.name());
+        }
+
         return toDocumentResponse(saved, latest);
     }
 
@@ -909,6 +919,10 @@ public class DocumentServiceImpl implements DocumentServicePort {
         // Tự động băm nhỏ và tạo vector index cho tài liệu PUBLISHED (R2)
         if (nextStatus == DocumentStatus.PUBLISHED && latest != null && latest.getContent() != null) {
             indexDocumentChunks(saved, latest.getContent());
+        }
+
+        if (nextStatus == DocumentStatus.PUBLISHED && webhookDispatcher != null) {
+            webhookDispatcher.dispatchDocumentPublished(saved.getDocId(), saved.getTitle(), actorId, gitCommitSha);
         }
 
         // Ghi nhận Audit Trail
@@ -1943,8 +1957,14 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 : "docs/" + sourceType.toLowerCase() + "-doc-" + System.currentTimeMillis() + ".md";
 
         String content = request.getContent() != null ? request.getContent() : "";
-        if (content.isBlank() && request.getSourceUrlOrId() != null) {
-            content = "# " + request.getTitle() + "\n\n*Nguồn từ (" + sourceType + "): " + request.getSourceUrlOrId() + "*\n\nNội dung tài liệu đang được đồng bộ.";
+        if (content.isBlank() && request.getSourceUrlOrId() != null && !request.getSourceUrlOrId().isBlank()) {
+            ExternalDocumentFetchService fetcher = this.externalDocumentFetchService != null
+                    ? this.externalDocumentFetchService
+                    : new ExternalDocumentFetchService(new com.fasterxml.jackson.databind.ObjectMapper(), null);
+            content = fetcher.fetchContent(sourceType, request.getSourceUrlOrId());
+        }
+        if (content.isBlank()) {
+            throw new IllegalArgumentException("Không có nội dung hoặc nguồn URL hợp lệ để đồng bộ tài liệu");
         }
 
         ActorRole role = resolveActorRole(null, actorRole);

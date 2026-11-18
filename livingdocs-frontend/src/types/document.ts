@@ -44,7 +44,7 @@ export interface ImportExternalDocPayload {
   repoId: number;
   title: string;
   targetPath?: string;
-  sourceType: "GOOGLE_DOCS" | "CONFLUENCE" | "JIRA" | "MARKDOWN" | "DOCX" | string;
+  sourceType: "GOOGLE_DOCS" | "CONFLUENCE" | "NOTION" | "GITHUB_RAW" | "JIRA" | "MARKDOWN" | "DOCX" | string;
   sourceUrlOrId?: string;
   content?: string;
   templateId?: number;

@@ -55,6 +55,9 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
     @Autowired(required = false)
     private com.example.livingdocs_backend.infrastructure.sse.SseNotificationService sseNotificationService;
 
+    @Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.notification.ExternalIntegrationWebhookDispatcher webhookDispatcher;
+
     public static final String JOB_TYPE_PR_DRIFT_SCAN = "PR_DRIFT_SCAN";
     public static final String JOB_TYPE_AUTO_DOC_UPDATE = "AUTO_DOC_UPDATE";
     private static final Set<String> DRIFT_TRIGGER_ACTIONS = Set.of("opened", "synchronize", "reopened");
@@ -470,6 +473,15 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
                                         .build();
                         alertRepository.save(prAlert);
                         log.info("[Webhook - PR] Đã ghi nhận cảnh báo sai lệch (Drift Alert PENDING) cho PR #{}", prNumber);
+                        if (webhookDispatcher != null) {
+                            webhookDispatcher.dispatchDriftAlert(
+                                    repo.getRepositoryId(),
+                                    linkedDocId,
+                                    prAlert.getSeverity(),
+                                    prAlert.getDetails(),
+                                    repo.getRepoFullName() + " PR #" + prNumber
+                            );
+                        }
                         if (sseNotificationService != null) {
                             sseNotificationService.broadcastDriftAlert(java.util.Map.of(
                                     "type", "DRIFT_ALERT_CREATED",
