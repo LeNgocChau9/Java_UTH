@@ -1,285 +1,102 @@
 "use client";
 
-import { useEffect, useRef, useState, FormEvent } from "react";
+import React, { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import axios from "axios";
-import { gsap } from "gsap";
-import { ArrowLeft } from "lucide-react";
+import gsap from "gsap";
+import {
+  AlertCircle,
+  ArrowLeft,
+  Eye,
+  EyeOff,
+  Loader2,
+  Lock,
+  Mail,
+  User,
+} from "lucide-react";
 import { login, register } from "@/services/authService";
-import "./lamp-login.css";
+import ThemeSwitch from "@/components/library/ThemeSwitch";
+import FileBox from "@/components/library/FileBox";
 
-type ColorTheme = "amber" | "cyan" | "rose" | "mint" | "moonlight";
+const LOGIN_HIGHLIGHTS = [
+  {
+    position: 1,
+    title: "Tài liệu luôn mới theo từng dòng mã nguồn",
+    dot: "#22A862",
+  },
+  {
+    position: 2,
+    title: "Phát hiện lệch pha ngay trước khi gộp nhánh",
+    dot: "#F8B02A",
+  },
+  {
+    position: 3,
+    title: "Kiểm duyệt hai cấp minh bạch cho đội ngũ",
+    dot: "#E28CE6",
+  },
+  {
+    position: 4,
+    title: "Bản đồ liên kết rõ ràng giữa code và tài liệu",
+    dot: "#D9B37C",
+  },
+  {
+    position: 5,
+    title: "Tra cứu tri thức dự án chỉ trong tích tắc",
+    dot: "#167F46",
+  },
+];
 
 export function LampLoginClient({ initialError }: { initialError?: string }) {
   const router = useRouter();
+  const pageRef = useRef<HTMLDivElement>(null);
 
-  // State
-  const [isOn, setIsOn] = useState(true);
-  const [color, setColor] = useState<ColorTheme>("amber");
-  const [isSoundEnabled, setIsSoundEnabled] = useState(false);
+  // Synced Light / Dark Theme matching Landing Page
+  const [pageTheme, setPageTheme] = useState<"light" | "dark">("light");
+  const isDark = pageTheme === "dark";
+
+  // Auth tab & form state
   const [activeTab, setActiveTab] = useState<"signin" | "register">("signin");
   const [showPassword, setShowPassword] = useState(false);
   const [pending, setPending] = useState(false);
-  const [formError, setFormError] = useState<string | null>(initialError ?? null);
+  const [formError, setFormError] = useState<string | null>(
+    initialError ?? null
+  );
   const [rememberMe, setRememberMe] = useState(true);
 
-  // Form fields
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  // Refs for animation
-  const containerRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const cordBeadRef = useRef<SVGGElement>(null);
-  const elasticCordRef = useRef<SVGPathElement>(null);
-  const shadeAssemblyRef = useRef<SVGGElement>(null);
-  const cardRef = useRef<HTMLDivElement>(null);
-  const formStageRef = useRef<HTMLDivElement>(null);
+  // Synced interactive FileBox folder highlight
+  const [activeIdx, setActiveIdx] = useState(0);
+  const currentHighlight = LOGIN_HIGHLIGHTS[activeIdx];
 
-  // Audio Context Ref
-  const audioCtxRef = useRef<AudioContext | null>(null);
-
-  const ANCHOR_X = 245;
-  const ANCHOR_Y = 212;
-  const REST_X = 245;
-  const REST_Y = 300;
-
-  // Sound helper
-  const playElasticPluckSound = (pullDist: number) => {
-    if (!isSoundEnabled) return;
-    try {
-      if (!audioCtxRef.current) {
-        const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-        if (AudioContextClass) audioCtxRef.current = new AudioContextClass();
-      }
-      if (audioCtxRef.current && audioCtxRef.current.state === "suspended") {
-        audioCtxRef.current.resume();
-      }
-      if (!audioCtxRef.current) return;
-
-      const ctx = audioCtxRef.current;
-      const now = ctx.currentTime;
-      const osc = ctx.createOscillator();
-      const oscGain = ctx.createGain();
-      osc.type = "triangle";
-      const startFreq = 480 + Math.min(260, pullDist * 3);
-      osc.frequency.setValueAtTime(startFreq, now);
-      osc.frequency.exponentialRampToValueAtTime(140, now + 0.12);
-      oscGain.gain.setValueAtTime(0.35, now);
-      oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
-      osc.connect(oscGain);
-      oscGain.connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.15);
-    } catch {
-      // Audio not supported or blocked
-    }
-  };
-
-  const renderElasticString = (curX: number, curY: number, twangAmp: number = 0) => {
-    if (!elasticCordRef.current) return;
-    const midX = (ANCHOR_X + curX) / 2 + twangAmp;
-    const midY = (ANCHOR_Y + curY) / 2;
-    const stretchRatio = Math.max(1, (curY - ANCHOR_Y) / (REST_Y - ANCHOR_Y));
-    const strokeWidth = Math.max(1.6, 2.6 / Math.sqrt(stretchRatio));
-
-    elasticCordRef.current.setAttribute("d", `M ${ANCHOR_X} ${ANCHOR_Y} Q ${midX} ${midY} ${curX} ${curY}`);
-    elasticCordRef.current.setAttribute("stroke-width", strokeWidth.toFixed(2));
-  };
-
-  // Toggle Lamp
-  const toggleLamp = () => {
-    setIsOn((prev) => {
-      const next = !prev;
-      playElasticPluckSound(50);
-      return next;
-    });
-  };
-
-  // Pull cord click / animation
-  const handlePullCord = () => {
-    if (!cordBeadRef.current || !shadeAssemblyRef.current) return;
-
-    gsap.to(cordBeadRef.current, {
-      y: REST_Y + 50,
-      duration: 0.2,
-      ease: "power2.in",
-      onUpdate: () => {
-        const by = gsap.getProperty(cordBeadRef.current, "y") as number;
-        renderElasticString(REST_X, by);
-      },
-      onComplete: () => {
-        toggleLamp();
-        gsap.to(cordBeadRef.current, {
-          y: REST_Y,
-          duration: 1.1,
-          ease: "elastic.out(2.2, 0.16)",
-          onUpdate: () => {
-            const by = gsap.getProperty(cordBeadRef.current, "y") as number;
-            renderElasticString(REST_X, by);
-          },
-        });
-      },
-    });
-
-    gsap.to(shadeAssemblyRef.current, {
-      rotation: 1.8,
-      duration: 0.2,
-      ease: "power2.in",
-      transformOrigin: "230px 188px",
-      onComplete: () => {
-        gsap.to(shadeAssemblyRef.current, {
-          rotation: 0,
-          duration: 0.6,
-          ease: "back.out(2.2)",
-          transformOrigin: "215px 175px",
-        });
-      },
-    });
-  };
-
-  // Canvas Dust Particles
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    let animId: number;
-    let width = (canvas.width = window.innerWidth);
-    let height = (canvas.height = window.innerHeight);
-
-    const handleResize = () => {
-      if (!canvas) return;
-      width = canvas.width = window.innerWidth;
-      height = canvas.height = window.innerHeight;
-    };
-    window.addEventListener("resize", handleResize);
-
-    const particleThemes: Record<ColorTheme, { fill: string; glow: string }> = {
-      amber: { fill: "255, 205, 120", glow: "255, 185, 80" },
-      cyan: { fill: "140, 245, 255", glow: "0, 240, 255" },
-      rose: { fill: "255, 160, 200", glow: "255, 51, 133" },
-      mint: { fill: "160, 255, 200", glow: "0, 230, 118" },
-      moonlight: { fill: "220, 235, 255", glow: "200, 220, 255" },
-    };
-
-    class Particle {
-      x = Math.random() * width;
-      y = Math.random() * height;
-      radius = Math.random() * 2 + 0.6;
-      vx = (Math.random() - 0.4) * 0.35;
-      vy = -Math.random() * 0.4 - 0.15;
-      alpha = Math.random() * 0.6 + 0.2;
-      pulseSpeed = Math.random() * 0.03 + 0.01;
-      pulse = Math.random() * Math.PI;
-
-      update() {
-        this.x += this.vx;
-        this.y += this.vy;
-        this.pulse += this.pulseSpeed;
-        if (this.y < 0) this.y = height;
-        if (this.x < 0) this.x = width;
-        if (this.x > width) this.x = 0;
-      }
-
-      draw() {
-        if (!ctx) return;
-        const currentAlpha = (Math.sin(this.pulse) * 0.3 + 0.7) * this.alpha;
-        const factor = isOn ? 1 : 0.08;
-        const theme = particleThemes[color] || particleThemes.amber;
-
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(${theme.fill}, ${currentAlpha * factor})`;
-        if (isOn) {
-          ctx.shadowBlur = 6;
-          ctx.shadowColor = `rgba(${theme.glow}, 0.5)`;
-        }
-        ctx.fill();
-        ctx.restore();
-      }
-    }
-
-    const particles: Particle[] = [];
-    for (let i = 0; i < 45; i++) {
-      particles.push(new Particle());
-    }
-
-    const render = () => {
-      ctx.clearRect(0, 0, width, height);
-      for (const p of particles) {
-        p.update();
-        p.draw();
-      }
-      animId = requestAnimationFrame(render);
-    };
-    render();
-
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      cancelAnimationFrame(animId);
-    };
-  }, [isOn, color]);
-
-  // Initial cord bead positioning
-  useEffect(() => {
-    if (cordBeadRef.current) {
-      gsap.set(cordBeadRef.current, { x: REST_X, y: REST_Y });
-      renderElasticString(REST_X, REST_Y);
-    }
+    const t = setInterval(() => {
+      setActiveIdx((i) => (i + 1) % LOGIN_HIGHLIGHTS.length);
+    }, 2200);
+    return () => clearInterval(t);
   }, []);
 
-  // 3D Tilt on Form Stage
+  // Crisp entrance animation matching Landing Page
   useEffect(() => {
-    const stage = formStageRef.current;
-    const card = cardRef.current;
-    if (!stage || !card) return;
-
-    const onMouseMove = (e: MouseEvent) => {
-      if (!isOn) return;
-      const rect = stage.getBoundingClientRect();
-      const x = e.clientX - rect.left - rect.width / 2;
-      const y = e.clientY - rect.top - rect.height / 2;
-
-      gsap.to(card, {
-        rotateX: -(y / rect.height) * 8,
-        rotateY: (x / rect.width) * 8,
-        duration: 0.45,
-        ease: "power1.out",
-        transformPerspective: 900,
+    const ctx = gsap.context(() => {
+      gsap.from(".auth-reveal", {
+        y: 26,
+        opacity: 0,
+        duration: 0.65,
+        stagger: 0.08,
+        ease: "power3.out",
+        clearProps: "transform",
       });
-    };
+    }, pageRef);
+    return () => ctx.revert();
+  }, []);
 
-    const onMouseLeave = () => {
-      gsap.to(card, {
-        rotateX: 0,
-        rotateY: 0,
-        duration: 0.6,
-        ease: "power2.out",
-      });
-    };
-
-    stage.addEventListener("mousemove", onMouseMove);
-    stage.addEventListener("mouseleave", onMouseLeave);
-
-    return () => {
-      stage.removeEventListener("mousemove", onMouseMove);
-      stage.removeEventListener("mouseleave", onMouseLeave);
-    };
-  }, [isOn]);
-
-  // Handle Form Submission
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!isOn) {
-      handlePullCord();
-      return;
-    }
-
     setFormError(null);
 
     if (activeTab === "register" && !fullName.trim()) {
@@ -321,9 +138,15 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
         } else if (caught.response?.status === 401) {
           setFormError("Email hoặc mật khẩu không chính xác.");
         } else if (caught.response?.status === 409) {
-          setFormError("Email này đã được sử dụng. Vui lòng đăng nhập hoặc dùng email khác.");
+          setFormError(
+            "Email này đã được sử dụng. Vui lòng đăng nhập hoặc dùng email khác."
+          );
         } else {
-          setFormError(activeTab === "register" ? "Đăng ký thất bại. Vui lòng thử lại." : "Đăng nhập thất bại. Vui lòng thử lại.");
+          setFormError(
+            activeTab === "register"
+              ? "Đăng ký thất bại. Vui lòng thử lại."
+              : "Đăng nhập thất bại. Vui lòng thử lại."
+          );
         }
       } else {
         setFormError("Yêu cầu chưa hoàn tất. Vui lòng thử lại.");
@@ -333,418 +156,494 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
     }
   }
 
-  // GitHub OAuth trigger
   function handleGithubAuth() {
-    const next = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("next") : null;
-    const target = next && next.startsWith("/") && !next.startsWith("//") ? next : null;
+    const next =
+      typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("next")
+        : null;
+    const target =
+      next && next.startsWith("/") && !next.startsWith("//") ? next : null;
     const query = target ? `?redirect=${encodeURIComponent(target)}` : "";
     window.location.assign(`/api/auth/github${query}`);
   }
 
   return (
     <div
-      ref={containerRef}
-      className="lamp-login-container"
-      data-color={color}
-      data-on={isOn ? "true" : "false"}
+      ref={pageRef}
+      data-ld-theme={pageTheme}
+      className="relative flex min-h-screen flex-col overflow-x-hidden font-sans antialiased transition-colors duration-300 selection:bg-[#FDE68A] selection:text-[#211D16]"
+      style={{
+        backgroundColor: "var(--ld-bg)",
+        color: "var(--ld-ink)",
+      }}
     >
-      <div className="ambient-glow" />
-      <canvas ref={canvasRef} id="dustCanvas" />
+      {/* Shared Landing Page Theme Variables & Tactile Styles */}
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+          [data-ld-theme="light"] {
+            --ld-bg: #FFFCF5;
+            --ld-surface: #FFFFFF;
+            --ld-surface-hover: #FFF8EB;
+            --ld-ink: #211D16;
+            --ld-muted: #6D6255;
+            --ld-border: #211D16;
+            --ld-shadow: #211D16;
+            --ld-pill-bg: #F5EFE6;
+            --ld-dot: rgba(33, 29, 22, 0.14);
+            --ld-input-bg: #FFFCF5;
+          }
+          [data-ld-theme="dark"] {
+            --ld-bg: #0A0A0C;
+            --ld-surface: #131316;
+            --ld-surface-hover: #1B1B20;
+            --ld-ink: #FAFAFA;
+            --ld-muted: #A1A1AA;
+            --ld-border: rgba(255, 255, 255, 0.2);
+            --ld-shadow: #000000;
+            --ld-pill-bg: #1C1C22;
+            --ld-dot: rgba(255, 255, 255, 0.08);
+            --ld-input-bg: #0E0E11;
+          }
+          @keyframes ld-auth-fade {
+            0% { opacity: 0; transform: translateY(6px); filter: blur(3px); }
+            100% { opacity: 1; transform: translateY(0); filter: blur(0); }
+          }
+          .ym-btn-primary {
+            background-color: var(--ld-ink);
+            color: var(--ld-bg);
+            border: 2px solid var(--ld-ink);
+            box-shadow: 3px 3px 0 #E8523B;
+            transition: transform 0.16s cubic-bezier(0.22,1,0.36,1), box-shadow 0.16s ease, opacity 0.16s ease;
+          }
+          .ym-btn-primary:hover:not(:disabled) {
+            transform: translate(-1.5px, -1.5px);
+            box-shadow: 5px 5px 0 #E8523B;
+          }
+          .ym-btn-primary:active:not(:disabled) {
+            transform: translate(1px, 1px);
+            box-shadow: 1px 1px 0 #E8523B;
+          }
+          .ym-btn-secondary {
+            background-color: var(--ld-surface);
+            color: var(--ld-ink);
+            border: 2px solid var(--ld-border);
+            box-shadow: 3px 3px 0 var(--ld-shadow);
+            transition: transform 0.16s cubic-bezier(0.22,1,0.36,1), box-shadow 0.16s ease, background-color 0.2s ease;
+          }
+          .ym-btn-secondary:hover {
+            transform: translate(-1.5px, -1.5px);
+            box-shadow: 4px 4px 0 var(--ld-shadow);
+            background-color: var(--ld-surface-hover);
+          }
+          .ym-btn-secondary:active {
+            transform: translate(1px, 1px);
+            box-shadow: 1px 1px 0 var(--ld-shadow);
+          }
+          .ld-auth-filebox .pfbox {
+            --pfbox-bg: transparent !important;
+            background: transparent !important;
+            overflow: visible !important;
+          }
+          .ld-auth-filebox .pfbox__grain {
+            display: none !important;
+          }
+          .ld-auth-filebox .pfbox__art {
+            transform: scale(1.48) translateY(-2%);
+            transform-origin: 50% 56%;
+          }
+        `,
+        }}
+      />
 
-      {/* Back to Home Link */}
-      <Link href="/" className="back-home-link">
-        <ArrowLeft size={15} />
-        Quay lại trang chủ
-      </Link>
+      {/* Editorial Dot Grid Background */}
+      <div
+        className="pointer-events-none fixed inset-0 -z-10 opacity-50"
+        style={{
+          backgroundImage:
+            "radial-gradient(var(--ld-dot) 1px, transparent 1px)",
+          backgroundSize: "24px 24px",
+        }}
+      />
 
-      {/* Top Controls: Color Palette + Sound Toggle */}
-      <div className="quick-controls">
-        <div className="color-palette" title="Chọn tông màu đèn">
-          {(["amber", "cyan", "rose", "mint", "moonlight"] as ColorTheme[]).map((c) => (
-            <button
-              key={c}
-              type="button"
-              className={`color-dot-btn ${color === c ? "active" : ""}`}
-              onClick={() => setColor(c)}
+      {/* Top Navigation Bar matching Landing Page */}
+      <header className="relative z-20 mx-auto flex h-[76px] w-full max-w-[1440px] items-center justify-between px-5 lg:px-10">
+        <div className="flex items-center gap-3">
+          <Link
+            href="/"
+            aria-label="LivingDocs Trang chủ"
+            className="group flex items-center"
+          >
+            <div
+              className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-xl border-2 bg-white transition-transform duration-200 group-hover:-rotate-6 group-hover:scale-105"
               style={{
-                ["--dot-color" as string]:
-                  c === "amber"
-                    ? "#ffab3d"
-                    : c === "cyan"
-                    ? "#00f0ff"
-                    : c === "rose"
-                    ? "#ff3385"
-                    : c === "mint"
-                    ? "#00e676"
-                    : "#d8e5ff",
+                borderColor: "var(--ld-border)",
+                boxShadow: "2px 2px 0 var(--ld-shadow)",
               }}
-              aria-label={`${c} light`}
-            />
-          ))}
-        </div>
-
-        <button
-          type="button"
-          className="sound-toggle"
-          onClick={() => setIsSoundEnabled(!isSoundEnabled)}
-          title="Bật/Tắt âm thanh tương tác"
-        >
-          {isSoundEnabled ? (
-            <svg className="sound-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-              <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-              <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-            </svg>
-          ) : (
-            <svg className="sound-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-              <line x1="23" y1="9" x2="17" y2="15" />
-              <line x1="17" y1="9" x2="23" y2="15" />
-            </svg>
-          )}
-        </button>
-      </div>
-
-      {/* Main Scene: Lamp on Left, Login Form on Right */}
-      <main className="scene-container">
-        {/* ─── 1. Lamp Interactive Stage ─── */}
-        <div className="lamp-stage">
-          <div className="lamp-wrapper">
-            <svg className="lamp-svg" viewBox="0 0 400 500" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <linearGradient id="metalArm" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%" stopColor="#3e434a" />
-                  <stop offset="50%" stopColor="#7a828e" />
-                  <stop offset="100%" stopColor="#24272c" />
-                </linearGradient>
-
-                <linearGradient id="brassJoint" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stopColor="#ffe299" />
-                  <stop offset="45%" stopColor="#c99738" />
-                  <stop offset="85%" stopColor="#805915" />
-                  <stop offset="100%" stopColor="#f5d38a" />
-                </linearGradient>
-
-                <linearGradient id="shadeExterior" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stopColor="#343840" />
-                  <stop offset="40%" stopColor="#21252a" />
-                  <stop offset="100%" stopColor="#121417" />
-                </linearGradient>
-
-                <linearGradient id="shadeHighlight" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%" stopColor="#ffffff" stopOpacity="0" />
-                  <stop offset="42%" stopColor="#ffffff" stopOpacity="0.16" />
-                  <stop offset="72%" stopColor="#ffffff" stopOpacity="0.025" />
-                  <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
-                </linearGradient>
-
-                <linearGradient id="shadeRim" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%" stopColor="#ffd584" />
-                  <stop offset="50%" stopColor="#e2ab46" />
-                  <stop offset="100%" stopColor="#996a1a" />
-                </linearGradient>
-
-                <radialGradient id="reflectorOff" cx="50%" cy="40%" r="70%">
-                  <stop offset="0%" stopColor="#2c3036" />
-                  <stop offset="55%" stopColor="#1a1d22" />
-                  <stop offset="100%" stopColor="#0e1012" />
-                </radialGradient>
-
-                <radialGradient id="reflectorOn" cx="50%" cy="40%" r="70%">
-                  <stop offset="0%" stopColor="#ffffff" stopOpacity="0.95" />
-                  <stop offset="35%" stopColor="var(--lamp-glow, #ffe194)" stopOpacity="0.85" />
-                  <stop offset="70%" stopColor="var(--lamp-accent, #ffab3d)" stopOpacity="0.6" />
-                  <stop offset="100%" stopColor="#2a2015" stopOpacity="0.85" />
-                </radialGradient>
-
-                <linearGradient id="volumetricBeam" x1="0%" y1="0%" x2="90%" y2="70%">
-                  <stop offset="0%" stopColor="var(--beam-start, rgba(255, 220, 130, 0.45))" />
-                  <stop offset="25%" stopColor="var(--beam-mid, rgba(255, 195, 90, 0.22))" />
-                  <stop offset="65%" stopColor="var(--beam-far, rgba(255, 175, 60, 0.08))" />
-                  <stop offset="100%" stopColor="rgba(0, 0, 0, 0)" />
-                </linearGradient>
-
-                <filter id="bulbGlowFilter" x="-60%" y="-60%" width="220%" height="220%">
-                  <feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur1" />
-                  <feGaussianBlur in="SourceGraphic" stdDeviation="14" result="blur2" />
-                  <feMerge>
-                    <feMergeNode in="blur2" />
-                    <feMergeNode in="blur1" />
-                    <feMergeNode in="SourceGraphic" />
-                  </feMerge>
-                </filter>
-
-                <filter id="beamSoftFilter" x="-10%" y="-10%" width="120%" height="120%">
-                  <feGaussianBlur stdDeviation="8" />
-                </filter>
-              </defs>
-
-              <ellipse className="desk-shadow" cx="190" cy="460" rx="90" ry="16" fill="rgba(0, 0, 0, 0.55)" />
-
-              {/* Volumetric Light Beam */}
-              <g className="light-beam-group">
-                <polygon
-                  className="svg-light-beam"
-                  points="182,185 308,225 820,480 340,510"
-                  fill="url(#volumetricBeam)"
-                  filter="url(#beamSoftFilter)"
-                />
-              </g>
-
-              {/* Lamp Base */}
-              <g className="lamp-base-group">
-                <ellipse cx="190" cy="445" rx="72" ry="14" fill="#15171a" />
-                <ellipse cx="190" cy="443" rx="70" ry="12" fill="url(#metalArm)" />
-                <ellipse cx="190" cy="441" rx="66" ry="10" fill="#1c1f24" />
-                <ellipse cx="190" cy="439" rx="60" ry="7" fill="none" stroke="#8e949f" strokeOpacity=".22" strokeWidth=".8" />
-                <circle cx="190" cy="439" r="15" fill="url(#brassJoint)" />
-                <circle cx="190" cy="439" r="7" fill="#15171a" />
-                <circle cx="190" cy="439" r="3.2" fill="#747b86" />
-              </g>
-
-              {/* Lower Arm */}
-              <g className="lamp-arm-lower">
-                <line x1="186" y1="439" x2="156" y2="295" stroke="url(#metalArm)" strokeWidth="4.5" strokeLinecap="round" />
-                <line x1="194" y1="439" x2="164" y2="295" stroke="url(#metalArm)" strokeWidth="4.5" strokeLinecap="round" />
-                <path d="M 188 420 Q 175 360 163 305" stroke="#606670" strokeWidth="2" strokeDasharray="3,3" fill="none" opacity="0.6" />
-              </g>
-
-              {/* Elbow Joint */}
-              <g className="lamp-elbow-joint">
-                <circle cx="160" cy="295" r="13" fill="url(#brassJoint)" />
-                <circle cx="160" cy="295" r="6" fill="#1c1f24" />
-                <circle cx="160" cy="295" r="3.3" fill="#858b94" />
-                <line x1="155" y1="295" x2="165" y2="295" stroke="url(#brassJoint)" strokeWidth="2" />
-              </g>
-
-              {/* Upper Arm */}
-              <g className="lamp-arm-upper">
-                <line x1="160" y1="295" x2="215" y2="175" stroke="url(#metalArm)" strokeWidth="5" strokeLinecap="round" />
-                <path d="M 190 439 Q 168 360 160 295 Q 190 230 215 175" stroke="#101114" strokeWidth="3" fill="none" strokeLinecap="round" />
-              </g>
-
-              {/* Neck */}
-              <g className="lamp-neck">
-                <circle cx="215" cy="175" r="11" fill="url(#brassJoint)" />
-                <rect x="209" y="162" width="16" height="15" rx="3" fill="url(#metalArm)" transform="rotate(25, 217, 169)" />
-              </g>
-
-              {/* Shade Assembly */}
-              <g ref={shadeAssemblyRef} className="lamp-shade-assembly">
-                <path
-                  className="lamp-shade-body"
-                  d="M 182.3 184.6 C 188 135, 220 112, 248 115 C 275 118, 298 155, 307.7 225.4 A 66 22 18 0 1 182.3 184.6 Z"
-                  fill="url(#shadeExterior)"
-                  stroke="#16181b"
-                  strokeWidth="1.8"
-                />
-                <path
-                  className="shade-enamel-highlight"
-                  d="M 187 181 C 193 139, 221 119, 247 120 C 267 122, 286 144, 297 178 C 271 163, 224 153, 187 181 Z"
-                  fill="url(#shadeHighlight)"
-                />
-                <ellipse className="shade-reflector-off" cx="245" cy="205" rx="66" ry="22" transform="rotate(18, 245, 205)" fill="url(#reflectorOff)" />
-                <ellipse className="shade-reflector-on" cx="245" cy="205" rx="66" ry="22" transform="rotate(18, 245, 205)" fill="url(#reflectorOn)" />
-                <ellipse className="reflector-detail" cx="245" cy="205" rx="49" ry="14" transform="rotate(18, 245, 205)" fill="none" stroke="#fff3ce" strokeOpacity=".16" strokeWidth=".8" />
-                <path className="shade-rim-trim" d="M 182.3 184.6 A 66 22 18 0 0 307.7 225.4" stroke="url(#shadeRim)" strokeWidth="4" fill="none" strokeLinecap="round" />
-
-                <g className="bulb-unit">
-                  <ellipse className="bulb-glass" cx="245" cy="195" rx="14" ry="17" transform="rotate(18, 245, 195)" fill="rgba(255, 255, 255, 0.08)" stroke="rgba(255, 255, 255, 0.25)" strokeWidth="1" />
-                  <path className="bulb-filament" d="M 241 189 Q 245 183 249 189" stroke="#555" strokeWidth="1.8" fill="none" />
-                  <circle className="bulb-glow-core" cx="245" cy="188" r="11" fill="var(--lamp-glow, #ffe194)" filter="url(#bulbGlowFilter)" opacity="0" />
-                </g>
-              </g>
-
-              {/* Pull String System */}
-              <g className="pull-cord-system">
-                <path ref={elasticCordRef} className="elastic-cord-path" d="M 245 212 L 245 300" stroke="#e8bb54" strokeWidth="2.6" strokeLinecap="round" />
-                <g ref={cordBeadRef} className="cord-bead-group" onClick={handlePullCord}>
-                  <circle className="bead-aura" cx="0" cy="0" r="16" fill="var(--lamp-accent)" opacity="0" />
-                  <path className="bead-shape" d="M -4 -8 L 4 -8 L 7 6 C 7 10, -7 10, -7 6 Z" fill="url(#brassJoint)" stroke="#7a5513" strokeWidth="0.8" />
-                  <ellipse cx="2" cy="0" rx="2" ry="4" fill="#fff" opacity="0.5" />
-                  <circle className="cord-hit-area" cx="0" cy="0" r="32" fill="transparent" />
-                </g>
-              </g>
-            </svg>
-
-            {/* Tooltip to pull cord */}
-            <div className="cord-tooltip" onClick={handlePullCord} style={{ cursor: "pointer" }}>
-              <span>{isOn ? "Kéo dây để tắt đèn" : "Kéo dây để bật đèn"}</span>
-              <div className="tooltip-arrow" />
+            >
+              <Image
+                src="/logo.png"
+                alt="LivingDocs"
+                width={32}
+                height={32}
+                className="object-contain"
+              />
             </div>
-          </div>
+          </Link>
+
+          <Link
+            href="/"
+            className="ym-btn-secondary inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-extrabold"
+          >
+            <ArrowLeft size={14} />
+            <span>Trang chủ</span>
+          </Link>
         </div>
 
-        {/* ─── 2. Login Form Stage (Light Illuminated Card) ─── */}
-        <div ref={formStageRef} className="form-stage">
-          <div ref={cardRef} className="login-card">
-            <div className="card-header">
-              <h1 className="card-title">
-                {activeTab === "signin" ? "Đăng nhập LivingDocs" : "Tạo tài khoản mới"}
-              </h1>
-              <p className="card-subtitle">
-                {activeTab === "signin"
-                  ? "Cổng tài liệu kỹ thuật đồng bộ mã nguồn GitHub."
-                  : "Đăng ký thành viên tham gia quy trình thẩm định code."}
+        <ThemeSwitch theme={pageTheme} onChange={setPageTheme} />
+      </header>
+
+      {/* Main Split Editorial Login Layout */}
+      <main className="relative z-10 mx-auto flex w-full max-w-[1200px] flex-1 items-center px-5 py-8 lg:px-10">
+        <div className="grid w-full grid-cols-1 items-center gap-10 lg:grid-cols-12 lg:gap-12">
+          {/* Left 5 Columns: LivingDocs Editorial Intro + Interactive <FileBox /> */}
+          <div className="auth-reveal hidden flex-col justify-center lg:col-span-5 lg:flex">
+            <h1
+              className="text-4xl font-black leading-[1.1] tracking-tight xl:text-[46px]"
+              style={{ color: "var(--ld-ink)" }}
+            >
+              {activeTab === "signin" ? (
+                <>
+                  Chào mừng sự trở lại
+                  <span className="mt-1.5 block">của bạn với LivingDocs</span>
+                </>
+              ) : (
+                <>
+                  Khởi tạo không gian
+                  <span className="mt-1.5 block">quản trị tài liệu.</span>
+                </>
+              )}
+            </h1>
+
+            {/* Floating Transparent <FileBox /> Synced with Captions */}
+            <div className="relative my-2 flex items-center justify-start">
+              <div
+                className="pointer-events-none absolute left-10 h-52 w-52 rounded-full blur-[72px] transition-colors duration-500"
+                style={{
+                  background: `radial-gradient(circle, ${currentHighlight.dot}${
+                    isDark ? "33" : "2B"
+                  } 0%, transparent 72%)`,
+                }}
+              />
+              <div className="ld-auth-filebox relative flex h-[270px] w-full max-w-[350px] items-center justify-center -ml-6">
+                <FileBox
+                  theme={pageTheme}
+                  activePosition={currentHighlight.position}
+                  onPull={({ position }) => setActiveIdx(position - 1)}
+                />
+              </div>
+            </div>
+
+            <div
+              key={currentHighlight.position}
+              className="min-h-[48px]"
+              style={{
+                animation: "ld-auth-fade 360ms cubic-bezier(0.22,1,0.36,1)",
+              }}
+            >
+              <p
+                className="text-base font-bold leading-relaxed"
+                style={{ color: "var(--ld-ink)" }}
+              >
+                {currentHighlight.title}
               </p>
             </div>
 
-            {/* Auth Tabs */}
-            <div className="auth-tabs" data-active={activeTab}>
-              <button
-                type="button"
-                className={`auth-tab ${activeTab === "signin" ? "active" : ""}`}
-                onClick={() => setActiveTab("signin")}
-              >
-                Đăng nhập
-              </button>
-              <button
-                type="button"
-                className={`auth-tab ${activeTab === "register" ? "active" : ""}`}
-                onClick={() => setActiveTab("register")}
-              >
-                Đăng ký
-              </button>
-              <div className="tab-slider" />
+            {/* Minimal 5-Color Indicator Bars */}
+            <div className="mt-3 flex items-center gap-2">
+              {LOGIN_HIGHLIGHTS.map((item, idx) => {
+                const selected = idx === activeIdx;
+                return (
+                  <button
+                    key={item.position}
+                    type="button"
+                    aria-label={item.title}
+                    onClick={() => setActiveIdx(idx)}
+                    className="h-2 cursor-pointer rounded-full transition-all duration-300"
+                    style={{
+                      width: selected ? "36px" : "10px",
+                      backgroundColor: item.dot,
+                      opacity: selected ? 1 : 0.35,
+                    }}
+                  />
+                );
+              })}
             </div>
+          </div>
 
-            {/* Error Message */}
-            {formError && <div className="auth-error-box">{formError}</div>}
+          {/* Right 7 Columns: Tactile Neo-Brutalist Auth Card */}
+          <div className="auth-reveal mx-auto w-full max-w-[490px] lg:col-span-7 lg:ml-auto lg:mr-0">
+            <div
+              className="rounded-[30px] border-2 p-6 transition-colors duration-300 sm:p-9"
+              style={{
+                backgroundColor: "var(--ld-surface)",
+                borderColor: "var(--ld-border)",
+                boxShadow: "7px 7px 0 var(--ld-shadow)",
+              }}
+            >
+              {/* Mobile Title */}
+              <div className="mb-6 lg:hidden">
+                <h1
+                  className="text-2xl font-black tracking-tight"
+                  style={{ color: "var(--ld-ink)" }}
+                >
+                  {activeTab === "signin"
+                    ? "Đăng nhập LivingDocs"
+                    : "Tạo tài khoản quản trị"}
+                </h1>
+              </div>
 
-            {/* Auth Form */}
-            <form onSubmit={handleSubmit} autoComplete="off">
-              {activeTab === "register" && (
-                <div className="form-group">
-                  <label htmlFor="nameField">Họ và tên</label>
-                  <div className="input-wrapper">
-                    <svg className="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                      <circle cx="12" cy="7" r="4" />
-                    </svg>
-                    <input
-                      type="text"
-                      id="nameField"
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
-                      placeholder="Ví dụ: Nguyễn Văn Admin"
-                      required
-                    />
-                  </div>
+              {/* Segmented Tabs: Đăng nhập / Đăng ký */}
+              <div
+                className="mb-6 grid grid-cols-2 gap-1.5 rounded-full border-2 p-1"
+                style={{
+                  backgroundColor: "var(--ld-pill-bg)",
+                  borderColor: "var(--ld-border)",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab("signin");
+                    setFormError(null);
+                  }}
+                  className="cursor-pointer rounded-full py-2.5 text-xs font-extrabold transition-all duration-200"
+                  style={
+                    activeTab === "signin"
+                      ? {
+                          backgroundColor: isDark ? "#FFFFFF" : "#211D16",
+                          color: isDark ? "#111113" : "#FFFCF5",
+                          boxShadow: "2px 2px 0 #E8523B",
+                        }
+                      : { color: "var(--ld-muted)" }
+                  }
+                >
+                  Đăng nhập
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab("register");
+                    setFormError(null);
+                  }}
+                  className="cursor-pointer rounded-full py-2.5 text-xs font-extrabold transition-all duration-200"
+                  style={
+                    activeTab === "register"
+                      ? {
+                          backgroundColor: isDark ? "#FFFFFF" : "#211D16",
+                          color: isDark ? "#111113" : "#FFFCF5",
+                          boxShadow: "2px 2px 0 #E8523B",
+                        }
+                      : { color: "var(--ld-muted)" }
+                  }
+                >
+                  Đăng ký
+                </button>
+              </div>
+
+              {/* Error Banner */}
+              {formError && (
+                <div
+                  className="mb-5 flex items-start gap-2.5 rounded-2xl border-2 px-4 py-3 text-xs font-bold"
+                  style={{
+                    backgroundColor: isDark
+                      ? "rgba(239,68,68,0.14)"
+                      : "#FEF2F2",
+                    borderColor: "#EF4444",
+                    color: isDark ? "#FCA5A5" : "#B91C1C",
+                  }}
+                >
+                  <AlertCircle size={15} className="mt-0.5 flex-shrink-0" />
+                  <span>{formError}</span>
                 </div>
               )}
 
-              <div className="form-group">
-                <label htmlFor="userField">Email {activeTab === "register" ? "quản trị viên (Admin)" : "doanh nghiệp"}</label>
-                <div className="input-wrapper">
-                  <svg className="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                    <polyline points="22,6 12,13 2,6" />
-                  </svg>
-                  <input
-                    type="email"
-                    id="userField"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="admin@example.com"
-                    required
-                  />
-                </div>
-              </div>
+              {/* Form */}
+              <form onSubmit={handleSubmit} autoComplete="off" className="space-y-4">
+                {activeTab === "register" && (
+                  <div>
+                    <label
+                      htmlFor="nameField"
+                      className="mb-1.5 block text-xs font-extrabold"
+                      style={{ color: "var(--ld-ink)" }}
+                    >
+                      Họ và tên
+                    </label>
+                    <div className="relative">
+                      <User
+                        size={16}
+                        className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2"
+                        style={{ color: "var(--ld-muted)" }}
+                      />
+                      <input
+                        id="nameField"
+                        type="text"
+                        value={fullName}
+                        onChange={(e) => setFullName(e.target.value)}
+                        required
+                        className="w-full rounded-2xl border-2 py-3 pr-4 pl-10 text-sm font-semibold outline-none transition-all focus:ring-2 focus:ring-[#FDE68A]"
+                        style={{
+                          backgroundColor: "var(--ld-input-bg)",
+                          borderColor: "var(--ld-border)",
+                          color: "var(--ld-ink)",
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
 
-              <div className="form-group">
-                <div className="label-row">
-                  <label htmlFor="passField">Mật khẩu</label>
-                  <Link href="/quen-mat-khau" className="forgot-link">
-                    Quên mật khẩu?
-                  </Link>
-                </div>
-                <div className="input-wrapper">
-                  <svg className="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                  </svg>
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    id="passField"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    
-                    required
-                  />
-                  <button
-                    type="button"
-                    className="eye-toggle"
-                    onClick={() => setShowPassword(!showPassword)}
-                    aria-label="Toggle password visibility"
+                <div>
+                  <label
+                    htmlFor="userField"
+                    className="mb-1.5 block text-xs font-extrabold"
+                    style={{ color: "var(--ld-ink)" }}
                   >
-                    {showPassword ? (
-                      <svg className="eye-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                        <line x1="1" y1="1" x2="23" y2="23" />
-                      </svg>
-                    ) : (
-                      <svg className="eye-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                        <circle cx="12" cy="12" r="3" />
-                      </svg>
-                    )}
-                  </button>
+                    Email{" "}
+                    {activeTab === "register"
+                      ? "quản trị viên"
+                      : "tài khoản"}
+                  </label>
+                  <div className="relative">
+                    <Mail
+                      size={16}
+                      className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2"
+                      style={{ color: "var(--ld-muted)" }}
+                    />
+                    <input
+                      id="userField"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                      className="w-full rounded-2xl border-2 py-3 pr-4 pl-10 text-sm font-semibold outline-none transition-all focus:ring-2 focus:ring-[#FDE68A]"
+                      style={{
+                        backgroundColor: "var(--ld-input-bg)",
+                        borderColor: "var(--ld-border)",
+                        color: "var(--ld-ink)",
+                      }}
+                    />
+                  </div>
                 </div>
-              </div>
 
-              <div className="options-row">
-                <label className="custom-checkbox">
+                <div>
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <label
+                      htmlFor="passField"
+                      className="text-xs font-extrabold"
+                      style={{ color: "var(--ld-ink)" }}
+                    >
+                      Mật khẩu
+                    </label>
+                    {activeTab === "signin" && (
+                      <Link
+                        href="/quen-mat-khau"
+                        className="text-xs font-bold underline-offset-4 hover:underline"
+                        style={{ color: "var(--ld-muted)" }}
+                      >
+                        Quên mật khẩu?
+                      </Link>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <Lock
+                      size={16}
+                      className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2"
+                      style={{ color: "var(--ld-muted)" }}
+                    />
+                    <input
+                      id="passField"
+                      type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      className="w-full rounded-2xl border-2 py-3 pr-11 pl-10 text-sm font-semibold outline-none transition-all focus:ring-2 focus:ring-[#FDE68A]"
+                      style={{
+                        backgroundColor: "var(--ld-input-bg)",
+                        borderColor: "var(--ld-border)",
+                        color: "var(--ld-ink)",
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((s) => !s)}
+                      aria-label={
+                        showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"
+                      }
+                      className="absolute top-1/2 right-3 -translate-y-1/2 cursor-pointer rounded-full p-1 transition-opacity hover:opacity-80"
+                      style={{ color: "var(--ld-muted)" }}
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                <label className="flex cursor-pointer items-center gap-2.5 pt-1 select-none">
                   <input
                     type="checkbox"
                     checked={rememberMe}
                     onChange={(e) => setRememberMe(e.target.checked)}
+                    className="h-4 w-4 cursor-pointer rounded accent-[#211D16]"
                   />
-                  <span className="checkbox-box">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
+                  <span
+                    className="text-xs font-semibold"
+                    style={{ color: "var(--ld-muted)" }}
+                  >
+                    Ghi nhớ phiên đăng nhập
                   </span>
-                  <span className="checkbox-label">Ghi nhớ phiên đăng nhập</span>
                 </label>
-              </div>
 
-              <button type="submit" className="submit-btn" disabled={pending}>
-                <span className="btn-glow-layer" />
-                <span className="btn-content">
-                  {pending ? (
-                    <div className="btn-spinner" />
-                  ) : (
-                    <>
-                      <span>{activeTab === "signin" ? "Đăng nhập" : "Đăng ký tài khoản Admin"}</span>
-                      <svg className="btn-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                        <line x1="5" y1="12" x2="19" y2="12" />
-                        <polyline points="12 5 19 12 12 19" />
-                      </svg>
-                    </>
-                  )}
-                </span>
-              </button>
-
-
-
-              <div className="social-row">
                 <button
-                  type="button"
-                  className="social-btn"
-                  onClick={handleGithubAuth}
-                  title="Đăng nhập bằng tài khoản GitHub"
+                  type="submit"
+                  disabled={pending}
+                  className="ym-btn-primary mt-2 flex w-full cursor-pointer items-center justify-center gap-2 rounded-full py-3.5 text-sm font-extrabold disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <svg viewBox="0 0 24 24" fill="currentColor">
-                    <path
-                      fillRule="evenodd"
-                      clipRule="evenodd"
-                      d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"
-                    />
-                  </svg>
-                  <span>GitHub</span>
+                  {pending ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      <span>Đang xử lý...</span>
+                    </>
+                  ) : (
+                    <span>
+                      {activeTab === "signin"
+                        ? "Đăng nhập"
+                        : "Đăng ký tài khoản Admin"}
+                    </span>
+                  )}
                 </button>
-              </div>
-            </form>
+              </form>
+
+              {/* GitHub OAuth Button */}
+              <button
+                type="button"
+                onClick={handleGithubAuth}
+                className="ym-btn-secondary mt-3.5 flex w-full cursor-pointer items-center justify-center gap-2.5 rounded-full py-3 text-sm font-extrabold"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    fillRule="evenodd"
+                    clipRule="evenodd"
+                    d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"
+                  />
+                </svg>
+                <span>Tiếp tục với GitHub</span>
+              </button>
+            </div>
           </div>
         </div>
       </main>
