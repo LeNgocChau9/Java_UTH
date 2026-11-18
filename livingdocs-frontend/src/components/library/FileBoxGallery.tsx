@@ -4,6 +4,7 @@ import React, { useEffect, useRef } from "react";
 import Link from "next/link";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
+import "./file-box-gallery.css";
 import {
   ArrowUpRight,
   ChevronRight,
@@ -604,7 +605,10 @@ export default function FileBoxGallery() {
       },
     });
 
+    const refreshTimer = window.setTimeout(() => ScrollTrigger.refresh(), 350);
+
     return () => {
+      window.clearTimeout(refreshTimer);
       triggers.forEach((t) => t.kill());
     };
   }, []);
@@ -615,76 +619,6 @@ export default function FileBoxGallery() {
       ref={sectionRef}
       className="scroll-mt-16 mx-auto max-w-[1380px] px-5 pt-10 pb-20 lg:px-10"
     >
-      {/* Scoped Per-Card Continuous Micro-Motion Keyframes */}
-      <style
-        dangerouslySetInnerHTML={{
-          __html: `
-          @keyframes fb-scan-y {
-            0%, 100% { transform: translateY(-20px); opacity: 0.2; }
-            50% { transform: translateY(120px); opacity: 0.9; }
-          }
-          @keyframes fb-nudge-x {
-            0%, 100% { transform: translateX(0px); }
-            50% { transform: translateX(5px); }
-          }
-          @keyframes fb-shimmer {
-            0% { transform: translateX(-80px) skewX(-18deg); }
-            60%, 100% { transform: translateX(320px) skewX(-18deg); }
-          }
-          @keyframes fb-bar-wave {
-            0%, 100% { transform: scaleX(0.76); filter: brightness(1); }
-            50% { transform: scaleX(1); filter: brightness(1.12); }
-          }
-          @keyframes fb-step-hop {
-            0%, 100% { transform: translateY(0px); }
-            35% { transform: translateY(-4px); }
-            70% { transform: translateY(0px); }
-          }
-          @keyframes fb-arrow-glide {
-            0%, 100% { transform: translateX(-2px); opacity: 0.55; }
-            50% { transform: translateX(3px); opacity: 1; }
-          }
-          @keyframes fb-typing-line {
-            0%, 100% { transform: scaleX(0.62); opacity: 0.7; }
-            50% { transform: scaleX(1); opacity: 1; }
-          }
-          @keyframes fb-soft-float {
-            0%, 100% { transform: translateY(0px); }
-            50% { transform: translateY(-3.5px); }
-          }
-          @keyframes fb-glow-pulse {
-            0%, 100% { box-shadow: 0 0 0 0 rgba(234, 88, 12, 0.28); }
-            50% { box-shadow: 0 0 0 6px rgba(234, 88, 12, 0); }
-          }
-          @keyframes fb-fan-left {
-            0%, 100% { transform: rotate(-6deg) translateX(0px); }
-            50% { transform: rotate(-11deg) translateX(-6px); }
-          }
-          @keyframes fb-fan-right {
-            0%, 100% { transform: rotate(6deg) translateX(0px); }
-            50% { transform: rotate(11deg) translateX(6px); }
-          }
-          @keyframes fb-alt-a {
-            0%, 45%, 100% { transform: translateY(0px); }
-            22% { transform: translateY(-4px); }
-          }
-          @keyframes fb-alt-b {
-            0%, 50%, 100% { transform: translateY(0px); }
-            72% { transform: translateY(-4px); }
-          }
-          @keyframes fb-dash-flow {
-            0% { stroke-dashoffset: 36; }
-            100% { stroke-dashoffset: 0; }
-          }
-          @media (prefers-reduced-motion: reduce) {
-            #showcase * {
-              animation: none !important;
-            }
-          }
-        `,
-        }}
-      />
-
       {/* Clean Header Row */}
       <div className="mb-10">
         <h2

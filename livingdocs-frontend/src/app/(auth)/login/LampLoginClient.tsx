@@ -305,22 +305,30 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
 
       {/* Main Split Editorial Login Layout */}
       <main className="relative z-10 mx-auto flex w-full max-w-[1200px] flex-1 items-center px-5 py-8 lg:px-10">
-        <div className="grid w-full grid-cols-1 items-center gap-10 lg:grid-cols-12 lg:gap-12">
-          {/* Left 5 Columns: LivingDocs Editorial Intro + Interactive <FileBox /> */}
-          <div className="auth-reveal hidden flex-col justify-center lg:col-span-5 lg:flex">
+        <div className="grid w-full grid-cols-1 items-center gap-10 lg:grid-cols-12 lg:gap-10">
+          {/* Left 6 Columns: LivingDocs Editorial Intro + Interactive <FileBox /> */}
+          <div className="auth-reveal hidden flex-col justify-center lg:col-span-6 lg:flex">
             <h1
-              className="text-4xl font-black leading-[1.1] tracking-tight xl:text-[46px]"
+              className="text-3xl font-black leading-[1.12] tracking-tight xl:text-[40px]"
               style={{ color: "var(--ld-ink)" }}
             >
               {activeTab === "signin" ? (
                 <>
-                  Chào mừng sự trở lại
-                  <span className="mt-1.5 block">của bạn với LivingDocs</span>
+                  <span className="block whitespace-nowrap">
+                    Chào mừng sự trở lại
+                  </span>
+                  <span className="mt-1.5 block whitespace-nowrap">
+                    của bạn với LivingDocs
+                  </span>
                 </>
               ) : (
                 <>
-                  Khởi tạo không gian
-                  <span className="mt-1.5 block">quản trị tài liệu.</span>
+                  <span className="block whitespace-nowrap">
+                    Khởi tạo không gian
+                  </span>
+                  <span className="mt-1.5 block whitespace-nowrap">
+                    quản trị tài liệu.
+                  </span>
                 </>
               )}
             </h1>
@@ -381,8 +389,8 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
             </div>
           </div>
 
-          {/* Right 7 Columns: Tactile Neo-Brutalist Auth Card */}
-          <div className="auth-reveal mx-auto w-full max-w-[490px] lg:col-span-7 lg:ml-auto lg:mr-0">
+          {/* Right 6 Columns: Tactile Neo-Brutalist Auth Card */}
+          <div className="auth-reveal mx-auto w-full max-w-[490px] lg:col-span-6 lg:ml-auto lg:mr-0">
             <div
               className="rounded-[30px] border-2 p-6 transition-colors duration-300 sm:p-9"
               style={{
