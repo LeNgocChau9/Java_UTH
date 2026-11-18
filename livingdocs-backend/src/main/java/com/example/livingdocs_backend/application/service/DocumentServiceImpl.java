@@ -417,8 +417,8 @@ public class DocumentServiceImpl implements DocumentServicePort {
                                    'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') AS fts_snippet
                 FROM documents d
                 JOIN document_versions v ON v.doc_id = d.doc_id AND v.version_num = d.current_version
-                WHERE (? IS NULL OR d.repo_id = ?)
-                  AND (? IS NULL OR d.collection_id = ?)
+                WHERE (CAST(? AS bigint) IS NULL OR d.repo_id = CAST(? AS bigint))
+                  AND (CAST(? AS bigint) IS NULL OR d.collection_id = CAST(? AS bigint))
                   """ + statusClause + templateClause + """
                   AND (to_tsvector('simple', COALESCE(d.title, '') || ' ' || COALESCE(v.content, '')) @@ plainto_tsquery('simple', ?)
                        OR d.title ILIKE ?
@@ -429,7 +429,7 @@ public class DocumentServiceImpl implements DocumentServicePort {
                        MAX(1 - (kc.embedding <=> ?::vector)) AS vec_score,
                        (ARRAY_AGG(kc.content ORDER BY (kc.embedding <=> ?::vector) ASC))[1] AS vec_snippet
                 FROM knowledge_chunks kc
-                WHERE (? IS NULL OR kc.repository_id = ?)
+                WHERE (CAST(? AS bigint) IS NULL OR kc.repository_id = CAST(? AS bigint))
                   AND kc.embedding IS NOT NULL
                   AND kc.document_id IS NOT NULL
                 GROUP BY kc.document_id
@@ -444,8 +444,8 @@ public class DocumentServiceImpl implements DocumentServicePort {
             LEFT JOIN fts ON fts.doc_id = d.doc_id
             LEFT JOIN vec ON vec.doc_id = d.doc_id
             WHERE (fts.doc_id IS NOT NULL OR vec.doc_id IS NOT NULL)
-              AND (? IS NULL OR d.repo_id = ?)
-              AND (? IS NULL OR d.collection_id = ?)
+              AND (CAST(? AS bigint) IS NULL OR d.repo_id = CAST(? AS bigint))
+              AND (CAST(? AS bigint) IS NULL OR d.collection_id = CAST(? AS bigint))
               """ + statusClause + templateClause + """
             ORDER BY combined_score DESC
             LIMIT 100
@@ -506,8 +506,8 @@ public class DocumentServiceImpl implements DocumentServicePort {
                               plainto_tsquery('simple', ?)) AS combined_score
             FROM documents d
             JOIN document_versions v ON v.doc_id = d.doc_id AND v.version_num = d.current_version
-            WHERE (? IS NULL OR d.repo_id = ?)
-              AND (? IS NULL OR d.collection_id = ?)
+            WHERE (CAST(? AS bigint) IS NULL OR d.repo_id = CAST(? AS bigint))
+              AND (CAST(? AS bigint) IS NULL OR d.collection_id = CAST(? AS bigint))
               """ + statusClause + templateClause + """
               AND (to_tsvector('simple', COALESCE(d.title, '') || ' ' || COALESCE(v.content, '')) @@ plainto_tsquery('simple', ?)
                    OR d.title ILIKE ?
@@ -557,8 +557,8 @@ public class DocumentServiceImpl implements DocumentServicePort {
                    1.0 AS combined_score
             FROM documents d
             JOIN document_versions v ON v.doc_id = d.doc_id AND v.version_num = d.current_version
-            WHERE (? IS NULL OR d.repo_id = ?)
-              AND (? IS NULL OR d.collection_id = ?)
+            WHERE (CAST(? AS bigint) IS NULL OR d.repo_id = CAST(? AS bigint))
+              AND (CAST(? AS bigint) IS NULL OR d.collection_id = CAST(? AS bigint))
               """ + statusClause + templateClause + """
             ORDER BY d.updated_at DESC
             LIMIT 100

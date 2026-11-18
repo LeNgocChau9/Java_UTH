@@ -120,6 +120,7 @@ const NAV: NavItem[] = [
       { href: "/tai-lieu-cua-toi", label: "Tất cả tài liệu", roles: ["DEVELOPER", "STAFF", "TECH_LEAD"] },
       { href: "/khoang-trong-tai-lieu", label: "Tài Liệu Còn Trống", roles: ["DEVELOPER", "STAFF", "TECH_LEAD"] },
       { href: "/co-so-tri-thuc", label: "Cơ sở tri thức", roles: ["DEVELOPER", "STAFF", "TECH_LEAD", "ADMIN"] },
+      { href: "/tai-lieu-cong-khai", label: "Tài liệu công khai", roles: ["DEVELOPER", "STAFF", "MANAGER", "TECH_LEAD", "ADMIN"] },
     ],
   },
   {
@@ -155,6 +156,12 @@ const NAV: NavItem[] = [
     label: "Lịch sử xem xét",
     icon: <Clock size={16} />,
     roles: ["STAFF"],
+  },
+  {
+    href: "/tai-lieu-cong-khai",
+    label: "Tài liệu công khai",
+    icon: <FileText size={16} />,
+    roles: ["MANAGER", "ADMIN"],
   },
   {
     href: "/trung-tam-phe-duyet",

@@ -8,7 +8,7 @@ import { useSession } from "@/hooks/useSession";
 import { documentService } from "@/services/documentService";
 import { repoService, type RepoItem } from "@/services/repoService";
 import { templateService, type DocTemplateDto } from "@/services/templateService";
-import type { CollectionOwnerItem, DocCollection, DocumentItem, IntegrityCheckResult } from "@/types/document";
+import type { CollectionOwnerItem, DocCollection, DocumentDetail, DocumentItem, IntegrityCheckResult } from "@/types/document";
 import {
   FileText,
   GitBranch,
@@ -251,6 +251,39 @@ function DocumentListPageContent() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  const linkedDocId = searchParams.get("docId");
+  const [linkedPreview, setLinkedPreview] = useState<DocumentDetail | null>(null);
+
+  useEffect(() => {
+    if (!linkedDocId || loading) return;
+    const id = Number(linkedDocId);
+    if (!Number.isFinite(id) || id <= 0) return;
+    const found = documents.find((doc) => doc.docId === id);
+    if (found) {
+      setSelectedCollectionId(found.collectionId ?? null);
+      setSelectedStatus("ALL");
+      setSelectedTemplateId("ALL");
+      setSelectedRepoId("ALL");
+      setSearchQuery("");
+    }
+    let cancelled = false;
+    documentService.getDocumentById(id).then((detail) => {
+      if (cancelled) return;
+      setLinkedPreview(detail);
+      if (detail.collectionId) setSelectedCollectionId(detail.collectionId);
+    }).catch(() => {
+      if (!cancelled) notify("error", "Không mở được tài liệu từ liên kết docId.");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [linkedDocId, loading, documents, notify]);
+
+  useEffect(() => {
+    if (!linkedDocId || loading) return;
+    document.getElementById(`doc-row-${linkedDocId}`)?.scrollIntoView({ block: "center" });
+  }, [linkedDocId, loading, documents, selectedCollectionId]);
 
   // Map repoId thành repoName
   const repoMap = useMemo(() => {
@@ -691,6 +724,47 @@ function DocumentListPageContent() {
           {toast.type === "error" && <AlertTriangle size={16} />}
           {toast.type === "info" && <Clock size={16} />}
           <span>{toast.message}</span>
+        </div>
+      )}
+
+      {linkedPreview && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 80,
+            background: "rgba(15, 23, 42, 0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 24,
+          }}
+          onClick={() => setLinkedPreview(null)}
+        >
+          <div
+            className="ld-card"
+            style={{ width: "min(760px, 100%)", maxHeight: "80vh", overflow: "auto", padding: 20, background: "#fff" }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+              <div>
+                <p style={{ margin: 0, fontSize: 12, color: "#64748b" }}>Mở từ liên kết docId</p>
+                <h2 style={{ margin: "4px 0 0", fontSize: 18 }}>{linkedPreview.title}</h2>
+              </div>
+              <button type="button" className="ld-btn ld-btn-secondary" onClick={() => setLinkedPreview(null)}>
+                Đóng
+              </button>
+            </div>
+            <pre style={{ marginTop: 16, whiteSpace: "pre-wrap", fontSize: 13, lineHeight: 1.6, color: "#1e293b" }}>
+              {linkedPreview.latestVersion?.content || linkedPreview.versionHistory?.[0]?.content || "Tài liệu chưa có nội dung."}
+            </pre>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+              <Link href={`/tai-lieu-cua-toi/editor?docId=${linkedPreview.docId}`} className="ld-btn ld-btn-primary">
+                <Edit3 size={14} />
+                <span>Mở trong Editor</span>
+              </Link>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1411,6 +1485,7 @@ function DocumentListPageContent() {
             return (
               <div
                 key={doc.docId}
+                id={`doc-row-${doc.docId}`}
                 className="ld-card"
                 style={{
                   display: "flex",
@@ -1419,6 +1494,7 @@ function DocumentListPageContent() {
                   gap: 16,
                   padding: "16px 20px",
                   transition: "border-color 150ms, box-shadow 150ms",
+                  outline: linkedDocId === String(doc.docId) ? "2px solid #0f766e" : undefined,
                 }}
               >
                 {/* Thông tin chính của Tài liệu */}
