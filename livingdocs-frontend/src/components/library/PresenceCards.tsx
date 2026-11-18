@@ -224,13 +224,13 @@ export default function PresenceCards({
                 className="truncate text-[22px] font-bold leading-tight tracking-[-0.02em]"
                 style={{ color: isDark ? "#f4f4f6" : "#18181b" }}
               >
-                Spec Live
+                Repository
               </div>
               <div
                 className="truncate font-mono text-[13px]"
                 style={{ color: isDark ? "#8f8f95" : "#71717a" }}
               >
-                AuthService.java
+                LeNgocChau9/Java_UTH
               </div>
             </div>
           </div>
