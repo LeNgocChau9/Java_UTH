@@ -1,4 +1,21 @@
 import { apiClient } from "./apiClient";
+
+export function saveBlob(blob: Blob, filename: string) {
+  const safe = filename.replace(/[<>:"/\\|?*]+/g, "_").trim() || "tai-lieu";
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = safe;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+export function downloadMarkdownFile(title: string, markdown: string) {
+  const base = (title || "tai-lieu").replace(/\.md$/i, "");
+  saveBlob(new Blob([markdown ?? ""], { type: "text/markdown;charset=utf-8" }), `${base}.md`);
+}
 import type {
   CreateDocumentPayload,
   CollectionOwnerItem,
@@ -81,6 +98,20 @@ export const documentService = {
    */
   async exportRawDocx(payload: { title: string; markdown: string }): Promise<Blob> {
     const res = await apiClient.post("/api/documents/export/docx", payload, {
+      responseType: "blob",
+    });
+    return res.data;
+  },
+
+  async exportCollectionZip(collectionId: number): Promise<Blob> {
+    const res = await apiClient.get(`/api/collections/${collectionId}/export-zip`, {
+      responseType: "blob",
+    });
+    return res.data;
+  },
+
+  async exportRepositoryZip(repositoryId: number): Promise<Blob> {
+    const res = await apiClient.get(`/api/repositories/${repositoryId}/export-docs-zip`, {
       responseType: "blob",
     });
     return res.data;

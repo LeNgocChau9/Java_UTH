@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
 import { MarkdownViewer } from "@/components/shared/MarkdownViewer";
-import { documentService } from "@/services/documentService";
+import { documentService, downloadMarkdownFile, saveBlob } from "@/services/documentService";
 import type {
   DocumentDetail,
   DocumentItem,
@@ -42,6 +42,8 @@ import {
   Sparkles,
   RefreshCw,
   Edit3,
+  Download,
+  FileDown,
   X,
   Link2,
 } from "lucide-react";
@@ -523,6 +525,40 @@ function VersionHistoryDiffContent() {
             </button>
 
             {/* Mở Split-View Editor */}
+            {docId && docDetail && (
+              <>
+                <button
+                  type="button"
+                  className="ld-btn ld-btn-secondary ld-btn-sm"
+                  title="Tải Markdown của phiên bản mới nhất"
+                  onClick={() => {
+                    const markdown = docDetail.latestVersion?.content || docDetail.versionHistory?.[0]?.content || "";
+                    downloadMarkdownFile(docDetail.title, markdown);
+                    showToast("success", "Đã tải file Markdown.");
+                  }}
+                >
+                  <Download size={14} />
+                  <span>Tải .md</span>
+                </button>
+                <button
+                  type="button"
+                  className="ld-btn ld-btn-secondary ld-btn-sm"
+                  title="Xuất Word (.docx)"
+                  onClick={async () => {
+                    try {
+                      const blob = await documentService.exportDocx(docId);
+                      saveBlob(blob, `${docDetail.title}.docx`);
+                      showToast("success", "Đã xuất file Word.");
+                    } catch (err: any) {
+                      showToast("error", "Không xuất được Word: " + (err.response?.data?.message || err.message));
+                    }
+                  }}
+                >
+                  <FileDown size={14} />
+                  <span>Xuất Word</span>
+                </button>
+              </>
+            )}
             {docId && (
               <Link
                 href={`/tai-lieu-cua-toi/editor?docId=${docId}`}

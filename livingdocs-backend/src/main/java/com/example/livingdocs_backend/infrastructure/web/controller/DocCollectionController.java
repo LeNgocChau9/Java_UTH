@@ -18,8 +18,11 @@ import com.example.livingdocs_backend.infrastructure.security.UserPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import com.example.livingdocs_backend.application.service.DocsBundleService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -42,6 +45,7 @@ public class DocCollectionController {
     private final SpringDataDocumentRepository documentRepository;
     private final DocumentServicePort documentServicePort;
     private final UserRepositoryPort userRepositoryPort;
+    private DocsBundleService docsBundleService;
 
     @Autowired
     public DocCollectionController(
@@ -104,6 +108,24 @@ public class DocCollectionController {
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy bộ sưu tập ID: " + id));
 
         return ResponseEntity.ok(toCollectionResponse(entity));
+    }
+
+    @GetMapping(value = "/{id}/export-zip", produces = "application/zip")
+    @Operation(summary = "Xuất ZIP tài liệu đã duyệt của bộ sưu tập", description = "Đóng gói các tài liệu APPROVED và PUBLISHED, giữ targetPath, kèm README.md và SUMMARY.md.")
+    public ResponseEntity<byte[]> exportCollectionZip(@PathVariable Long id) {
+        if (docsBundleService == null) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        }
+        byte[] zip = docsBundleService.exportCollection(id);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"collection-" + id + "-docs.zip\"")
+                .contentType(MediaType.parseMediaType("application/zip"))
+                .body(zip);
+    }
+
+    @Autowired(required = false)
+    public void setDocsBundleService(DocsBundleService docsBundleService) {
+        this.docsBundleService = docsBundleService;
     }
 
     @PostMapping

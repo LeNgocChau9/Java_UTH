@@ -20,6 +20,7 @@ import com.example.livingdocs_backend.application.dto.github.CreateRepoRequest;
 import com.example.livingdocs_backend.application.dto.github.RepoResponse;
 import com.example.livingdocs_backend.application.dto.github.SyncRepoResponse;
 import com.example.livingdocs_backend.application.port.CodeIndexServicePort;
+import com.example.livingdocs_backend.application.service.DocsBundleService;
 import com.example.livingdocs_backend.application.port.RepositoryServicePort;
 import com.example.livingdocs_backend.domain.model.CodeEntity;
 import com.example.livingdocs_backend.infrastructure.github.GitHubOAuthClient;
@@ -50,6 +51,7 @@ public class RepositoryController {
     private final SpringDataRepositoryRepository repositoryRepository;
     private final SpringDataCommitRepository commitRepository;
     private final CodeIndexServicePort codeIndexService;
+    private final DocsBundleService docsBundleService;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.example.livingdocs_backend.application.port.DocumentServicePort documentServicePort;
@@ -73,6 +75,16 @@ public class RepositoryController {
         Long userId = userPrincipal != null ? userPrincipal.getUserId() : 1L;
         SyncRepoResponse response = repositoryService.syncRepository(id, token, userId);
         return ResponseEntity.ok(response);
+    }
+
+    @GetMapping(value = "/{id}/export-docs-zip", produces = "application/zip")
+    @Operation(summary = "Xuất ZIP tài liệu đã duyệt của kho", description = "Đóng gói tài liệu APPROVED và PUBLISHED theo targetPath, kèm README.md, SUMMARY.md và openapi.md.")
+    public ResponseEntity<byte[]> exportRepositoryDocsZip(@PathVariable("id") Long id) {
+        byte[] zip = docsBundleService.exportRepository(id);
+        return ResponseEntity.ok()
+                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"repository-" + id + "-docs.zip\"")
+                .contentType(org.springframework.http.MediaType.parseMediaType("application/zip"))
+                .body(zip);
     }
 
     @PostMapping("/{id}/reindex")

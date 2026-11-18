@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { useSession } from "@/hooks/useSession";
-import { documentService } from "@/services/documentService";
+import { documentService, downloadMarkdownFile, saveBlob } from "@/services/documentService";
 import { repoService, type RepoItem } from "@/services/repoService";
 import { templateService, type DocTemplateDto } from "@/services/templateService";
 import type { CollectionOwnerItem, DocCollection, DocumentDetail, DocumentItem, IntegrityCheckResult } from "@/types/document";
@@ -32,6 +32,8 @@ import {
   FileUp,
   ExternalLink,
   RotateCcw,
+  Download,
+  FileDown,
   UserCheck,
 } from "lucide-react";
 
@@ -1188,6 +1190,24 @@ function DocumentListPageContent() {
                 </button>
                 <button
                   type="button"
+                  onClick={async () => {
+                    try {
+                      const blob = await documentService.exportCollectionZip(activeCol.id);
+                      saveBlob(blob, `${activeCol.name}-docs.zip`);
+                      notify("success", "Đã tải gói ZIP các tài liệu đã duyệt.");
+                    } catch (err: any) {
+                      notify("error", "Không xuất được ZIP: " + (err.response?.data?.message || err.message));
+                    }
+                  }}
+                  className="ld-btn ld-btn-secondary ld-btn-sm"
+                  style={{ background: "#ffffff" }}
+                  title="Tải ZIP tài liệu APPROVED và PUBLISHED, giữ nguyên thư mục"
+                >
+                  <Download size={13} />
+                  <span>Tải ZIP đã duyệt</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => openEditCollectionModal(activeCol)}
                   className="ld-btn ld-btn-secondary ld-btn-sm"
                   style={{ background: "#ffffff" }}
@@ -1394,7 +1414,28 @@ function DocumentListPageContent() {
                 {r.repoFullName || r.repoName}
               </option>
             ))}
-          </select>
+            </select>
+            {selectedRepoId !== "ALL" && (
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const blob = await documentService.exportRepositoryZip(Number(selectedRepoId));
+                    const repo = repos.find((item) => String(item.repositoryId) === selectedRepoId);
+                    saveBlob(blob, `${repo?.repoName || "repository"}-docs.zip`);
+                    notify("success", "Đã tải ZIP tài liệu đã duyệt của kho.");
+                  } catch (err: any) {
+                    notify("error", "Không xuất được ZIP kho: " + (err.response?.data?.message || err.message));
+                  }
+                }}
+                className="ld-btn ld-btn-secondary ld-btn-sm"
+                style={{ marginTop: 6, width: "100%" }}
+                title="Tải ZIP tài liệu đã duyệt của kho đang lọc, kèm mục lục và OpenAPI Markdown"
+              >
+                <Download size={13} />
+                <span>ZIP kho</span>
+              </button>
+            )}
             </div>
           </div>
         </div>
@@ -1833,6 +1874,42 @@ function DocumentListPageContent() {
                       )}
                     </>
                   )}
+                  <button
+                    type="button"
+                    className="ld-btn ld-btn-ghost ld-btn-sm"
+                    title="Tải Markdown"
+                    onClick={async () => {
+                      try {
+                        let markdown = doc.latestVersion?.content;
+                        if (!markdown) {
+                          const detail = await documentService.getDocumentById(doc.docId);
+                          markdown = detail.latestVersion?.content || detail.versionHistory?.[0]?.content || "";
+                        }
+                        downloadMarkdownFile(doc.title, markdown);
+                      } catch (err: any) {
+                        notify("error", "Không tải được Markdown: " + (err.response?.data?.message || err.message));
+                      }
+                    }}
+                  >
+                    <Download size={13} />
+                    <span>.md</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="ld-btn ld-btn-ghost ld-btn-sm"
+                    title="Xuất Word (.docx)"
+                    onClick={async () => {
+                      try {
+                        const blob = await documentService.exportDocx(doc.docId);
+                        saveBlob(blob, `${doc.title}.docx`);
+                      } catch (err: any) {
+                        notify("error", "Không xuất được Word: " + (err.response?.data?.message || err.message));
+                      }
+                    }}
+                  >
+                    <FileDown size={13} />
+                    <span>Word</span>
+                  </button>
                 </div>
               </div>
             );

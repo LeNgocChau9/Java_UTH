@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
 import { MarkdownViewer } from "@/components/shared/MarkdownViewer";
-import { documentService } from "@/services/documentService";
+import { documentService, downloadMarkdownFile, saveBlob } from "@/services/documentService";
 import { repoService, type RepoItem } from "@/services/repoService";
 import type { DocCollection, DocumentDetail, DocumentStatus, GroundingEvidenceItem } from "@/types/document";
 import {
@@ -42,6 +42,8 @@ import {
   GitCommit,
   ChevronUp,
   Upload,
+  Download,
+  FileDown,
   Folder,
   FolderOpen,
   Search,
@@ -1110,6 +1112,37 @@ function EditorContent() {
             >
               <Upload size={14} />
               <span>{importingDocx ? "Đang nạp file..." : "Nạp Word (.docx)"}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                downloadMarkdownFile(title, content);
+                notify("success", "Đã tải file Markdown.");
+              }}
+              className="ld-btn ld-btn-ghost"
+              title="Tải nội dung đang soạn dưới dạng Markdown"
+            >
+              <Download size={14} />
+              <span>Tải .md</span>
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const blob = docId
+                    ? await documentService.exportDocx(docId)
+                    : await documentService.exportRawDocx({ title, markdown: content });
+                  saveBlob(blob, `${title}.docx`);
+                  notify("success", "Đã xuất file Word.");
+                } catch (err: any) {
+                  notify("error", "Không xuất được Word: " + (err.response?.data?.message || err.message));
+                }
+              }}
+              className="ld-btn ld-btn-ghost"
+              title="Xuất tài liệu sang file Word (.docx)"
+            >
+              <FileDown size={14} />
+              <span>Xuất Word (.docx)</span>
             </button>
 
             {/* NÚT MỞ LẠI BẢN NHÁP KHI BỊ TỪ CHỐI */}

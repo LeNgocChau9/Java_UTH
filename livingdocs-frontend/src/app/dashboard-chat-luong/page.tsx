@@ -12,6 +12,7 @@ import {
   CoverageGapPackage,
 } from "@/services/healthReportService";
 import { repoService, RepoItem } from "@/services/repoService";
+import { printHealthReport } from "@/lib/healthReportPrint";
 import {
   FileText,
   Sparkles,
@@ -115,12 +116,12 @@ function FormalPrintReportContent({
             </p>
             <p className="mt-1">
               <span className="font-semibold text-slate-700">Thời gian phân tích:</span>{" "}
-              <span className="font-mono text-emerald-700 font-bold">{report?.executionTimeMs ?? 160} ms</span> (tiêu chuẩn dưới 300ms)
+              <span className="font-mono text-emerald-700 font-bold">{report ? `${report.executionTimeMs} ms` : "—"}</span>
             </p>
             <p className="mt-1">
               <span className="font-semibold text-slate-700">Đánh giá chung:</span>{" "}
               <strong className="text-indigo-900 font-bold">
-                {report?.compliance?.rating || "GOOD (A)"} ({report?.compliance?.overallScore ?? 85}/100)
+                {report?.compliance ? `${report.compliance.rating} (${report.compliance.overallScore}/100)` : "—"}
               </strong>
             </p>
           </div>
@@ -178,6 +179,23 @@ function FormalPrintReportContent({
           </div>
         </div>
 
+        <div className="mt-3 space-y-2">
+          {[
+            { label: "Độ bao phủ mã nguồn", value: report?.coveragePercent, color: "#047857" },
+            { label: "Độ mới theo commit", value: report?.freshnessPercent, color: "#b45309" },
+            { label: "Điểm tuân thủ", value: report?.compliance?.overallScore, color: "#1d4ed8" },
+          ].map((item) => (
+            <div key={item.label}>
+              <div className="mb-1 flex justify-between text-[11px] text-slate-700">
+                <span>{item.label}</span>
+                <strong>{typeof item.value === "number" ? (item.label.startsWith("Điểm") ? `${item.value.toFixed(1)}/100` : `${item.value.toFixed(1)}%`) : "—"}</strong>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                <div className="h-2" style={{ width: `${Math.max(0, Math.min(100, item.value ?? 0))}%`, background: item.color }} />
+              </div>
+            </div>
+          ))}
+        </div>
         {report?.compliance?.summary && (
           <div className="mt-2.5 p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700">
             <strong className="text-slate-900">Nhận định thẩm định:</strong> {report.compliance.summary}
@@ -492,7 +510,16 @@ export default function QualityDashboardPage() {
 
   // Xử lý in / xuất PDF
   const handlePrintPdf = () => {
-    window.print();
+    try {
+      printHealthReport({
+        report: healthReport,
+        gaps: coverageGaps,
+        repoName: selectedRepoName,
+      });
+    } catch (err) {
+      console.error(err);
+      showToast("Không mở được bản in PDF.");
+    }
   };
 
   // Chuyển đổi trạng thái đóng/mở gói
@@ -1397,7 +1424,7 @@ export default function QualityDashboardPage() {
                   <button
                     onClick={() => {
                       setShowPrintPreview(false);
-                      setTimeout(() => window.print(), 200);
+                      handlePrintPdf();
                     }}
                     className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 rounded-xl hover:bg-emerald-700 transition shadow-xs cursor-pointer"
                   >
