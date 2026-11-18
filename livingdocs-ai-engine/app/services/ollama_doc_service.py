@@ -136,13 +136,15 @@ class OllamaDocService:
         if "Khối Bằng chứng Xác thực Nguồn" not in clean_markdown and "Grounding Evidence Box" not in clean_markdown:
             clean_markdown = clean_markdown.rstrip() + "\n\n" + grounding_box_md.strip()
 
+        confidence_score = GeminiDocService._calculate_real_confidence_score(clean_markdown, entities_list)
+
         return DocGenerateResponse(
             status="success",
             mode="ollama-local",
             template_type=template_type,
             file_path=request.file_path,
             generated_content=clean_markdown,
-            confidence_score=0.98,
+            confidence_score=confidence_score,
             grounding_evidence=grounding_evidences,
         )
 

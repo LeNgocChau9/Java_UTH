@@ -21,6 +21,7 @@ public class DatabaseSchemaBootstrap implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) {
         try {
+            jdbcTemplate.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS template_id BIGINT");
             jdbcTemplate.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_type VARCHAR(50) DEFAULT 'MANUAL'");
             jdbcTemplate.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_url VARCHAR(1024)");
             jdbcTemplate.execute("ALTER TABLE doc_collections ADD COLUMN IF NOT EXISTS module_tag VARCHAR(150)");

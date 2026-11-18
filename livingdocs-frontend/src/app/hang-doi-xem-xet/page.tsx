@@ -10,6 +10,11 @@ import { reviewService, type ReviewQueueItem, type ReviewCommentItem } from "@/s
 import { codeEntityService, type CodeEntityDto } from "@/services/codeEntityService";
 import { repoService, type RepoItem } from "@/services/repoService";
 import { templateService, type DocumentCrossCheckResponse } from "@/services/templateService";
+import {
+  docQualityService,
+  type DocumentQualityEvaluationResponse,
+  type PhantomSymbolDto,
+} from "@/services/docQualityService";
 import { aiChatService } from "@/services/aiChatService";
 import type { DocumentDetail, GroundingEvidenceItem, DocumentAuditLogItem } from "@/types/document";
 
@@ -61,6 +66,9 @@ import {
   History,
   RotateCcw,
   Info,
+  ShieldAlert,
+  ShieldCheck,
+  AlertOctagon,
 } from "lucide-react";
 
 export default function HangDoiXemXetStaffPage() {
@@ -89,11 +97,15 @@ export default function HangDoiXemXetStaffPage() {
   const [editingContent, setEditingContent] = useState<string>("");
   const [activeHeading, setActiveHeading] = useState<string | null>(null);
   const [savingEdit, setSavingEdit] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<"diff" | "preview" | "edit" | "audit">("diff");
+  const [activeTab, setActiveTab] = useState<"diff" | "preview" | "edit" | "audit" | "quality">("diff");
   const [compareVersionNum, setCompareVersionNum] = useState<number | null>(null);
   const [isWideDiff, setIsWideDiff] = useState<boolean>(false);
   const [showRejectModal, setShowRejectModal] = useState<boolean>(false);
   const [rejectReason, setRejectReason] = useState<string>("");
+
+  // Anti-Hallucination Gate & Quality states (Task Tuần 7)
+  const [qualityEvaluation, setQualityEvaluation] = useState<DocumentQualityEvaluationResponse | null>(null);
+  const [loadingQualityEval, setLoadingQualityEval] = useState<boolean>(false);
 
   // State Review comment và quyết định
   const [reviewComment, setReviewComment] = useState<string>("");
@@ -141,6 +153,7 @@ export default function HangDoiXemXetStaffPage() {
     setAuditLogs([]);
     setSourceCode(null);
     setCrossCheckData(null);
+    setQualityEvaluation(null);
     setReviewCommentsList([]);
     setSelectedTextSnippet("");
     setInlineCommentInput("");
@@ -196,6 +209,25 @@ export default function HangDoiXemXetStaffPage() {
           })
           .then((res) => setCrossCheckData(res))
           .catch(() => setCrossCheckData(null));
+
+        // Thẩm định chất lượng thật và kiểm tra Anti-Hallucination Gate (Task Tuần 7)
+        setLoadingQualityEval(true);
+        docQualityService
+          .evaluateQuality({
+            repositoryId: detail.repoId,
+            documentId: detail.docId,
+            filePath: detail.targetPath ?? undefined,
+            markdown: detail.latestVersion.content,
+            templateId: detail.templateId ?? undefined,
+            minQualityThreshold: 0.75,
+            minAntiHallucinationThreshold: 0.80,
+          })
+          .then((res) => setQualityEvaluation(res))
+          .catch((evalErr) => {
+            console.warn("Không chạy được quality evaluation:", evalErr);
+            setQualityEvaluation(null);
+          })
+          .finally(() => setLoadingQualityEval(false));
       }
     } catch (err) {
       console.error("Lỗi khi tải chi tiết tài liệu:", err);
@@ -1052,6 +1084,66 @@ export default function HangDoiXemXetStaffPage() {
             </div>
           </div>
 
+          {qualityEvaluation && (
+            <div
+              style={{
+                padding: "10px 16px",
+                borderRadius: 8,
+                background: qualityEvaluation.passed ? "#f0fdf4" : "#fef2f2",
+                border: "1px solid",
+                borderColor: qualityEvaluation.passed ? "#bbf7d0" : "#fecaca",
+                marginBottom: 8,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                flexWrap: "wrap",
+                gap: 8,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {qualityEvaluation.passed ? (
+                  <CheckCircle2 size={18} style={{ color: "#16a34a" }} />
+                ) : (
+                  <AlertOctagon size={18} style={{ color: "#dc2626" }} />
+                )}
+                <div>
+                  <span
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 700,
+                      color: qualityEvaluation.passed ? "#15803d" : "#991b1b",
+                    }}
+                  >
+                    {qualityEvaluation.passed
+                      ? `✅ Anti-Hallucination Gate: ĐẠT TIÊU CHUẨN (${qualityEvaluation.overallQualityScore?.toFixed(1)}%)`
+                      : `⛔ Anti-Hallucination Gate: BỊ CHẶN BỞI PR GATE (${qualityEvaluation.overallQualityScore?.toFixed(1)}%)`}
+                  </span>
+                  <p style={{ margin: "2px 0 0", fontSize: 11, color: qualityEvaluation.passed ? "#166534" : "#b91c1c" }}>
+                    {qualityEvaluation.passed
+                      ? "Tài liệu đạt chuẩn, không có ảo giác AI nghiêm trọng. Đủ điều kiện phê duyệt & gộp Pull Request."
+                      : `Phát hiện ${qualityEvaluation.phantomSymbolsCount} ký hiệu ảo giác (Phantom Symbols) hoặc thiếu thực thể code. Cân nhắc yêu cầu hiệu chỉnh trước khi duyệt!`}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab("quality")}
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  padding: "4px 10px",
+                  borderRadius: 6,
+                  border: "none",
+                  background: qualityEvaluation.passed ? "#dcfce7" : "#fee2e2",
+                  color: qualityEvaluation.passed ? "#15803d" : "#991b1b",
+                  cursor: "pointer",
+                }}
+              >
+                Xem chi tiết kiểm định →
+              </button>
+            </div>
+          )}
+
           {returnStaffLog && (
             <div
               style={{
@@ -1221,6 +1313,43 @@ export default function HangDoiXemXetStaffPage() {
                       >
                         <History size={12} />
                         Audit Trail ({auditLogs.length})
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab("quality");
+                        }}
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: "5px 10px",
+                          borderRadius: 4,
+                          border: "none",
+                          background: activeTab === "quality" ? "#0f766e" : "#e2e8f0",
+                          color: activeTab === "quality" ? "#ffffff" : "#475569",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 5,
+                        }}
+                      >
+                        <ShieldAlert size={12} />
+                        Anti-Hallucination Gate
+                        {qualityEvaluation && (
+                          <span
+                            style={{
+                              fontSize: 9,
+                              fontWeight: 700,
+                              padding: "1px 5px",
+                              borderRadius: 8,
+                              background: qualityEvaluation.passed ? "#dcfce7" : "#fee2e2",
+                              color: qualityEvaluation.passed ? "#15803d" : "#dc2626",
+                            }}
+                          >
+                            {qualityEvaluation.overallQualityScore?.toFixed(0)}%
+                          </span>
+                        )}
                       </button>
 
                       {/* Nút AI Proofread & Gợi ý sửa */}
@@ -1785,6 +1914,232 @@ export default function HangDoiXemXetStaffPage() {
                                 </div>
                               );
                             })}
+                        </div>
+                      )}
+                    </div>
+                  ) : activeTab === "quality" ? (
+                    <div style={{ padding: 18, maxHeight: "560px", overflowY: "auto", background: "#ffffff" }}>
+                      {loadingQualityEval ? (
+                        <div style={{ textAlign: "center", padding: 40, color: "#64748b" }}>
+                          <RefreshCw size={24} className="animate-spin" style={{ margin: "0 auto 10px", color: "#0f766e" }} />
+                          <p style={{ fontSize: 13, fontWeight: 600 }}>Đang kiểm định chất lượng & quét ảo giác AI...</p>
+                        </div>
+                      ) : !qualityEvaluation ? (
+                        <div style={{ textAlign: "center", padding: 40, color: "#64748b" }}>
+                          <ShieldAlert size={32} style={{ margin: "0 auto 10px", color: "#94a3b8" }} />
+                          <p style={{ fontSize: 13, fontWeight: 600 }}>Chưa có kết quả kiểm định chất lượng.</p>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                          {/* Banner PR Gate */}
+                          <div
+                            style={{
+                              padding: "14px 18px",
+                              borderRadius: 8,
+                              background: qualityEvaluation.passed ? "#f0fdf4" : "#fef2f2",
+                              border: "1px solid",
+                              borderColor: qualityEvaluation.passed ? "#bbf7d0" : "#fecaca",
+                            }}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                {qualityEvaluation.passed ? (
+                                  <CheckCircle2 size={20} style={{ color: "#16a34a" }} />
+                                ) : (
+                                  <AlertOctagon size={20} style={{ color: "#dc2626" }} />
+                                )}
+                                <span
+                                  style={{
+                                    fontSize: 14,
+                                    fontWeight: 800,
+                                    color: qualityEvaluation.passed ? "#15803d" : "#b91c1c",
+                                  }}
+                                >
+                                  {qualityEvaluation.passed
+                                    ? `ĐẠT TIÊU CHUẨN PR GATE (${qualityEvaluation.overallQualityScore?.toFixed(1)}/100)`
+                                    : `CẢNH BÁO: BỊ CHẶN BỞI PR GATE (${qualityEvaluation.overallQualityScore?.toFixed(1)}/100)`}
+                                </span>
+                              </div>
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  padding: "3px 8px",
+                                  borderRadius: 4,
+                                  background: qualityEvaluation.passed ? "#dcfce7" : "#fee2e2",
+                                  color: qualityEvaluation.passed ? "#15803d" : "#b91c1c",
+                                }}
+                              >
+                                {qualityEvaluation.prGateStatus}
+                              </span>
+                            </div>
+                            <p style={{ fontSize: 12, color: qualityEvaluation.passed ? "#166534" : "#991b1b", margin: 0, lineHeight: 1.5 }}>
+                              {qualityEvaluation.recommendation}
+                            </p>
+                          </div>
+
+                          {/* 3 Real Metrics */}
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                            <div style={{ padding: 12, background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+                              <span style={{ fontSize: 11, fontWeight: 600, color: "#64748b", display: "block" }}>
+                                1. Độ phủ Entity & Param
+                              </span>
+                              <span style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 4, display: "block" }}>
+                                {qualityEvaluation.overallCoveragePercent?.toFixed(1)}%
+                              </span>
+                              <div style={{ height: 6, background: "#e2e8f0", borderRadius: 3, marginTop: 6, overflow: "hidden" }}>
+                                <div
+                                  style={{
+                                    height: "100%",
+                                    width: `${Math.min(100, qualityEvaluation.overallCoveragePercent || 0)}%`,
+                                    background: (qualityEvaluation.overallCoveragePercent || 0) >= 75 ? "#10b981" : "#f59e0b",
+                                  }}
+                                />
+                              </div>
+                              <span style={{ fontSize: 10, color: "#64748b", marginTop: 4, display: "block" }}>
+                                {qualityEvaluation.documentedCodeEntitiesCount}/{qualityEvaluation.totalCodeEntitiesScanned} thực thể AST
+                              </span>
+                            </div>
+
+                            <div
+                              style={{
+                                padding: 12,
+                                background: qualityEvaluation.phantomSymbolsCount === 0 ? "#f8fafc" : "#fff1f2",
+                                borderRadius: 8,
+                                border: "1px solid",
+                                borderColor: qualityEvaluation.phantomSymbolsCount === 0 ? "#e2e8f0" : "#fecdd3",
+                              }}
+                            >
+                              <span style={{ fontSize: 11, fontWeight: 600, color: "#64748b", display: "block" }}>
+                                2. Điểm Chống Ảo Giác AI
+                              </span>
+                              <span
+                                style={{
+                                  fontSize: 20,
+                                  fontWeight: 800,
+                                  color: (qualityEvaluation.antiHallucinationPercent || 0) >= 80 ? "#15803d" : "#dc2626",
+                                  marginTop: 4,
+                                  display: "block",
+                                }}
+                              >
+                                {qualityEvaluation.antiHallucinationPercent?.toFixed(1)}%
+                              </span>
+                              <div style={{ height: 6, background: "#e2e8f0", borderRadius: 3, marginTop: 6, overflow: "hidden" }}>
+                                <div
+                                  style={{
+                                    height: "100%",
+                                    width: `${Math.min(100, qualityEvaluation.antiHallucinationPercent || 0)}%`,
+                                    background: (qualityEvaluation.antiHallucinationPercent || 0) >= 80 ? "#10b981" : "#ef4444",
+                                  }}
+                                />
+                              </div>
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: qualityEvaluation.phantomSymbolsCount > 0 ? 700 : 400,
+                                  color: qualityEvaluation.phantomSymbolsCount > 0 ? "#dc2626" : "#64748b",
+                                  marginTop: 4,
+                                  display: "block",
+                                }}
+                              >
+                                {qualityEvaluation.phantomSymbolsCount} Phantom Symbols
+                              </span>
+                            </div>
+
+                            <div style={{ padding: 12, background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+                              <span style={{ fontSize: 11, fontWeight: 600, color: "#64748b", display: "block" }}>
+                                3. Tuân thủ Template
+                              </span>
+                              <span style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 4, display: "block" }}>
+                                {qualityEvaluation.templateCompliancePercent?.toFixed(1)}%
+                              </span>
+                              <div style={{ height: 6, background: "#e2e8f0", borderRadius: 3, marginTop: 6, overflow: "hidden" }}>
+                                <div
+                                  style={{
+                                    height: "100%",
+                                    width: `${Math.min(100, qualityEvaluation.templateCompliancePercent || 0)}%`,
+                                    background: (qualityEvaluation.templateCompliancePercent || 0) >= 80 ? "#10b981" : "#f59e0b",
+                                  }}
+                                />
+                              </div>
+                              <span style={{ fontSize: 10, color: "#64748b", marginTop: 4, display: "block" }}>
+                                {qualityEvaluation.matchedHeadingsCount}/{qualityEvaluation.requiredHeadingsCount} đề mục chuẩn
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Chi tiết Phantom Symbols */}
+                          <div style={{ border: "1px solid #fecaca", borderRadius: 8, overflow: "hidden" }}>
+                            <div style={{ padding: "8px 14px", background: "#fee2e2", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: "#991b1b", display: "flex", alignItems: "center", gap: 6 }}>
+                                <AlertCircle size={14} />
+                                Ký hiệu ma / Ảo giác AI (Phantom Symbols) ({qualityEvaluation.phantomSymbols.length})
+                              </span>
+                              <span style={{ fontSize: 10, color: "#7f1d1d" }}>
+                                Quét backticks, tên hàm, API paths không có trong code
+                              </span>
+                            </div>
+                            <div style={{ padding: 12, background: "#fff5f5" }}>
+                              {qualityEvaluation.phantomSymbols.length === 0 ? (
+                                <p style={{ fontSize: 12, color: "#166534", margin: 0, textAlign: "center", padding: "10px 0" }}>
+                                  ✅ Không phát hiện ký hiệu ảo giác nào. Mọi khai báo đều khớp với mã nguồn thật.
+                                </p>
+                              ) : (
+                                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                                  {qualityEvaluation.phantomSymbols.map((phantom, i) => (
+                                    <div
+                                      key={i}
+                                      style={{
+                                        padding: 10,
+                                        borderRadius: 6,
+                                        background: "#ffffff",
+                                        border: "1px solid #fecaca",
+                                        fontSize: 12,
+                                      }}
+                                    >
+                                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                                        <code style={{ fontSize: 12, fontWeight: 700, color: "#b91c1c", background: "#fee2e2", padding: "2px 6px", borderRadius: 4 }}>
+                                          {phantom.symbol}
+                                        </code>
+                                        <span style={{ fontSize: 10, fontWeight: 700, color: "#b91c1c" }}>
+                                          {phantom.symbolType} • Dòng {phantom.lineNumber} • Mức: {phantom.severity}
+                                        </span>
+                                      </div>
+                                      <p style={{ margin: "4px 0", color: "#64748b", fontStyle: "italic", fontSize: 11 }}>
+                                        Ngữ cảnh: &quot;{phantom.contextSnippet}&quot;
+                                      </p>
+                                      <p style={{ margin: "2px 0 0", color: "#991b1b", fontSize: 11 }}>
+                                        {phantom.reason}
+                                      </p>
+                                      {phantom.suggestion && (
+                                        <p style={{ margin: "4px 0 0", color: "#047857", fontWeight: 600, fontSize: 11 }}>
+                                          💡 Gợi ý: {phantom.suggestion}
+                                        </p>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Chi tiết Thực thể & Tham số thiếu */}
+                          {qualityEvaluation.missingEntities.length > 0 && (
+                            <div style={{ border: "1px solid #fed7aa", borderRadius: 8, overflow: "hidden" }}>
+                              <div style={{ padding: "8px 14px", background: "#ffedd5", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: "#9a3412" }}>
+                                  Thực thể mã nguồn thật chưa được tài liệu hóa ({qualityEvaluation.missingEntities.length})
+                                </span>
+                              </div>
+                              <div style={{ padding: 12, background: "#fffaf0", display: "flex", flexDirection: "column", gap: 6 }}>
+                                {qualityEvaluation.missingEntities.map((ent, i) => (
+                                  <div key={i} style={{ fontSize: 11, color: "#7c2d12" }}>
+                                    • <strong>{ent.className}.{ent.methodName || ent.entityType}</strong> ({ent.signature || ent.filePath})
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

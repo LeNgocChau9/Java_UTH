@@ -219,7 +219,10 @@ function DocumentListPageContent() {
     try {
       setRefreshing(true);
       const [docs, cols, owners, rps, tmpls] = await Promise.all([
-        documentService.getDocuments(),
+        documentService.getDocuments().catch((e) => {
+          console.warn("[TaiLieu] Backend chưa sẵn sàng trả về tài liệu:", e);
+          return [];
+        }),
         documentService.getCollections().catch(() => []),
         documentService.getCollectionOwners().catch(() => []),
         repoService.getRepositories().catch(() => []),

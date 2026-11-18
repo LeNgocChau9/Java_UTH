@@ -98,6 +98,9 @@ public class PrMergeBlockingServiceImpl implements PrMergeBlockingServicePort {
                 .minSeverity(StringUtils.hasText(dto.getMinSeverity()) ? dto.getMinSeverity().trim().toUpperCase() : current.getMinSeverity())
                 .checkName(StringUtils.hasText(dto.getCheckName()) ? dto.getCheckName().trim() : current.getCheckName())
                 .autoUnlockOnApproval(dto.getAutoUnlockOnApproval() != null ? dto.getAutoUnlockOnApproval() : current.getAutoUnlockOnApproval())
+                .qualityGateEnabled(dto.getQualityGateEnabled() != null ? dto.getQualityGateEnabled() : current.getQualityGateEnabled())
+                .minQualityScore(dto.getMinQualityScore() != null ? dto.getMinQualityScore() : current.getMinQualityScore())
+                .minAntiHallucinationScore(dto.getMinAntiHallucinationScore() != null ? dto.getMinAntiHallucinationScore() : current.getMinAntiHallucinationScore())
                 .updatedAt(Instant.now())
                 .updatedBy(StringUtils.hasText(actorUsername) ? actorUsername : (actorId != null ? "User #" + actorId : "ADMIN"))
                 .build();
