@@ -218,19 +218,13 @@ export default function PresenceCards({
               </svg>
             </div>
 
-            {/* Clean Title & Subtitle */}
+            {/* Clean Title */}
             <div className="min-w-0">
               <div
                 className="truncate text-[22px] font-bold leading-tight tracking-[-0.02em]"
                 style={{ color: isDark ? "#f4f4f6" : "#18181b" }}
               >
                 Repository
-              </div>
-              <div
-                className="truncate font-mono text-[13px]"
-                style={{ color: isDark ? "#8f8f95" : "#71717a" }}
-              >
-                LeNgocChau9/Java_UTH
               </div>
             </div>
           </div>
