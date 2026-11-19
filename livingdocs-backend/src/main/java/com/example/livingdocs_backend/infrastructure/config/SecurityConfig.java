@@ -5,6 +5,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -59,41 +60,11 @@ public class SecurityConfig {
                     "/api/auth/refresh",
                     "/api/admin/users/forgot-password",
                     "/api/auth/github",
-                    "/api/auth/github/callback",
-                    "/api/jobs",
-                    "/api/jobs/**",
-                    "/api/templates",
-                    "/api/templates/**",
-                    "/api/documents",
-                    "/api/documents/**",
-                    "/v1/docs",
-                    "/v1/docs/**",
-                    "/api/v1/docs",
-                    "/api/v1/docs/**",
-                    "/api/reviews",
-                    "/api/reviews/**",
-                    "/api/collections",
-                    "/api/collections/**",
-                    "/api/repos",
-                    "/api/repos/**",
-                    "/api/repositories",
-                    "/api/repositories/**",
-                    "/api/v1/code-entities",
-                    "/api/v1/code-entities/**",
-                    "/api/code-diff",
-                    "/api/code-diff/**",
-                    "/api/webhooks",
-                    "/api/webhooks/**",
-                    "/api/v1/settings",
-                    "/api/v1/settings/**",
-                    "/api/ci/**",
-                    "/api/drift-alerts",
-                    "/api/drift-alerts/**",
-                    "/api/v1/ai/**",
-                    "/api/dashboard",
-                    "/api/dashboard/**"
+                    "/api/auth/github/callback"
                 ).permitAll()
-                .requestMatchers("/api/me").authenticated()
+                .requestMatchers(HttpMethod.POST, "/api/webhooks/**").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/ci/drift-scan").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/v1/ai/chat").permitAll()
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

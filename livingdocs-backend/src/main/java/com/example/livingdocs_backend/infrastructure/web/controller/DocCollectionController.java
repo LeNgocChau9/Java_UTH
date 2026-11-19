@@ -67,6 +67,7 @@ public class DocCollectionController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Danh sách bộ sưu tập", description = "Lấy danh sách toàn bộ các bộ sưu tập tài liệu kèm thông tin người phụ trách (Owner) và số lượng tài liệu bên trong.")
     public ResponseEntity<List<DocCollectionResponse>> listCollections() {
         List<DocCollectionEntity> entities = collectionRepository.findAll();
@@ -78,6 +79,7 @@ public class DocCollectionController {
     }
 
     @GetMapping("/owners")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Danh sách nhân sự phụ trách (Tech Lead / Developer)", description = "Lấy danh sách các Tech Lead và Developer đang hoạt động để gán làm chủ sở hữu (Owner) cho bộ sưu tập tài liệu.")
     public ResponseEntity<List<CollectionOwnerDto>> listCollectionOwners() {
         if (userRepositoryPort == null) {
@@ -102,6 +104,7 @@ public class DocCollectionController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Chi tiết bộ sưu tập", description = "Lấy thông tin chi tiết một bộ sưu tập theo ID.")
     public ResponseEntity<DocCollectionResponse> getCollection(@PathVariable Long id) {
         DocCollectionEntity entity = collectionRepository.findById(id)
@@ -111,6 +114,7 @@ public class DocCollectionController {
     }
 
     @GetMapping(value = "/{id}/export-zip", produces = "application/zip")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Xuất ZIP tài liệu đã duyệt của bộ sưu tập", description = "Đóng gói các tài liệu APPROVED và PUBLISHED, giữ targetPath, kèm README.md và SUMMARY.md.")
     public ResponseEntity<byte[]> exportCollectionZip(@PathVariable Long id) {
         if (docsBundleService == null) {
@@ -129,6 +133,7 @@ public class DocCollectionController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Tạo bộ sưu tập mới", description = "Tạo một bộ sưu tập tài liệu mới theo phân hệ nghiệp vụ và gán người phụ trách chính (Owner).")
     public ResponseEntity<DocCollectionResponse> createCollection(@Valid @RequestBody DocCollectionRequest request) {
         DocCollectionEntity entity = DocCollectionEntity.builder()
@@ -148,6 +153,7 @@ public class DocCollectionController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Cập nhật bộ sưu tập & chuyển giao quyền sở hữu", description = "Chỉnh sửa tên, mô tả, phân hệ nghiệp vụ, thay đổi người phụ trách chính (Owner) hoặc đồng bộ danh sách tài liệu của bộ sưu tập.")
     public ResponseEntity<DocCollectionResponse> updateCollection(
             @PathVariable Long id,
@@ -175,6 +181,7 @@ public class DocCollectionController {
     }
 
     @PostMapping("/{id}/documents")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Gán tài liệu vào bộ sưu tập", description = "Gán hàng loạt hoặc đồng bộ danh sách tài liệu thuộc về một bộ sưu tập.")
     public ResponseEntity<DocCollectionResponse> assignDocumentsToCollection(
             @PathVariable Long id,
@@ -190,6 +197,7 @@ public class DocCollectionController {
     }
 
     @DeleteMapping("/{id}/documents/{docId}")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Gỡ tài liệu khỏi bộ sưu tập", description = "Gỡ một tài liệu ra khỏi bộ sưu tập (chuyển collectionId của tài liệu về null).")
     public ResponseEntity<DocCollectionResponse> removeDocumentFromCollection(
             @PathVariable Long id,
@@ -208,6 +216,7 @@ public class DocCollectionController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('TECH_LEAD','MANAGER','ADMIN')")
     @Operation(summary = "Xóa bộ sưu tập", description = "Xóa một bộ sưu tập (các tài liệu bên trong sẽ được set collectionId = null).")
     public ResponseEntity<Map<String, Object>> deleteCollection(@PathVariable Long id) {
         if (!collectionRepository.existsById(id)) {

@@ -20,17 +20,17 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/ci/tokens")
-@PreAuthorize("hasRole('ADMIN')")
+@RequestMapping({"/api/ci/tokens", "/api/ci-tokens"})
+@PreAuthorize("hasAnyRole('ADMIN', 'TECH_LEAD', 'DEVELOPER')")
 @RequiredArgsConstructor
 @SecurityRequirement(name = "BearerAuth")
-@Tag(name = "CI Tokens - Quản lý Token CI cho GitHub Action", description = "API dành riêng cho ADMIN: Tạo mới token bảo mật, xem danh sách và thu hồi token.")
+@Tag(name = "CI Tokens - Quản lý Token CI cho GitHub Action", description = "API dành cho ADMIN, TECH_LEAD, DEVELOPER: Tạo mới token bảo mật, xem danh sách và thu hồi token.")
 public class CiTokenController {
 
     private final CiTokenServicePort ciTokenServicePort;
 
     @GetMapping
-    @Operation(summary = "Lấy danh sách CI Token", description = "Trả về toàn bộ CI Token (chỉ hiển thị prefix, không lộ secret). Chỉ ADMIN.")
+    @Operation(summary = "Lấy danh sách CI Token", description = "Trả về toàn bộ CI Token (chỉ hiển thị prefix, không lộ secret).")
     public ResponseEntity<List<CiTokenResponse>> getAllTokens() {
         return ResponseEntity.ok(ciTokenServicePort.getAllTokens());
     }

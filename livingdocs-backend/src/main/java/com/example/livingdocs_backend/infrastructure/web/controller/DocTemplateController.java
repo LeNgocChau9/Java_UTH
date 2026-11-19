@@ -15,6 +15,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -35,24 +36,28 @@ public class DocTemplateController {
     private final DocTemplateService docTemplateService;
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Danh sách mẫu", description = "Trả về toàn bộ doc_templates, gồm các mẫu đã seed.")
     public ResponseEntity<List<DocTemplateResponse>> list() {
         return ResponseEntity.ok(docTemplateService.list());
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Chi tiết một mẫu", description = "Lấy mẫu theo id. Trả 404 nếu không có.")
     public ResponseEntity<DocTemplateResponse> getById(@PathVariable Long id) {
         return ResponseEntity.ok(docTemplateService.getById(id));
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('TECH_LEAD','ADMIN')")
     @Operation(summary = "Tạo mẫu", description = "Tạo mẫu mới. Trả 409 nếu type đã tồn tại.")
     public ResponseEntity<DocTemplateResponse> create(@Valid @RequestBody DocTemplateRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(docTemplateService.create(request));
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('TECH_LEAD','ADMIN')")
     @Operation(summary = "Cập nhật mẫu", description = "Sửa name, type, structureJson và isDefault.")
     public ResponseEntity<DocTemplateResponse> update(@PathVariable Long id,
                                                       @Valid @RequestBody DocTemplateRequest request) {
@@ -60,6 +65,7 @@ public class DocTemplateController {
     }
 
     @PostMapping("/{id}/validate")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Kiểm tra Markdown với cấu trúc template",
             description = "Đối chiếu đề mục. Nếu thiếu mục bắt buộc thì warning=true để Staff thấy khi xem xét.")
     public ResponseEntity<TemplateValidationResult> validate(@PathVariable Long id,
@@ -68,6 +74,7 @@ public class DocTemplateController {
     }
 
     @PostMapping("/cross-check")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Đối chiếu 2 chiều: Tài liệu Word/Markdown vs Template chuẩn và Code Entities",
             description = "Quét cấu trúc đề mục so với Template đồng thời quét Controller/Service/Entity từ code_entities xem phần nào chưa được tài liệu hóa.")
     public ResponseEntity<com.example.livingdocs_backend.application.dto.DocumentCrossCheckResponse> crossCheck(
@@ -76,6 +83,7 @@ public class DocTemplateController {
     }
 
     @PostMapping("/{id}/preview")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Xem trước mẫu với dữ liệu giả",
             description = "Nhận class name và danh sách method, điền vào structure của template rồi trả Markdown.")
     public ResponseEntity<TemplatePreviewResponse> preview(@PathVariable Long id,
@@ -84,6 +92,7 @@ public class DocTemplateController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('TECH_LEAD','ADMIN')")
     @Operation(summary = "Xóa mẫu", description = "Xóa mẫu theo id, kèm mọi phiên bản. Trả 204 khi xóa xong.")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         docTemplateService.delete(id);
@@ -91,12 +100,14 @@ public class DocTemplateController {
     }
 
     @GetMapping("/{id}/versions")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Danh sách phiên bản của mẫu", description = "Mới nhất đứng trước.")
     public ResponseEntity<List<TemplateVersionResponse>> listVersions(@PathVariable Long id) {
         return ResponseEntity.ok(docTemplateService.listVersions(id));
     }
 
     @PostMapping("/{id}/versions")
+    @PreAuthorize("hasAnyRole('TECH_LEAD','ADMIN')")
     @Operation(summary = "Tạo phiên bản", description = "Tăng version_num và cập nhật structure của mẫu thành bản này.")
     public ResponseEntity<TemplateVersionResponse> createVersion(@PathVariable Long id,
                                                                  @Valid @RequestBody TemplateVersionRequest request) {
@@ -104,6 +115,7 @@ public class DocTemplateController {
     }
 
     @GetMapping("/{id}/versions/{versionId}")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Chi tiết một phiên bản")
     public ResponseEntity<TemplateVersionResponse> getVersion(@PathVariable Long id,
                                                               @PathVariable Long versionId) {
@@ -111,6 +123,7 @@ public class DocTemplateController {
     }
 
     @PutMapping("/{id}/versions/{versionId}")
+    @PreAuthorize("hasAnyRole('TECH_LEAD','ADMIN')")
     @Operation(summary = "Sửa một phiên bản", description = "Nếu đây là phiên bản mới nhất thì structure của mẫu cũng đổi theo.")
     public ResponseEntity<TemplateVersionResponse> updateVersion(@PathVariable Long id,
                                                                  @PathVariable Long versionId,
@@ -119,6 +132,7 @@ public class DocTemplateController {
     }
 
     @PostMapping("/{id}/versions/{versionId}/rollback")
+    @PreAuthorize("hasAnyRole('TECH_LEAD','ADMIN')")
     @Operation(summary = "Khôi phục phiên bản mẫu", description = "Khôi phục cấu trúc và quy tắc từ phiên bản chỉ định và tạo bản ghi phiên bản mới.")
     public ResponseEntity<TemplateVersionResponse> rollbackVersion(@PathVariable Long id,
                                                                    @PathVariable Long versionId) {
@@ -126,6 +140,7 @@ public class DocTemplateController {
     }
 
     @DeleteMapping("/{id}/versions/{versionId}")
+    @PreAuthorize("hasAnyRole('TECH_LEAD','ADMIN')")
     @Operation(summary = "Xóa một phiên bản")
     public ResponseEntity<Void> deleteVersion(@PathVariable Long id, @PathVariable Long versionId) {
         docTemplateService.deleteVersion(id, versionId);

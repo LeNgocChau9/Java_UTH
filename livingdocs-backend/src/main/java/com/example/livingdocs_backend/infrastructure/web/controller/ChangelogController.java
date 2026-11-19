@@ -13,6 +13,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
@@ -21,6 +22,7 @@ import java.time.ZoneId;
 
 @RestController
 @RequestMapping("/api/changelogs")
+@PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
 @RequiredArgsConstructor
 @SecurityRequirement(name = "BearerAuth")
 @Tag(name = "Changelog - Nhật ký thay đổi tài liệu", description = "API lọc và phân trang lịch sử thay đổi tài liệu toàn hệ thống")

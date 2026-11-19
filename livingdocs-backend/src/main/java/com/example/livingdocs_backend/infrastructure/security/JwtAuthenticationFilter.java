@@ -78,6 +78,23 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (StringUtils.hasText(bearerToken) && bearerToken.startsWith("Bearer ")) {
             return bearerToken.substring(7);
         }
+        // Fallback cho EventSource (SSE) qua same-origin proxy: đọc từ cookie livingdocs_access_token
+        jakarta.servlet.http.Cookie[] cookies = request.getCookies();
+        if (cookies != null) {
+            for (jakarta.servlet.http.Cookie cookie : cookies) {
+                if ("livingdocs_access_token".equals(cookie.getName()) && StringUtils.hasText(cookie.getValue())) {
+                    return cookie.getValue();
+                }
+            }
+        }
+        // Fallback cho SSE /stream endpoints nếu truyền qua query parameter ?token=
+        String uri = request.getRequestURI();
+        if (uri != null && uri.endsWith("/stream")) {
+            String queryToken = request.getParameter("token");
+            if (StringUtils.hasText(queryToken)) {
+                return queryToken.trim();
+            }
+        }
         return null;
     }
 }

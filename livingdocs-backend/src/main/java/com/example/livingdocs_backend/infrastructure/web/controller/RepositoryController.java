@@ -6,6 +6,7 @@ import java.util.Optional;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -56,7 +57,11 @@ public class RepositoryController {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.example.livingdocs_backend.application.port.DocumentServicePort documentServicePort;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.example.livingdocs_backend.application.service.WebhookDeliveryService webhookDeliveryService;
+
     @PostMapping
+    @PreAuthorize("hasAnyRole('DEVELOPER','TECH_LEAD','MANAGER','ADMIN')")
     @Operation(summary = "Thêm kho lưu trữ GitHub vào Workspace")
     public ResponseEntity<RepoResponse> addRepository(
             @Valid @RequestBody CreateRepoRequest request,
@@ -67,6 +72,7 @@ public class RepositoryController {
     }
 
     @PostMapping("/{id}/sync")
+    @PreAuthorize("hasAnyRole('DEVELOPER','TECH_LEAD','MANAGER','ADMIN')")
     @Operation(summary = "Đồng bộ PR và Commit từ GitHub về Database")
     public ResponseEntity<SyncRepoResponse> syncRepository(
             @PathVariable("id") Long id,
@@ -78,6 +84,7 @@ public class RepositoryController {
     }
 
     @GetMapping(value = "/{id}/export-docs-zip", produces = "application/zip")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Xuất ZIP tài liệu đã duyệt của kho", description = "Đóng gói tài liệu APPROVED và PUBLISHED theo targetPath, kèm README.md, SUMMARY.md và openapi.md.")
     public ResponseEntity<byte[]> exportRepositoryDocsZip(@PathVariable("id") Long id) {
         byte[] zip = docsBundleService.exportRepository(id);
@@ -88,6 +95,7 @@ public class RepositoryController {
     }
 
     @PostMapping("/{id}/reindex")
+    @PreAuthorize("hasAnyRole('DEVELOPER','TECH_LEAD','MANAGER','ADMIN')")
     @Operation(summary = "Tái lập chỉ mục Vector RAG cho kho lưu trữ", description = "Băm nhỏ và lập vector embedding cho toàn bộ tài liệu PUBLISHED và thực thể code trong repository.")
     public ResponseEntity<java.util.Map<String, Object>> reindexRepository(@PathVariable("id") Long id) {
         int indexed = documentServicePort != null ? documentServicePort.reindexRepository(id) : 0;
@@ -100,6 +108,7 @@ public class RepositoryController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Lấy danh sách các Repository trong Workspace")
     public ResponseEntity<List<RepoResponse>> listRepositories(
             @RequestParam(value = "workspaceId", required = false) Long workspaceId,
@@ -112,6 +121,7 @@ public class RepositoryController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Lấy chi tiết một Repository theo ID")
     public ResponseEntity<RepoResponse> getRepository(@PathVariable("id") Long id) {
         RepoResponse repo = repositoryService.getRepository(id);
@@ -119,6 +129,7 @@ public class RepositoryController {
     }
 
     @GetMapping("/{id}/pulls")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Lấy danh sách PR đã lưu của Repository")
     public ResponseEntity<List<com.example.livingdocs_backend.infrastructure.persistence.entity.PullRequestEntity>> getPullRequests(
             @PathVariable("id") Long id,
@@ -128,6 +139,7 @@ public class RepositoryController {
     }
 
     @GetMapping("/{id}/commits")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Lấy danh sách Commits đã lưu của Repository")
     public ResponseEntity<List<com.example.livingdocs_backend.infrastructure.persistence.entity.CommitEntity>> getCommits(
             @PathVariable("id") Long id,
@@ -136,7 +148,19 @@ public class RepositoryController {
         return ResponseEntity.ok(repositoryService.getRepoCommits(id));
     }
 
+    @GetMapping("/{id}/webhook-deliveries")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
+    @Operation(summary = "Lấy lịch sử giao nhận GitHub Webhook của Repository")
+    public ResponseEntity<List<com.example.livingdocs_backend.infrastructure.persistence.entity.WebhookDeliveryEntity>> getWebhookDeliveries(
+            @PathVariable("id") Long id) {
+        if (webhookDeliveryService == null) {
+            return ResponseEntity.ok(List.of());
+        }
+        return ResponseEntity.ok(webhookDeliveryService.getDeliveriesByRepository(id));
+    }
+
     @GetMapping("/{id}/tree")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Lấy cây thư mục và danh sách file thực tế từ GitHub API")
     public ResponseEntity<List<com.example.livingdocs_backend.application.dto.github.GitHubFileDto>> getRepositoryTree(
             @PathVariable("id") Long id,
@@ -147,6 +171,7 @@ public class RepositoryController {
     }
 
     @GetMapping("/{id}/file-content")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Lấy nội dung mã nguồn thực tế của file từ GitHub hoặc hệ thống")
     public ResponseEntity<java.util.Map<String, String>> getFileContent(
             @PathVariable("id") Long id,
@@ -162,6 +187,7 @@ public class RepositoryController {
     }
 
     @GetMapping("/{id}/code-entities")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Lấy danh sách các phần tử mã nguồn (Code Entities) theo Repo ID")
     public ResponseEntity<List<CodeEntity>> getCodeEntitiesByRepo(@PathVariable("id") Long id) {
         if (codeIndexService == null) {
@@ -171,6 +197,7 @@ public class RepositoryController {
     }
 
     @PostMapping("/connections/{connectionId}/verify")
+    @PreAuthorize("hasAnyRole('DEVELOPER','TECH_LEAD','MANAGER','ADMIN')")
     @Operation(summary = "Kiểm tra tính hợp lệ của GitHub Access Token và bắn cảnh báo nếu hết hạn/bị revoke")
     public ResponseEntity<com.example.livingdocs_backend.application.dto.github.GitHubConnectionStatusResponse> verifyConnection(
             @PathVariable("connectionId") Long connectionId,
@@ -180,6 +207,7 @@ public class RepositoryController {
     }
 
     @PostMapping("/connections/verify-all")
+    @PreAuthorize("hasAnyRole('DEVELOPER','TECH_LEAD','MANAGER','ADMIN')")
     @Operation(summary = "Quét kiểm tra toàn bộ kết nối GitHub Token trong workspace và bắn cảnh báo")
     public ResponseEntity<List<com.example.livingdocs_backend.application.dto.github.GitHubConnectionStatusResponse>> verifyAllConnections(
             @RequestParam(value = "workspaceId", required = false) Long workspaceId,
@@ -189,6 +217,7 @@ public class RepositoryController {
     }
 
     @GetMapping("/connections")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Lấy danh sách các kết nối GitHub và trạng thái hiện tại trong workspace")
     public ResponseEntity<List<com.example.livingdocs_backend.application.dto.github.GitHubConnectionStatusResponse>> listConnections(
             @RequestParam(value = "workspaceId", required = false) Long workspaceId) {

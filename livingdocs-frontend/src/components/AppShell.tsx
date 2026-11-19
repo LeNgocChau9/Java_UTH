@@ -389,7 +389,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     // Real-Time Server-Sent Events (SSE) cho chuông thông báo
     let eventSource: EventSource | null = null;
     try {
-      const sseUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080") + "/api/drift-alerts/stream";
+      const sseUrl = "/api/drift-alerts/stream";
       eventSource = new EventSource(sseUrl);
       eventSource.addEventListener("drift-alert", () => {
         fetchDriftAlerts();
