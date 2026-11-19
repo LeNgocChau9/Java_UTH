@@ -46,5 +46,5 @@ public interface SpringDataChangelogRepository extends JpaRepository<ChangelogEn
 
         @Modifying
         @Query("DELETE FROM ChangelogEntity c WHERE c.createdAt < :cutoff")
-        long deleteByCreatedAtBefore(@Param("cutoff") Instant cutoff);
+        int deleteByCreatedAtBefore(@Param("cutoff") Instant cutoff);
 }
