@@ -113,7 +113,7 @@ public class DocCollectionController {
         return ResponseEntity.ok(toCollectionResponse(entity));
     }
 
-    @GetMapping(value = "/{id}/export-zip", produces = "application/zip")
+    @GetMapping(value = "/{id}/export-zip", produces = {"application/zip", "application/octet-stream", "*/*"})
     @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Xuất ZIP tài liệu đã duyệt của bộ sưu tập", description = "Đóng gói các tài liệu APPROVED và PUBLISHED, giữ targetPath, kèm README.md và SUMMARY.md.")
     public ResponseEntity<byte[]> exportCollectionZip(@PathVariable Long id) {

@@ -209,7 +209,11 @@ public class DocumentController {
         return ResponseEntity.ok(documentServicePort.getDocumentById(docId));
     }
 
-    @GetMapping(value = "/{docId}/export/docx", produces = "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    @GetMapping(value = "/{docId}/export/docx", produces = {
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/octet-stream",
+            "*/*"
+    })
     @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Xuất tài liệu sang file Word (.docx)", description = "Chuyển đổi tài liệu hiện tại sang định dạng Microsoft Word (.docx).")
     public ResponseEntity<byte[]> exportDocumentToDocx(@PathVariable Long docId) {
@@ -220,11 +224,16 @@ public class DocumentController {
         byte[] docxBytes = MarkdownToDocxExporter.exportMarkdownToDocx(markdown, title);
 
         return ResponseEntity.ok()
+                .contentType(org.springframework.http.MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
                 .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + sanitizeFilename(title) + ".docx\"")
                 .body(docxBytes);
     }
 
-    @PostMapping(value = "/export/docx", produces = "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    @PostMapping(value = "/export/docx", produces = {
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/octet-stream",
+            "*/*"
+    })
     @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Xuất nội dung Markdown sang file Word (.docx)", description = "Nhận nội dung Markdown và trả về file Word (.docx).")
     public ResponseEntity<byte[]> exportRawMarkdownToDocx(@RequestBody ExportDocxRequest request) {
@@ -233,6 +242,7 @@ public class DocumentController {
         byte[] docxBytes = MarkdownToDocxExporter.exportMarkdownToDocx(markdown, title);
 
         return ResponseEntity.ok()
+                .contentType(org.springframework.http.MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
                 .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + sanitizeFilename(title) + ".docx\"")
                 .body(docxBytes);
     }

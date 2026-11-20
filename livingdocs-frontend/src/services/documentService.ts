@@ -89,6 +89,9 @@ export const documentService = {
   async exportDocx(docId: number): Promise<Blob> {
     const res = await apiClient.get(`/api/documents/${docId}/export/docx`, {
       responseType: "blob",
+      headers: {
+        Accept: "application/vnd.openxmlformats-officedocument.wordprocessingml.document, application/octet-stream, */*",
+      },
     });
     return res.data;
   },
@@ -99,6 +102,9 @@ export const documentService = {
   async exportRawDocx(payload: { title: string; markdown: string }): Promise<Blob> {
     const res = await apiClient.post("/api/documents/export/docx", payload, {
       responseType: "blob",
+      headers: {
+        Accept: "application/vnd.openxmlformats-officedocument.wordprocessingml.document, application/octet-stream, */*",
+      },
     });
     return res.data;
   },
@@ -106,6 +112,9 @@ export const documentService = {
   async exportCollectionZip(collectionId: number): Promise<Blob> {
     const res = await apiClient.get(`/api/collections/${collectionId}/export-zip`, {
       responseType: "blob",
+      headers: {
+        Accept: "application/zip, application/octet-stream, */*",
+      },
     });
     return res.data;
   },
@@ -113,6 +122,9 @@ export const documentService = {
   async exportRepositoryZip(repositoryId: number): Promise<Blob> {
     const res = await apiClient.get(`/api/repositories/${repositoryId}/export-docs-zip`, {
       responseType: "blob",
+      headers: {
+        Accept: "application/zip, application/octet-stream, */*",
+      },
     });
     return res.data;
   },

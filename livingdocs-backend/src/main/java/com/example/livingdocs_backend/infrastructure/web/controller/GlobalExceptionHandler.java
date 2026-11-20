@@ -276,6 +276,18 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(error);
     }
 
+    @ExceptionHandler(org.springframework.web.HttpMediaTypeNotAcceptableException.class)
+    public ResponseEntity<Map<String, Object>> handleHttpMediaTypeNotAcceptableException(org.springframework.web.HttpMediaTypeNotAcceptableException ex) {
+        log.warn("Media type not acceptable: {}", ex.getMessage());
+        Map<String, Object> error = new HashMap<>();
+        error.put("status", HttpStatus.NOT_ACCEPTABLE.value());
+        error.put("error", "Not Acceptable");
+        error.put("errorCode", "NOT_ACCEPTABLE");
+        error.put("message", "Định dạng dữ liệu yêu cầu không được máy chủ hỗ trợ.");
+        error.put("timestamp", Instant.now().toString());
+        return ResponseEntity.status(HttpStatus.NOT_ACCEPTABLE).body(error);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGenericException(Exception ex) {
         log.error("Unhandled system error: ", ex);

@@ -550,7 +550,17 @@ function VersionHistoryDiffContent() {
                       saveBlob(blob, `${docDetail.title}.docx`);
                       showToast("success", "Đã xuất file Word.");
                     } catch (err: any) {
-                      showToast("error", "Không xuất được Word: " + (err.response?.data?.message || err.message));
+                      let msg = err.message;
+                      if (err.response?.data instanceof Blob) {
+                        try {
+                          const text = await err.response.data.text();
+                          const parsed = JSON.parse(text);
+                          if (parsed.message) msg = parsed.message;
+                        } catch {}
+                      } else if (err.response?.data?.message) {
+                        msg = err.response.data.message;
+                      }
+                      showToast("error", "Không xuất được Word: " + msg);
                     }
                   }}
                 >
