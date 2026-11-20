@@ -16,6 +16,10 @@ export interface CodeEntityDto {
   docStatus: "DOCUMENTED" | "UNDOCUMENTED" | "OUTDATED" | "DRIFTED" | string;
   javadoc?: string;
   annotations?: string[];
+  callTargets?: string[];
+  extendsClass?: string;
+  implementsInterfaces?: string[];
+  imports?: string[];
   createdAt?: string;
   updatedAt?: string;
 }

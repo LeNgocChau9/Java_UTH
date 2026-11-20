@@ -107,6 +107,31 @@ class GeminiDocService:
         return round(max(0.10, min(1.0, real_score)), 2)
 
     @classmethod
+    def _validate_and_sanitize_mermaid(cls, markdown: str) -> str:
+        """Kiểm tra và chuẩn hóa cú pháp các khối Mermaid trong Markdown để đảm bảo render SVG không lỗi."""
+        if not markdown or "```mermaid" not in markdown:
+            return markdown
+
+        def sanitize_block(match):
+            chart_body = match.group(1).strip()
+            valid_headers = ("flowchart", "graph", "sequencediagram", "classdiagram", "erdiagram", "statediagram", "gantt", "pie", "gitgraph")
+            lines = chart_body.splitlines()
+            first_line = lines[0].strip().lower() if lines else ""
+            has_valid_header = any(first_line.startswith(h) for h in valid_headers)
+            if not has_valid_header:
+                chart_body = "flowchart TD\n" + chart_body
+
+            clean_lines = []
+            for line in chart_body.splitlines():
+                # Chuẩn hóa các nhãn node chứa ngoặc đơn chưa có nháy kép: A[label (info)] -> A["label (info)"]
+                fixed_line = re.sub(r'\[([^"\]]+?\([^\)\]]+?\)[^"\]]*?)\]', r'["\1"]', line)
+                clean_lines.append(fixed_line)
+
+            return "```mermaid\n" + "\n".join(clean_lines) + "\n```"
+
+        return re.sub(r'```mermaid\s*([\s\S]*?)```', sanitize_block, markdown)
+
+    @classmethod
     def _build_grounding_box_markdown(
         cls,
         file_path: str,
@@ -211,6 +236,20 @@ class GeminiDocService:
             f"- **Trách nhiệm:** Điều phối luồng dữ liệu, đảm bảo tính toàn vẹn nghiệp vụ.\n"
         )
 
+        # Xây dựng sơ đồ Mermaid tự động từ các entities AST và call_targets
+        mermaid_lines = ["flowchart TD"]
+        mermaid_lines.append(f'    Client["Client / Web UI"] --> Comp["{target_name}"]')
+        for idx, item in enumerate(entities_summary[:6], start=1):
+            m_name = item.get("name") or f"Method_{idx}"
+            safe_id = re.sub(r'[^a-zA-Z0-9_]', '', m_name) or f"m{idx}"
+            mermaid_lines.append(f'    Comp --> {safe_id}["{m_name}()"]')
+            call_targets = item.get("call_targets") or []
+            if isinstance(call_targets, list) and call_targets:
+                for ct in call_targets[:2]:
+                    safe_ct = re.sub(r'[^a-zA-Z0-9_]', '', ct) or "ExtCall"
+                    mermaid_lines.append(f'    {safe_id} -.->|calls| {safe_ct}["{ct}()"]')
+        mermaid_flowchart = "\n".join(mermaid_lines)
+
         if tpl == "PROJECT_DOCUMENTATION":
             return f"""# Tài liệu Dự án Tiêu chuẩn: {target_name}
 
@@ -251,6 +290,11 @@ class GeminiDocService:
 - **Quy trình sử dụng cơ bản:** Khởi tạo, sinh tài liệu, gửi duyệt và xuất bản tài liệu.
 
 ## 6. Hướng dẫn chi tiết từng chức năng
+### Sơ đồ Kiến trúc & Đồ thị Luồng Gọi Hàm (Mermaid)
+```mermaid
+{mermaid_flowchart}
+```
+
 ### Bảng tổng hợp thực thể mã nguồn (AST)
 {table_md}
 
@@ -292,13 +336,18 @@ class GeminiDocService:
 ## 1. Tổng quan & Mục đích thiết kế
 Thành phần `{target_name}` nằm trong tệp `{file_path}`, đóng vai trò điều phối logic nghiệp vụ trong kiến trúc LivingDocs.
 
-## 2. Chi tiết các Phần tử, Phương thức & API
+## 2. Sơ đồ Kiến trúc & Đồ thị Luồng Gọi Hàm (Mermaid)
+```mermaid
+{mermaid_flowchart}
+```
+
+## 3. Chi tiết các Phần tử, Phương thức & API
 {table_md}
 
 ### Đặc tả chuyên sâu các phần tử
 {details_md}
 
-## 3. Hướng dẫn Tích hợp & Sử dụng
+## 4. Hướng dẫn Tích hợp & Sử dụng
 ```java
 // Ví dụ sử dụng thành phần {target_name}
 {target_name} instance = new {target_name}();
@@ -523,8 +572,8 @@ Tài liệu PHẢI tuân thủ chính xác các đề mục sau:
 - Viết bằng TIẾNG VIỆT chuẩn kỹ thuật phần mềm, văn phong chuyên sâu, giải thích cặn kẽ.
 - BẮT BUỘC viết tài liệu DÀI, ĐẦY ĐỦ VÀ CHI TIẾT (Comprehensive Documentation). TUYỆT ĐỐI KHÔNG tóm tắt ngắn gọn hay lược bỏ thông tin.
 - Với từng hàm/phương thức: BẮT BUỘC phân tích chi tiết mục đích, luồng xử lý bên trong (Step-by-Step Flow), ý nghĩa từng tham số, kiểu trả về và các ngoại lệ có thể phát sinh.
+- BẮT BUỘC chèn ít nhất một sơ đồ Mermaid chuẩn (```mermaid\nflowchart TD ...\n``` hoặc ```mermaid\nsequenceDiagram ...\n``` hoặc ```mermaid\nerDiagram ...\n```) để trực quan hóa luồng xử lý, đồ thị gọi hàm (CALLS) hoặc kiến trúc quan hệ các thành phần.
 - BẮT BUỘC có các bảng Markdown, tiêu đề phân cấp rõ ràng, code block hoàn chỉnh (không viết code tắt hoặc '...').
-- BẮT BUỘC có các bảng Markdown, tiêu đề rõ ràng, code block chuẩn cú pháp.
 - KHÔNG viết thêm các lời chào hỏi hay giải thích ngoài lề, chỉ trả về nội dung Markdown của tài liệu.
 """
         return base_instructions + template_rules + footer_note
@@ -590,6 +639,7 @@ Tài liệu PHẢI tuân thủ chính xác các đề mục sau:
         if not cls._is_valid_google_api_key(active_key):
             logger.info("Sử dụng chế độ tổng hợp AST thông minh (Smart AST Synthesis) do GEMINI_API_KEY chưa hợp lệ.")
             synthesized_md = cls._build_smart_ast_markdown(request, target_name, entities_summary)
+            synthesized_md = cls._validate_and_sanitize_mermaid(synthesized_md)
             if "Khối Bằng chứng Xác thực Nguồn" not in synthesized_md:
                 synthesized_md = synthesized_md.rstrip() + "\n\n" + grounding_box_md.strip()
             confidence_score = cls._calculate_real_confidence_score(synthesized_md, entities_list)
@@ -660,6 +710,7 @@ Tài liệu PHẢI tuân thủ chính xác các đề mục sau:
             if "Khối Bằng chứng Xác thực Nguồn" not in clean_markdown and "Grounding Evidence Box" not in clean_markdown:
                 clean_markdown = clean_markdown.rstrip() + "\n\n" + grounding_box_md.strip()
 
+            clean_markdown = cls._validate_and_sanitize_mermaid(clean_markdown)
             confidence_score = cls._calculate_real_confidence_score(clean_markdown, entities_list)
 
             return DocGenerateResponse(
@@ -685,6 +736,7 @@ Tài liệu PHẢI tuân thủ chính xác các đề mục sau:
 
             logger.warning("Chuyển sang chế độ tổng hợp AST dự phòng do không có AI khả dụng.")
             synthesized_md = cls._build_smart_ast_markdown(request, target_name, entities_summary)
+            synthesized_md = cls._validate_and_sanitize_mermaid(synthesized_md)
             if "Khối Bằng chứng Xác thực Nguồn" not in synthesized_md:
                 synthesized_md = synthesized_md.rstrip() + "\n\n" + grounding_box_md.strip()
             confidence_score = cls._calculate_real_confidence_score(synthesized_md, entities_list)

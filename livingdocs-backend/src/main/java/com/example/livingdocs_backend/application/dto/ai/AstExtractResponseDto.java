@@ -16,7 +16,11 @@ public record AstExtractResponseDto(
         String file_path,
         String commit_hash,
         Integer total_entities,
-        List<CodeEntityItemDto> entities
+        List<CodeEntityItemDto> entities,
+        List<String> imports,
+        String extends_class,
+        List<String> implements_interfaces,
+        List<String> call_targets
 ) {
     @JsonIgnoreProperties(ignoreUnknown = true)
     @Builder
@@ -30,6 +34,10 @@ public record AstExtractResponseDto(
             Integer start_line,
             Integer end_line,
             String doc_status,
-            String javadoc
+            String javadoc,
+            List<String> imports,
+            String extends_class,
+            List<String> implements_interfaces,
+            List<String> call_targets
     ) {}
 }

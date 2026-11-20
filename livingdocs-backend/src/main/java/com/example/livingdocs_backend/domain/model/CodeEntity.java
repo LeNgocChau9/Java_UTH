@@ -29,6 +29,10 @@ public class CodeEntity {
     private Integer endLine;
     private String commitHash;
     private String docStatus;
+    private String imports;
+    private String extendsClass;
+    private String implementsInterfaces;
+    private String callTargets;
     private Instant createdAt;
     private Instant updatedAt;
 }

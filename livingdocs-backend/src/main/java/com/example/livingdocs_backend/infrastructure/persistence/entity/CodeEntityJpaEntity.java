@@ -59,6 +59,18 @@ public class CodeEntityJpaEntity {
     @Builder.Default
     private String docStatus = "UNDOCUMENTED";
 
+    @Column(name = "imports", columnDefinition = "TEXT")
+    private String imports;
+
+    @Column(name = "extends_class", length = 255)
+    private String extendsClass;
+
+    @Column(name = "implements_interfaces", columnDefinition = "TEXT")
+    private String implementsInterfaces;
+
+    @Column(name = "call_targets", columnDefinition = "TEXT")
+    private String callTargets;
+
     @Column(name = "created_at")
     @Builder.Default
     private Instant createdAt = Instant.now();

@@ -61,7 +61,7 @@ interface GraphEdge {
   id: string;
   source: string;
   target: string;
-  type: "CONTAINS" | "CALLS" | "DOCUMENTS";
+  type: "CONTAINS" | "CALLS" | "IMPORTS" | "DOCUMENTS";
   status?: "DOCUMENTED" | "DRIFTED" | "UNDOCUMENTED";
 }
 
@@ -120,6 +120,17 @@ export default function DoThiLienKetPage() {
   const [filterStatus, setFilterStatus] = useState<string>("ALL");
   const [filterType, setFilterType] = useState<string>("ALL");
   const [viewMode, setViewMode] = useState<"GRAPH" | "TABLE">("GRAPH");
+  const [edgeFilter, setEdgeFilter] = useState<{
+    CONTAINS: boolean;
+    CALLS: boolean;
+    IMPORTS: boolean;
+    DOCUMENTS: boolean;
+  }>({
+    CONTAINS: true,
+    CALLS: true,
+    IMPORTS: true,
+    DOCUMENTS: true,
+  });
 
   // Interactive selection & Zoom
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
@@ -223,7 +234,7 @@ export default function DoThiLienKetPage() {
         const newlyParsed: CodeEntityDto[] = [];
 
         await Promise.all(
-          codeFiles.slice(0, 5).map(async (filePath) => {
+          codeFiles.slice(0, 30).map(async (filePath) => {
             try {
               const fileContent = await repoService.getFileContent(selectedRepoId!, filePath, defaultBranch);
               if (fileContent?.content) {
@@ -338,8 +349,7 @@ export default function DoThiLienKetPage() {
         return b.entities.length - a.entities.length;
       });
 
-      // Lấy tối đa 14 tệp đại diện cho full dự án
-      displayFiles = displayFiles.slice(0, 14);
+      // Không giới hạn 14 tệp: hiển thị đầy đủ tệp tin mã nguồn của cả dự án
     }
 
     // TẦNG 2: VẼ CÁC TỆP TIN / MODULES MÃ NGUỒN THẬT (x = 320)
@@ -574,6 +584,101 @@ export default function DoThiLienKetPage() {
       }
     });
 
+    // TẦNG LIÊN KẾT PHỤ THUỘC: VẼ CÁC CẠNH CALLS & IMPORTS THẬT
+    const entityNodeMap = new Map<string, string>();
+    const fileNodeMap = new Map<string, string>();
+
+    nodeList.forEach((n) => {
+      if (n.type === "FILE" && n.filePath) {
+        fileNodeMap.set(n.filePath.toLowerCase(), n.id);
+        const simpleName = n.filePath.split("/").pop()?.toLowerCase();
+        if (simpleName) fileNodeMap.set(simpleName, n.id);
+      } else if (n.type === "METHOD" || n.type === "CLASS" || n.type === "ENDPOINT") {
+        if (n.name) {
+          entityNodeMap.set(n.name.toLowerCase(), n.id);
+        }
+        if (n.filePath && n.name) {
+          entityNodeMap.set(`${n.filePath.toLowerCase()}#${n.name.toLowerCase()}`, n.id);
+        }
+      }
+    });
+
+    // 1. Cạnh CALLS thật (Màu cam)
+    allEntities.forEach((ent) => {
+      const srcId = ent.methodName
+        ? entityNodeMap.get(ent.methodName.toLowerCase())
+        : ent.className
+        ? entityNodeMap.get(ent.className.toLowerCase())
+        : null;
+      if (!srcId) return;
+
+      const calls: string[] = (ent as any).callTargets || (ent as any).call_targets || [];
+      calls.forEach((targetCall) => {
+        const targetMethod = targetCall.split(".").pop()?.trim().toLowerCase();
+        if (!targetMethod) return;
+        const targetId = entityNodeMap.get(targetMethod);
+        if (targetId && targetId !== srcId) {
+          const edgeId = `e-call-${srcId}-${targetId}`;
+          if (!edgeList.some((e) => e.id === edgeId)) {
+            edgeList.push({
+              id: edgeId,
+              source: srcId,
+              target: targetId,
+              type: "CALLS",
+              status: "DOCUMENTED",
+            });
+          }
+        }
+      });
+    });
+
+    // 2. Cạnh IMPORTS thật (Màu tím)
+    allEntities.forEach((ent) => {
+      const srcFile = ent.filePath;
+      if (!srcFile) return;
+      const srcFileId = fileNodeMap.get(srcFile.toLowerCase());
+      if (!srcFileId) return;
+
+      const imps: string[] = (ent as any).imports || [];
+      const extendsClass: string | undefined = (ent as any).extendsClass || (ent as any).extends_class;
+
+      imps.forEach((imp) => {
+        const simpleImport = imp.split(".").pop()?.replace(/;/g, "").trim().toLowerCase();
+        if (!simpleImport) return;
+        for (const [fPath, fId] of fileNodeMap.entries()) {
+          if (fId !== srcFileId && fPath.toLowerCase().includes(simpleImport)) {
+            const edgeId = `e-imp-${srcFileId}-${fId}`;
+            if (!edgeList.some((e) => e.id === edgeId)) {
+              edgeList.push({
+                id: edgeId,
+                source: srcFileId,
+                target: fId,
+                type: "IMPORTS",
+                status: "DOCUMENTED",
+              });
+            }
+          }
+        }
+      });
+
+      if (extendsClass) {
+        const targetClassId = entityNodeMap.get(extendsClass.toLowerCase());
+        const srcClassId = ent.className ? entityNodeMap.get(ent.className.toLowerCase()) : null;
+        if (srcClassId && targetClassId && srcClassId !== targetClassId) {
+          const edgeId = `e-imp-${srcClassId}-${targetClassId}`;
+          if (!edgeList.some((e) => e.id === edgeId)) {
+            edgeList.push({
+              id: edgeId,
+              source: srcClassId,
+              target: targetClassId,
+              type: "IMPORTS",
+              status: "DOCUMENTED",
+            });
+          }
+        }
+      }
+    });
+
     // Thống kê số liệu
     const codeEntitiesCount = nodeList.filter((n) => n.type === "CLASS" || n.type === "METHOD" || n.type === "ENDPOINT").length;
     const documentedCount = nodeList.filter(
@@ -649,8 +754,8 @@ export default function DoThiLienKetPage() {
   // Bộ lọc Edges chỉ giữ lại các cạnh nối giữa các node còn hiển thị
   const filteredEdges = useMemo(() => {
     const visibleNodeIds = new Set(filteredNodes.map((n) => n.id));
-    return edges.filter((e) => visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target));
-  }, [edges, filteredNodes]);
+    return edges.filter((e) => visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target) && edgeFilter[e.type]);
+  }, [edges, filteredNodes, edgeFilter]);
 
   // TÍNH TOÁN VÀ THU PHÓNG VỪA KHÍT MÀN HÌNH (AUTO-FIT TO SCREEN)
   const handleFitToScreen = useCallback(() => {
@@ -1033,6 +1138,59 @@ export default function DoThiLienKetPage() {
               <option value="UNDOCUMENTED">Chưa có tài liệu</option>
             </select>
 
+            {/* Bộ lọc loại cạnh (Edge Filters) */}
+            <div className="flex items-center gap-1 border-l border-slate-200 pl-2 ml-1">
+              <span className="text-[11px] text-slate-500 font-medium">Cạnh:</span>
+              <button
+                type="button"
+                onClick={() => setEdgeFilter((prev) => ({ ...prev, CALLS: !prev.CALLS }))}
+                className={`px-2 py-0.5 rounded text-[11px] font-semibold transition border ${
+                  edgeFilter.CALLS
+                    ? "bg-orange-50 text-orange-700 border-orange-200 shadow-xs"
+                    : "bg-slate-50 text-slate-400 border-slate-200 line-through opacity-60"
+                }`}
+                title="Bật/Tắt cạnh CALLS (Lời gọi hàm thật)"
+              >
+                CALLS
+              </button>
+              <button
+                type="button"
+                onClick={() => setEdgeFilter((prev) => ({ ...prev, IMPORTS: !prev.IMPORTS }))}
+                className={`px-2 py-0.5 rounded text-[11px] font-semibold transition border ${
+                  edgeFilter.IMPORTS
+                    ? "bg-purple-50 text-purple-700 border-purple-200 shadow-xs"
+                    : "bg-slate-50 text-slate-400 border-slate-200 line-through opacity-60"
+                }`}
+                title="Bật/Tắt cạnh IMPORTS (Quan hệ phụ thuộc thật)"
+              >
+                IMPORTS
+              </button>
+              <button
+                type="button"
+                onClick={() => setEdgeFilter((prev) => ({ ...prev, DOCUMENTS: !prev.DOCUMENTS }))}
+                className={`px-2 py-0.5 rounded text-[11px] font-semibold transition border ${
+                  edgeFilter.DOCUMENTS
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-200 shadow-xs"
+                    : "bg-slate-50 text-slate-400 border-slate-200 line-through opacity-60"
+                }`}
+                title="Bật/Tắt cạnh DOCUMENTS (Liên kết tài liệu)"
+              >
+                DOCS
+              </button>
+              <button
+                type="button"
+                onClick={() => setEdgeFilter((prev) => ({ ...prev, CONTAINS: !prev.CONTAINS }))}
+                className={`px-2 py-0.5 rounded text-[11px] font-semibold transition border ${
+                  edgeFilter.CONTAINS
+                    ? "bg-slate-100 text-slate-700 border-slate-300 shadow-xs"
+                    : "bg-slate-50 text-slate-400 border-slate-200 line-through opacity-60"
+                }`}
+                title="Bật/Tắt cạnh CONTAINS (Cây thư mục)"
+              >
+                TREE
+              </button>
+            </div>
+
             {/* Điều khiển Thu phóng (Zoom Controls) */}
             {viewMode === "GRAPH" && (
               <div className="flex items-center gap-1 border-l border-slate-200 pl-2 ml-1">
@@ -1192,6 +1350,28 @@ export default function DoThiLienKetPage() {
                     >
                       <path d="M 0 1 L 9 5 L 0 9 z" fill="#10b981" />
                     </marker>
+                    <marker
+                      id="arrow-calls"
+                      viewBox="0 0 10 10"
+                      refX="6"
+                      refY="5"
+                      markerWidth="6"
+                      markerHeight="6"
+                      orient="auto"
+                    >
+                      <path d="M 0 1 L 9 5 L 0 9 z" fill="#f97316" />
+                    </marker>
+                    <marker
+                      id="arrow-imports"
+                      viewBox="0 0 10 10"
+                      refX="6"
+                      refY="5"
+                      markerWidth="6"
+                      markerHeight="6"
+                      orient="auto"
+                    >
+                      <path d="M 0 1 L 9 5 L 0 9 z" fill="#8b5cf6" />
+                    </marker>
                   </defs>
 
                   <rect width="100%" height="100%" fill="url(#dot-pattern)" />
@@ -1220,7 +1400,13 @@ export default function DoThiLienKetPage() {
 
                       let strokeColor = "#cbd5e1";
                       let markerId = "url(#arrow)";
-                      if (edge.status === "DRIFTED") {
+                      if (edge.type === "CALLS") {
+                        strokeColor = "#f97316";
+                        markerId = "url(#arrow-calls)";
+                      } else if (edge.type === "IMPORTS") {
+                        strokeColor = "#8b5cf6";
+                        markerId = "url(#arrow-imports)";
+                      } else if (edge.status === "DRIFTED") {
                         strokeColor = "#f59e0b";
                         markerId = "url(#arrow-drifted)";
                       } else if (edge.status === "DOCUMENTED" || edge.type === "DOCUMENTS") {
@@ -1235,7 +1421,7 @@ export default function DoThiLienKetPage() {
                             fill="none"
                             stroke={isSelectedEdge ? "#059669" : strokeColor}
                             strokeWidth={isSelectedEdge ? 2.5 : 1.5}
-                            strokeDasharray={edge.type === "DOCUMENTS" ? "4,4" : "none"}
+                            strokeDasharray={edge.type === "DOCUMENTS" ? "4,4" : edge.type === "IMPORTS" ? "3,3" : "none"}
                             markerEnd={markerId}
                             className="transition-all duration-150"
                           />

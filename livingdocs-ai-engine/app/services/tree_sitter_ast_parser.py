@@ -102,6 +102,80 @@ def _extract_java_annotations(modifiers_node, source_bytes: bytes) -> List[str]:
     return annotations
 
 
+def _extract_java_method_calls(node, source_bytes: bytes) -> List[str]:
+    """Trích xuất tất cả các lời gọi hàm (call targets) bên trong khối lệnh Java."""
+    calls = []
+    seen = set()
+    if not node:
+        return calls
+
+    def _visit(n):
+        if n.type == "method_invocation":
+            name_node = n.child_by_field_name("name")
+            object_node = n.child_by_field_name("object")
+            if name_node:
+                m_name = _node_text(name_node, source_bytes).strip()
+                if object_node:
+                    obj_name = _node_text(object_node, source_bytes).strip()
+                    full_target = f"{obj_name}.{m_name}"
+                else:
+                    full_target = m_name
+                if full_target and full_target not in seen:
+                    seen.add(full_target)
+                    calls.append(full_target)
+        for c in n.children:
+            _visit(c)
+
+    _visit(node)
+    return calls
+
+
+def _extract_py_calls(node, source_bytes: bytes) -> List[str]:
+    """Trích xuất tất cả lời gọi hàm bên trong hàm/phương thức Python."""
+    calls = []
+    seen = set()
+    if not node:
+        return calls
+
+    def _visit(n):
+        if n.type == "call":
+            fn_node = n.child_by_field_name("function")
+            if fn_node:
+                fn_name = _node_text(fn_node, source_bytes).strip()
+                if fn_name and fn_name not in seen:
+                    seen.add(fn_name)
+                    calls.append(fn_name)
+        for c in n.children:
+            _visit(c)
+
+    _visit(node)
+    return calls
+
+
+def _extract_ts_calls(node, source_bytes: bytes) -> List[str]:
+    """Trích xuất tất cả lời gọi hàm bên trong hàm/phương thức TypeScript/JavaScript."""
+    calls = []
+    seen = set()
+    if not node:
+        return calls
+
+    def _visit(n):
+        if n.type in ("call_expression", "call"):
+            fn_node = n.child_by_field_name("function")
+            if not fn_node and n.children:
+                fn_node = n.children[0]
+            if fn_node:
+                fn_name = _node_text(fn_node, source_bytes).strip()
+                if fn_name and fn_name not in seen:
+                    seen.add(fn_name)
+                    calls.append(fn_name)
+        for c in n.children:
+            _visit(c)
+
+    _visit(node)
+    return calls
+
+
 def _extract_java_parameters(params_node, source_bytes: bytes) -> List[Dict[str, Any]]:
     params = []
     if not params_node:
@@ -138,6 +212,10 @@ def parse_java_ast(file_path: str, source_code: str) -> Dict[str, Any]:
         "annotations": [],
         "javadoc": None,
         "modifiers": [],
+        "imports": [],
+        "extends_class": None,
+        "implements_interfaces": [],
+        "call_targets": [],
         "start_line": 1,
         "end_line": len(source_code.splitlines()) or 1,
         "methods": [],
@@ -154,12 +232,19 @@ def parse_java_ast(file_path: str, source_code: str) -> Dict[str, Any]:
         result["parse_error"] = f"TreeSitterJavaError: {str(e)}"
         return result
 
+    imports = []
     for child in root.children:
         if child.type == "package_declaration":
             for sub in child.children:
                 if sub.type in ("scoped_identifier", "identifier"):
                     result["package_name"] = _node_text(sub, source_bytes).strip()
-            break
+        elif child.type == "import_declaration":
+            for sub in child.children:
+                if sub.type in ("scoped_identifier", "identifier"):
+                    imp_name = _node_text(sub, source_bytes).strip()
+                    if imp_name and imp_name not in imports:
+                        imports.append(imp_name)
+    result["imports"] = imports
 
     class_node = None
     for child in root.children:
@@ -184,6 +269,8 @@ def parse_java_ast(file_path: str, source_code: str) -> Dict[str, Any]:
     result["javadoc"] = _extract_prev_comment(root, class_node, source_bytes)
 
     class_body_node = None
+    extends_class = None
+    implements_interfaces = []
     for child in class_node.children:
         if child.type == "identifier":
             result["class_name"] = _node_text(child, source_bytes).strip()
@@ -192,20 +279,37 @@ def parse_java_ast(file_path: str, source_code: str) -> Dict[str, Any]:
             for sub in child.children:
                 if sub.type in ("public", "protected", "private", "abstract", "final", "static"):
                     result["modifiers"].append(sub.type)
+        elif child.type == "superclass":
+            for sub in child.children:
+                if sub.type in ("type_identifier", "scoped_type_identifier", "identifier"):
+                    extends_class = _node_text(sub, source_bytes).strip()
+        elif child.type == "super_interfaces":
+            for sub in child.children:
+                if sub.type == "type_list":
+                    for iface in sub.children:
+                        if iface.type in ("type_identifier", "scoped_type_identifier", "identifier"):
+                            i_name = _node_text(iface, source_bytes).strip()
+                            if i_name and i_name not in implements_interfaces:
+                                implements_interfaces.append(i_name)
         elif child.type in ("class_body", "interface_body", "enum_body_declarations"):
             class_body_node = child
+
+    result["extends_class"] = extends_class
+    result["implements_interfaces"] = implements_interfaces
 
     if not class_body_node:
         return result
 
     methods = []
     fields = []
+    all_call_targets = []
     for child in class_body_node.children:
         if child.type == "method_declaration":
             m_modifiers_node = None
             return_type = "void"
             method_name = ""
             params_node = None
+            body_node = None
             m_start_line = child.start_point.row + 1
             m_end_line = child.end_point.row + 1
 
@@ -216,6 +320,8 @@ def parse_java_ast(file_path: str, source_code: str) -> Dict[str, Any]:
                     method_name = _node_text(sub, source_bytes).strip()
                 elif sub.type == "formal_parameters":
                     params_node = sub
+                elif sub.type == "block":
+                    body_node = sub
                 elif sub.type not in ("block", ";") and not method_name:
                     return_type = _node_text(sub, source_bytes).strip()
 
@@ -228,6 +334,10 @@ def parse_java_ast(file_path: str, source_code: str) -> Dict[str, Any]:
 
             annotations = _extract_java_annotations(m_modifiers_node, source_bytes)
             javadoc = _extract_prev_comment(class_body_node, child, source_bytes)
+            method_calls = _extract_java_method_calls(body_node, source_bytes) if body_node else []
+            for c in method_calls:
+                if c not in all_call_targets:
+                    all_call_targets.append(c)
 
             mod_prefix = "public"
             if m_modifiers_node:
@@ -247,6 +357,7 @@ def parse_java_ast(file_path: str, source_code: str) -> Dict[str, Any]:
                 "signature": signature,
                 "annotations": annotations,
                 "javadoc": javadoc,
+                "call_targets": method_calls,
                 "start_line": m_start_line,
                 "end_line": m_end_line,
                 "doc_status": "DOCUMENTED" if javadoc else "UNDOCUMENTED"
@@ -256,6 +367,7 @@ def parse_java_ast(file_path: str, source_code: str) -> Dict[str, Any]:
             ctor_name = ""
             params_node = None
             c_modifiers_node = None
+            c_body_node = None
             c_start_line = child.start_point.row + 1
             c_end_line = child.end_point.row + 1
 
@@ -266,6 +378,8 @@ def parse_java_ast(file_path: str, source_code: str) -> Dict[str, Any]:
                     ctor_name = _node_text(sub, source_bytes).strip()
                 elif sub.type == "formal_parameters":
                     params_node = sub
+                elif sub.type == "constructor_body" or sub.type == "block":
+                    c_body_node = sub
 
             params = _extract_java_parameters(params_node, source_bytes)
             params_str_parts = []
@@ -276,6 +390,10 @@ def parse_java_ast(file_path: str, source_code: str) -> Dict[str, Any]:
 
             annotations = _extract_java_annotations(c_modifiers_node, source_bytes)
             javadoc = _extract_prev_comment(class_body_node, child, source_bytes)
+            ctor_calls = _extract_java_method_calls(c_body_node, source_bytes) if c_body_node else []
+            for c in ctor_calls:
+                if c not in all_call_targets:
+                    all_call_targets.append(c)
 
             mod_prefix = "public"
             if c_modifiers_node:
@@ -295,47 +413,14 @@ def parse_java_ast(file_path: str, source_code: str) -> Dict[str, Any]:
                 "signature": signature,
                 "annotations": annotations,
                 "javadoc": javadoc,
+                "call_targets": ctor_calls,
                 "start_line": c_start_line,
                 "end_line": c_end_line,
                 "doc_status": "DOCUMENTED" if javadoc else "UNDOCUMENTED"
             })
-
-        elif child.type == "field_declaration":
-            # Bóc tách thuộc tính / Field (rất quan trọng cho Entity & DTO)
-            f_modifiers_node = None
-            field_type = "Object"
-            field_name = ""
-            f_start = child.start_point.row + 1
-            f_end = child.end_point.row + 1
-
-            for sub in child.children:
-                if sub.type == "modifiers":
-                    f_modifiers_node = sub
-                elif sub.type == "variable_declarator":
-                    for v_sub in sub.children:
-                        if v_sub.type == "identifier":
-                            field_name = _node_text(v_sub, source_bytes).strip()
-                elif sub.type not in (";", ","):
-                    field_type = _node_text(sub, source_bytes).strip()
-
-            if field_name:
-                annotations = _extract_java_annotations(f_modifiers_node, source_bytes)
-                javadoc = _extract_prev_comment(class_body_node, child, source_bytes)
-                fields.append({
-                    "entity_type": "FIELD",
-                    "method_name": field_name,
-                    "class_name": result["class_name"],
-                    "return_type": field_type,
-                    "signature": f"{' '.join(annotations) + ' ' if annotations else ''}{field_type} {field_name}",
-                    "annotations": annotations,
-                    "javadoc": javadoc,
-                    "start_line": f_start,
-                    "end_line": f_end,
-                    "doc_status": "DOCUMENTED" if javadoc or annotations else "UNDOCUMENTED"
-                })
-
     result["methods"] = methods
     result["fields"] = fields
+    result["call_targets"] = all_call_targets
     return result
 
 
@@ -379,6 +464,10 @@ def parse_python_ast(file_path: str, source_code: str) -> Dict[str, Any]:
         "annotations": [],
         "javadoc": None,
         "modifiers": [],
+        "imports": [],
+        "extends_class": None,
+        "implements_interfaces": [],
+        "call_targets": [],
         "start_line": 1,
         "end_line": len(source_code.splitlines()) or 1,
         "methods": [],
@@ -395,12 +484,22 @@ def parse_python_ast(file_path: str, source_code: str) -> Dict[str, Any]:
         result["parse_error"] = f"TreeSitterPythonError: {str(e)}"
         return result
 
+    # Trích xuất imports của file
+    py_imports = []
+    for child in root.children:
+        if child.type in ("import_statement", "import_from_statement"):
+            imp_raw = _node_text(child, source_bytes).strip()
+            if imp_raw and imp_raw not in py_imports:
+                py_imports.append(imp_raw)
+    result["imports"] = py_imports
+
     # Duyệt root node
     top_classes = []
     top_functions = []
+    all_call_targets = []
 
     def inspect_py_node(node, current_class=None):
-        nonlocal top_classes, top_functions
+        nonlocal top_classes, top_functions, all_call_targets
         decorators = []
         actual_node = node
 
@@ -414,12 +513,23 @@ def parse_python_ast(file_path: str, source_code: str) -> Dict[str, Any]:
         if actual_node.type == "class_definition":
             c_name = ""
             c_body = None
+            c_extends = None
+            c_implements = []
             c_start = actual_node.start_point.row + 1
             c_end = actual_node.end_point.row + 1
 
             for sub in actual_node.children:
                 if sub.type == "identifier":
                     c_name = _node_text(sub, source_bytes).strip()
+                elif sub.type == "argument_list":
+                    # Kế thừa class / Mixins: class MyClass(Base1, Base2):
+                    for a in sub.children:
+                        if a.type in ("identifier", "attribute"):
+                            base_n = _node_text(a, source_bytes).strip()
+                            if not c_extends:
+                                c_extends = base_n
+                            elif base_n not in c_implements:
+                                c_implements.append(base_n)
                 elif sub.type == "block":
                     c_body = sub
 
@@ -429,6 +539,8 @@ def parse_python_ast(file_path: str, source_code: str) -> Dict[str, Any]:
                 "class_type": "CLASS",
                 "annotations": decorators,
                 "javadoc": doc,
+                "extends_class": c_extends,
+                "implements_interfaces": c_implements,
                 "start_line": c_start,
                 "end_line": c_end,
                 "methods": [],
@@ -469,6 +581,10 @@ def parse_python_ast(file_path: str, source_code: str) -> Dict[str, Any]:
                         is_ctor = m_name == "__init__"
                         sig_dec = f"{' '.join(c_dec)} " if c_dec else ""
                         sig = f"{sig_dec}def {m_name}({params_str}) -> {ret_type}"
+                        calls = _extract_py_calls(m_body, source_bytes) if m_body else []
+                        for c in calls:
+                            if c not in all_call_targets:
+                                all_call_targets.append(c)
 
                         class_item["methods"].append({
                             "entity_type": "CONSTRUCTOR" if is_ctor else "METHOD",
@@ -479,6 +595,7 @@ def parse_python_ast(file_path: str, source_code: str) -> Dict[str, Any]:
                             "signature": sig,
                             "annotations": c_dec,
                             "javadoc": m_doc,
+                            "call_targets": calls,
                             "start_line": m_start,
                             "end_line": m_end,
                             "doc_status": "DOCUMENTED" if m_doc else "UNDOCUMENTED"
@@ -530,6 +647,10 @@ def parse_python_ast(file_path: str, source_code: str) -> Dict[str, Any]:
             fn_doc = _extract_py_docstring(fn_body, source_bytes)
             sig_dec = f"{' '.join(decorators)} " if decorators else ""
             sig = f"{sig_dec}def {fn_name}({fn_params}) -> {fn_ret}"
+            calls = _extract_py_calls(fn_body, source_bytes) if fn_body else []
+            for c in calls:
+                if c not in all_call_targets:
+                    all_call_targets.append(c)
 
             top_functions.append({
                 "entity_type": "FUNCTION",
@@ -540,6 +661,7 @@ def parse_python_ast(file_path: str, source_code: str) -> Dict[str, Any]:
                 "signature": sig,
                 "annotations": decorators,
                 "javadoc": fn_doc,
+                "call_targets": calls,
                 "start_line": fn_start,
                 "end_line": fn_end,
                 "doc_status": "DOCUMENTED" if fn_doc else "UNDOCUMENTED"
@@ -554,6 +676,8 @@ def parse_python_ast(file_path: str, source_code: str) -> Dict[str, Any]:
         result["class_type"] = "CLASS"
         result["annotations"] = primary["annotations"]
         result["javadoc"] = primary["javadoc"]
+        result["extends_class"] = primary.get("extends_class")
+        result["implements_interfaces"] = primary.get("implements_interfaces", [])
         result["start_line"] = primary["start_line"]
         result["end_line"] = primary["end_line"]
         result["methods"] = primary["methods"] + top_functions
@@ -564,6 +688,7 @@ def parse_python_ast(file_path: str, source_code: str) -> Dict[str, Any]:
         result["class_type"] = "MODULE"
         result["methods"] = top_functions
 
+    result["call_targets"] = all_call_targets
     return result
 
 
@@ -581,6 +706,10 @@ def parse_typescript_ast(file_path: str, source_code: str) -> Dict[str, Any]:
         "annotations": [],
         "javadoc": None,
         "modifiers": [],
+        "imports": [],
+        "extends_class": None,
+        "implements_interfaces": [],
+        "call_targets": [],
         "start_line": 1,
         "end_line": len(source_code.splitlines()) or 1,
         "methods": [],
@@ -598,12 +727,22 @@ def parse_typescript_ast(file_path: str, source_code: str) -> Dict[str, Any]:
         result["parse_error"] = f"TreeSitterTypeScriptError: {str(e)}"
         return result
 
+    # Trích xuất imports của TS/JS
+    ts_imports = []
+    for child in root.children:
+        if child.type == "import_statement":
+            imp_raw = _node_text(child, source_bytes).strip()
+            if imp_raw and imp_raw not in ts_imports:
+                ts_imports.append(imp_raw)
+    result["imports"] = ts_imports
+
     classes = []
     methods = []
     fields = []
+    all_call_targets = []
 
     def inspect_ts_node(node):
-        nonlocal classes, methods, fields
+        nonlocal classes, methods, fields, all_call_targets
         target = node
 
         if node.type == "export_statement":
@@ -615,6 +754,8 @@ def parse_typescript_ast(file_path: str, source_code: str) -> Dict[str, Any]:
         if target.type == "class_declaration":
             c_name = ""
             c_body = None
+            c_extends = None
+            c_implements = []
             c_start = target.start_point.row + 1
             c_end = target.end_point.row + 1
             doc = _extract_prev_comment(root, node, source_bytes)
@@ -622,12 +763,26 @@ def parse_typescript_ast(file_path: str, source_code: str) -> Dict[str, Any]:
             for sub in target.children:
                 if sub.type == "type_identifier":
                     c_name = _node_text(sub, source_bytes).strip()
+                elif sub.type == "class_heritage":
+                    for h_child in sub.children:
+                        if h_child.type == "extends_clause":
+                            for e_sub in h_child.children:
+                                if e_sub.type in ("identifier", "type_identifier"):
+                                    c_extends = _node_text(e_sub, source_bytes).strip()
+                        elif h_child.type == "implements_clause":
+                            for i_sub in h_child.children:
+                                if i_sub.type in ("identifier", "type_identifier"):
+                                    i_name = _node_text(i_sub, source_bytes).strip()
+                                    if i_name and i_name not in c_implements:
+                                        c_implements.append(i_name)
                 elif sub.type == "class_body":
                     c_body = sub
 
             classes.append({
                 "class_name": c_name,
                 "class_type": "CLASS",
+                "extends_class": c_extends,
+                "implements_interfaces": c_implements,
                 "start_line": c_start,
                 "end_line": c_end,
                 "javadoc": doc
@@ -640,6 +795,8 @@ def parse_typescript_ast(file_path: str, source_code: str) -> Dict[str, Any]:
                         m_sig = _node_text(sub, source_bytes).split("{")[0].strip()
                         m_doc = _extract_prev_comment(c_body, sub, source_bytes)
                         is_ctor = False
+                        ret_type = "void"
+                        body_node = None
 
                         for s in sub.children:
                             if s.type == "property_identifier":
@@ -647,12 +804,22 @@ def parse_typescript_ast(file_path: str, source_code: str) -> Dict[str, Any]:
                             elif s.type == "constructor":
                                 is_ctor = True
                                 m_name = c_name
+                            elif s.type == "type_annotation":
+                                ret_type = _node_text(s, source_bytes).lstrip(":").strip()
+                            elif s.type == "statement_block":
+                                body_node = s
+
+                        calls = _extract_ts_calls(body_node or sub, source_bytes)
+                        for c in calls:
+                            if c not in all_call_targets:
+                                all_call_targets.append(c)
 
                         if sub.type == "public_field_definition":
                             fields.append({
                                 "entity_type": "FIELD",
                                 "method_name": m_name,
                                 "class_name": c_name,
+                                "return_type": ret_type if ret_type != "void" else "any",
                                 "signature": m_sig,
                                 "start_line": sub.start_point.row + 1,
                                 "end_line": sub.end_point.row + 1,
@@ -664,7 +831,9 @@ def parse_typescript_ast(file_path: str, source_code: str) -> Dict[str, Any]:
                                 "entity_type": "CONSTRUCTOR" if is_ctor else "METHOD",
                                 "method_name": m_name or "method",
                                 "class_name": c_name,
+                                "return_type": None if is_ctor else ret_type,
                                 "signature": m_sig,
+                                "call_targets": calls,
                                 "start_line": sub.start_point.row + 1,
                                 "end_line": sub.end_point.row + 1,
                                 "doc_status": "DOCUMENTED" if m_doc else "UNDOCUMENTED",
@@ -687,16 +856,29 @@ def parse_typescript_ast(file_path: str, source_code: str) -> Dict[str, Any]:
 
         elif target.type == "function_declaration":
             f_name = ""
+            ret_type = "void"
+            f_body = None
             for sub in target.children:
                 if sub.type == "identifier":
                     f_name = _node_text(sub, source_bytes).strip()
+                elif sub.type == "type_annotation":
+                    ret_type = _node_text(sub, source_bytes).lstrip(":").strip()
+                elif sub.type == "statement_block":
+                    f_body = sub
             f_sig = _node_text(target, source_bytes).split("{")[0].strip()
             doc = _extract_prev_comment(root, node, source_bytes)
+            calls = _extract_ts_calls(f_body or target, source_bytes)
+            for c in calls:
+                if c not in all_call_targets:
+                    all_call_targets.append(c)
+
             methods.append({
                 "entity_type": "FUNCTION",
                 "method_name": f_name,
                 "class_name": None,
+                "return_type": ret_type,
                 "signature": f_sig,
+                "call_targets": calls,
                 "start_line": target.start_point.row + 1,
                 "end_line": target.end_point.row + 1,
                 "doc_status": "DOCUMENTED" if doc else "UNDOCUMENTED",
@@ -710,6 +892,8 @@ def parse_typescript_ast(file_path: str, source_code: str) -> Dict[str, Any]:
         result["class_name"] = classes[0]["class_name"]
         result["class_type"] = classes[0]["class_type"]
         result["javadoc"] = classes[0]["javadoc"]
+        result["extends_class"] = classes[0].get("extends_class")
+        result["implements_interfaces"] = classes[0].get("implements_interfaces", [])
         result["start_line"] = classes[0]["start_line"]
         result["end_line"] = classes[0]["end_line"]
     else:
@@ -719,6 +903,7 @@ def parse_typescript_ast(file_path: str, source_code: str) -> Dict[str, Any]:
 
     result["methods"] = methods
     result["fields"] = fields
+    result["call_targets"] = all_call_targets
     return result
 
 

@@ -158,7 +158,22 @@ public class CodeIndexService implements CodeIndexServicePort {
         Instant now = Instant.now();
         List<CodeEntity> domainEntities = new ArrayList<>();
 
+        List<String> fileImports = (response.imports() != null && !response.imports().isEmpty())
+                ? response.imports()
+                : Collections.emptyList();
+        String fileExtends = response.extends_class();
+        List<String> fileImplements = response.implements_interfaces();
+
         for (AstExtractResponseDto.CodeEntityItemDto item : response.entities()) {
+            List<String> itemImports = (item.imports() != null && !item.imports().isEmpty())
+                    ? item.imports()
+                    : fileImports;
+            String itemExtends = item.extends_class() != null ? item.extends_class() : fileExtends;
+            List<String> itemImplements = (item.implements_interfaces() != null && !item.implements_interfaces().isEmpty())
+                    ? item.implements_interfaces()
+                    : fileImplements;
+            List<String> itemCalls = item.call_targets();
+
             CodeEntity entity = CodeEntity.builder()
                     .repositoryId(repositoryId)
                     .filePath(filePath)
@@ -172,6 +187,10 @@ public class CodeIndexService implements CodeIndexServicePort {
                     .endLine(item.end_line())
                     .commitHash(commitHash != null ? commitHash : "head")
                     .docStatus(item.doc_status() != null ? item.doc_status() : "UNDOCUMENTED")
+                    .imports(itemImports != null && !itemImports.isEmpty() ? String.join(",", itemImports) : null)
+                    .extendsClass(itemExtends)
+                    .implementsInterfaces(itemImplements != null && !itemImplements.isEmpty() ? String.join(",", itemImplements) : null)
+                    .callTargets(itemCalls != null && !itemCalls.isEmpty() ? String.join(",", itemCalls) : null)
                     .createdAt(now)
                     .updatedAt(now)
                     .build();
@@ -565,6 +584,10 @@ public class CodeIndexService implements CodeIndexServicePort {
                 .endLine(endLine)
                 .commitHash(commitHash)
                 .docStatus("DOCUMENTED")
+                .imports(existingEntity != null ? existingEntity.getImports() : null)
+                .extendsClass(existingEntity != null ? existingEntity.getExtendsClass() : null)
+                .implementsInterfaces(existingEntity != null ? existingEntity.getImplementsInterfaces() : null)
+                .callTargets(existingEntity != null ? existingEntity.getCallTargets() : null)
                 .createdAt(existingEntity != null && existingEntity.getCreatedAt() != null ? existingEntity.getCreatedAt() : now)
                 .updatedAt(now)
                 .build();

@@ -71,6 +71,13 @@ public record AiDocGenerateRequestDto(
             @JsonAlias({"docStatus"})
             String doc_status,
             String javadoc,
-            List<String> annotations
+            List<String> annotations,
+            List<String> imports,
+            @JsonAlias({"extendsClass", "extends_class"})
+            String extends_class,
+            @JsonAlias({"implementsInterfaces", "implements_interfaces"})
+            List<String> implements_interfaces,
+            @JsonAlias({"callTargets", "call_targets"})
+            List<String> call_targets
     ) {}
 }

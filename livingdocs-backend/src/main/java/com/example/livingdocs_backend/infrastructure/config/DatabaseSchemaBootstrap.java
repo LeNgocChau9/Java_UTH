@@ -206,10 +206,23 @@ public class DatabaseSchemaBootstrap implements ApplicationRunner {
                             end_line INTEGER,
                             commit_hash VARCHAR(64) NOT NULL,
                             doc_status VARCHAR(50) NOT NULL DEFAULT 'UNDOCUMENTED',
+                            imports TEXT,
+                            extends_class VARCHAR(255),
+                            implements_interfaces TEXT,
+                            call_targets TEXT,
                             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                             updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                         )
                     """);
+
+            try {
+                jdbcTemplate.execute("ALTER TABLE code_entities ADD COLUMN IF NOT EXISTS imports TEXT");
+                jdbcTemplate.execute("ALTER TABLE code_entities ADD COLUMN IF NOT EXISTS extends_class VARCHAR(255)");
+                jdbcTemplate.execute("ALTER TABLE code_entities ADD COLUMN IF NOT EXISTS implements_interfaces TEXT");
+                jdbcTemplate.execute("ALTER TABLE code_entities ADD COLUMN IF NOT EXISTS call_targets TEXT");
+            } catch (Exception ex) {
+                log.debug("[DatabaseSchemaBootstrap] code_entities columns update skipped/failed: {}", ex.getMessage());
+            }
 
             // ponytail: Khởi tạo extension vector, bảng knowledge_chunks và HNSW index an toàn
             try {

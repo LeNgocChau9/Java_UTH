@@ -99,7 +99,11 @@ def extract_ast(request: AstExtractRequest):
             end_line=parsed.get("end_line", 1),
             doc_status="DOCUMENTED" if class_javadoc else "UNDOCUMENTED",
             javadoc=class_javadoc,
-            annotations=c_annotations
+            annotations=c_annotations,
+            extends_class=parsed.get("extends_class"),
+            implements_interfaces=parsed.get("implements_interfaces", []),
+            imports=parsed.get("imports", []),
+            call_targets=parsed.get("call_targets", [])
         ))
 
     # 2. Thêm các METHOD, FUNCTION, CONSTRUCTOR, TABLE, VIEW
@@ -128,7 +132,8 @@ def extract_ast(request: AstExtractRequest):
             end_line=m.get("end_line", 1),
             doc_status="DOCUMENTED" if m_javadoc else "UNDOCUMENTED",
             javadoc=m_javadoc,
-            annotations=m.get("annotations", [])
+            annotations=m.get("annotations", []),
+            call_targets=m.get("call_targets", [])
         ))
 
     # 3. Thêm các FIELD (thuộc tính Class, DTO, Entity)
@@ -155,7 +160,11 @@ def extract_ast(request: AstExtractRequest):
         file_path=request.file_path,
         commit_hash=request.commit_hash or "unknown",
         total_entities=len(entities),
-        entities=entities
+        entities=entities,
+        imports=parsed.get("imports", []),
+        extends_class=parsed.get("extends_class"),
+        implements_interfaces=parsed.get("implements_interfaces", []),
+        call_targets=parsed.get("call_targets", [])
     )
 
 

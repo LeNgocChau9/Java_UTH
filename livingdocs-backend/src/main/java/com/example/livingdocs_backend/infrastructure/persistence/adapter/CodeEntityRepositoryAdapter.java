@@ -83,6 +83,10 @@ public class CodeEntityRepositoryAdapter implements CodeEntityRepositoryPort {
                 .endLine(d.getEndLine())
                 .commitHash(d.getCommitHash())
                 .docStatus(d.getDocStatus() != null ? d.getDocStatus() : "UNDOCUMENTED")
+                .imports(d.getImports())
+                .extendsClass(d.getExtendsClass())
+                .implementsInterfaces(d.getImplementsInterfaces())
+                .callTargets(d.getCallTargets())
                 .createdAt(d.getCreatedAt())
                 .updatedAt(d.getUpdatedAt())
                 .build();
@@ -103,6 +107,10 @@ public class CodeEntityRepositoryAdapter implements CodeEntityRepositoryPort {
                 .endLine(j.getEndLine())
                 .commitHash(j.getCommitHash())
                 .docStatus(j.getDocStatus())
+                .imports(j.getImports())
+                .extendsClass(j.getExtendsClass())
+                .implementsInterfaces(j.getImplementsInterfaces())
+                .callTargets(j.getCallTargets())
                 .createdAt(j.getCreatedAt())
                 .updatedAt(j.getUpdatedAt())
                 .build();

@@ -37,6 +37,10 @@ class CodeEntityItem(BaseModel):
     doc_status: Optional[str] = Field(default="UNDOCUMENTED", description="Trạng thái tài liệu: DOCUMENTED, UNDOCUMENTED, DRIFTED")
     javadoc: Optional[str] = Field(default=None, description="Tài liệu Javadoc bóc tách từ mã nguồn nếu có")
     annotations: Optional[List[str]] = Field(default=[], description="Danh sách các annotation của class hoặc method (vd: @RestController, @GetMapping)")
+    call_targets: Optional[List[str]] = Field(default=[], description="Danh sách các hàm/phương thức được gọi từ entity này")
+    extends_class: Optional[str] = Field(default=None, description="Lớp cha kế thừa nếu là Class")
+    implements_interfaces: Optional[List[str]] = Field(default=[], description="Danh sách interfaces triển khai")
+    imports: Optional[List[str]] = Field(default=[], description="Danh sách thư viện imports liên quan")
 
     @model_validator(mode="before")
     @classmethod
@@ -78,6 +82,10 @@ class AstExtractResponse(BaseModel):
     commit_hash: str
     total_entities: int
     entities: List[CodeEntityItem]
+    imports: Optional[List[str]] = Field(default=[], description="Danh sách imports của file")
+    extends_class: Optional[str] = Field(default=None, description="Lớp cha kế thừa nếu có")
+    implements_interfaces: Optional[List[str]] = Field(default=[], description="Danh sách interface triển khai")
+    call_targets: Optional[List[str]] = Field(default=[], description="Toàn bộ danh sách hàm được gọi trong file")
 
 class AiRuntimeSettings(BaseModel):
     """Cấu hình AI Runtime linh hoạt truyền từ Backend/Settings UI."""
