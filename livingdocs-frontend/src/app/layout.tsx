@@ -24,8 +24,42 @@ const display = Instrument_Serif({
 });
 
 export const metadata: Metadata = {
-  title: "LivingDocs",
-  description: "Khung frontend LivingDocs cho tài liệu và tìm kiếm ngữ nghĩa.",
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL || "https://livingdocs-ai.vercel.app"
+  ),
+  title: "LivingDocs - Nền tảng tài liệu kỹ thuật sống động bằng AI",
+  description:
+    "Tự động sinh, cập nhật và đồng bộ tài liệu kỹ thuật theo mã nguồn bằng AI.",
+  applicationName: "LivingDocs",
+  icons: {
+    icon: "/logo.png",
+    shortcut: "/logo.png",
+    apple: "/logo.png",
+  },
+  openGraph: {
+    title: "LivingDocs - Nền tảng tài liệu kỹ thuật sống động bằng AI",
+    description:
+      "Tự động sinh, cập nhật và đồng bộ tài liệu kỹ thuật theo mã nguồn bằng AI.",
+    url: "https://livingdocs-ai.vercel.app",
+    siteName: "LivingDocs",
+    locale: "vi_VN",
+    type: "website",
+    images: [
+      {
+        url: "/logo.png",
+        width: 1200,
+        height: 630,
+        alt: "LivingDocs Logo",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "LivingDocs - Nền tảng tài liệu kỹ thuật sống động bằng AI",
+    description:
+      "Tự động sinh, cập nhật và đồng bộ tài liệu kỹ thuật theo mã nguồn bằng AI.",
+    images: ["/logo.png"],
+  },
 };
 
 export default function RootLayout({
