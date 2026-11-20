@@ -420,7 +420,7 @@ async def chat_with_ai(request: ChatRequest):
 @router.get(
     "/quota/metrics",
     summary="Giám sát Quota Rate-Limit Controller & Thống kê Retry Full Jitter",
-    description="Trả về thông số sức khỏe, số lượng RPM, số lần thử lại, số lần xoay key và trạng thái model failover (gemini-2.5-pro sang gemini-2.5-flash)."
+    description="Trả về thông số sức khỏe, số lượng RPM, số lần thử lại, số lần xoay key và trạng thái model failover (gemini-3.8-flash sang gemini-3.6-flash)."
 )
 def get_quota_metrics():
     """Trả về trạng thái sức khỏe và số liệu giám sát của Quota Rate-Limit Controller."""
@@ -444,7 +444,13 @@ def get_ai_providers():
             "gemini": {
                 "available": bool(gemini_key),
                 "type": "cloud",
-                "models": ["gemini-2.5-pro", "gemini-2.5-flash"],
+                "models": [
+                    "gemini-3.8-flash",
+                    "gemini-3.6-flash",
+                    "gemini-3.5-flash-lite",
+                    "gemini-3.1-flash-lite",
+                    "gemini-3-flash-preview",
+                ],
             },
             "ollama": {
                 "available": ollama_ready,

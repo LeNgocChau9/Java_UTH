@@ -113,7 +113,7 @@ LivingDocs gồm 3 phân hệ độc lập kết hợp cơ sở dữ liệu vect
 
 | Chế độ | Nhà cung cấp | Đặc điểm |
 |--------|--------------|----------|
-| Cloud AI | Google Gemini (`gemini-2.5-flash`, `gemini-2.0-flash`) | Xoay vòng nhiều API Key tự động qua `GeminiKeyManager` |
+| Cloud AI | Google Gemini (`gemini-3.8-flash`, `gemini-3.6-flash`, `gemini-3.5-flash-lite`) | Xoay vòng nhiều API Key tự động qua `GeminiKeyManager` |
 | Local AI | Ollama (`http://127.0.0.1:11434`, ví dụ `qwen2.5-coder:7b`) | Chạy hoàn toàn offline, mã nguồn nội bộ không rời khỏi máy |
 
 ### Phân quyền vai trò (RBAC)

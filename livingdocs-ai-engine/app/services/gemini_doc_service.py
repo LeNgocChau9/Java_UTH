@@ -29,14 +29,13 @@ from app.core.gemini_retry import (
 
 logger = logging.getLogger(__name__)
 
-# Danh sách các model Gemini ưu tiên theo thứ tự năng lực và độ ổn định (Pro -> Flash)
+# Danh sách các model Gemini ưu tiên theo thứ tự năng lực và độ ổn định (3.8 Flash -> 3.6 Flash -> 3.5 Lite -> 3.1 Lite -> 3 Preview)
 DOC_MODELS = [
-    "gemini-2.5-pro",
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
+    "gemini-3.8-flash",
+    "gemini-3.6-flash",
     "gemini-3.5-flash-lite",
-    "gemini-flash-lite-latest",
+    "gemini-3.1-flash-lite",
+    "gemini-3-flash-preview",
 ]
 
 
