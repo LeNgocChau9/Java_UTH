@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 
-const backendUrl = process.env.BACKEND_URL || "http://127.0.0.1:8080";
+const backendUrl = process.env.BACKEND_URL || "https://livingdocs-backend.onrender.com";
 
 const nextConfig: NextConfig = {
   async rewrites() {
