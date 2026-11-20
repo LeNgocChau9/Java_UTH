@@ -1,13 +1,3 @@
----
-title: LivingDocs Backend
-emoji: 📚
-colorFrom: green
-colorTo: indigo
-sdk: docker
-app_port: 7860
-pinned: false
----
-
 <div align="center">
 
 <img src="livingdocs-frontend/public/logo.png" alt="LivingDocs" width="120" />
