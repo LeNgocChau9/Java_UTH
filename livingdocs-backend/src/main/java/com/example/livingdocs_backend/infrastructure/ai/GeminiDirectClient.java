@@ -6,10 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestClient;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -84,40 +82,58 @@ public class GeminiDirectClient {
     }
 
     /**
-     * Lấy API Key đang hoạt động: Ưu tiên key từ DB (AdminSettings) nếu người dùng cấu hình key riêng,
-     * nếu không có thì xoay vòng qua danh sách key trong pool hệ thống.
+     * Thu thập danh sách toàn bộ API Key khả dụng (tách biệt từng key từ DB và Environment).
      */
-    public String getEffectiveApiKey() {
+    public List<String> getAllAvailableKeys() {
+        Set<String> keys = new LinkedHashSet<>();
         if (aiRuntimeConfigService != null) {
             try {
                 var raw = aiRuntimeConfigService.getRawSettings();
                 if (raw != null && StringUtils.hasText(raw.apiKey()) && !AiRuntimeConfigService.isMasked(raw.apiKey())) {
-                    return raw.apiKey().trim();
+                    for (String k : raw.apiKey().split(",")) {
+                        String clean = k.trim();
+                        if (StringUtils.hasText(clean) && !AiRuntimeConfigService.isMasked(clean)) {
+                            keys.add(clean);
+                        }
+                    }
                 }
             } catch (Exception e) {
                 log.debug("[GeminiDirectClient] Không đọc được key từ AdminSettings: {}", e.getMessage());
             }
         }
-
-        if (configuredKeys.isEmpty()) {
-            return "";
+        for (String k : configuredKeys) {
+            if (StringUtils.hasText(k)) {
+                keys.add(k.trim());
+            }
         }
-        int idx = Math.abs(keyIndex.getAndIncrement() % configuredKeys.size());
-        return configuredKeys.get(idx);
+        return new ArrayList<>(keys);
     }
 
     /**
-     * Xoay sang API Key kế tiếp khi gặp lỗi quá hạn mức (HTTP 429).
+     * Lấy 1 API Key đơn lẻ đang hoạt động để gửi request.
+     */
+    public String getEffectiveApiKey() {
+        List<String> keys = getAllAvailableKeys();
+        if (keys.isEmpty()) {
+            return "";
+        }
+        int idx = Math.abs(keyIndex.get() % keys.size());
+        return keys.get(idx);
+    }
+
+    /**
+     * Xoay sang API Key kế tiếp khi gặp lỗi quá hạn mức (HTTP 429) hoặc không xác thực (HTTP 401).
      */
     public void rotateKey() {
-        if (!configuredKeys.isEmpty()) {
+        List<String> keys = getAllAvailableKeys();
+        if (!keys.isEmpty()) {
             int next = keyIndex.incrementAndGet();
-            log.warn("[GeminiDirectClient] Xoay sang API Key kế tiếp (index: {}) do lỗi hạn mức hoặc timeout", next % configuredKeys.size());
+            log.warn("[GeminiDirectClient] Xoay sang API Key kế tiếp (index: {}) do lỗi hạn mức hoặc xác thực", Math.abs(next % keys.size()));
         }
     }
 
     public boolean isAvailable() {
-        return !configuredKeys.isEmpty() || (aiRuntimeConfigService != null && StringUtils.hasText(aiRuntimeConfigService.getRawSettings().apiKey()));
+        return !getAllAvailableKeys().isEmpty();
     }
 
     /**
@@ -125,63 +141,71 @@ public class GeminiDirectClient {
      * Tự động thử qua danh sách Candidate Models khi gặp 503 (bận) hoặc 404 (model cũ).
      */
     public Optional<String> callGemini(String systemPrompt, String userPrompt, Double temperature) {
-        String apiKey = getEffectiveApiKey();
-        if (!StringUtils.hasText(apiKey)) {
+        List<String> availableKeys = getAllAvailableKeys();
+        if (availableKeys.isEmpty()) {
             log.warn("[GeminiDirectClient] Không có API Key Gemini khả dụng");
             return Optional.empty();
         }
 
-        for (String model : CANDIDATE_MODELS) {
-            String url = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent";
-            try {
-                Map<String, Object> bodyMap = new HashMap<>();
-                if (StringUtils.hasText(systemPrompt)) {
-                    bodyMap.put("system_instruction", Map.of(
-                            "parts", List.of(Map.of("text", systemPrompt))
-                    ));
-                }
-                bodyMap.put("contents", List.of(
-                        Map.of("parts", List.of(Map.of("text", userPrompt)))
-                ));
-                bodyMap.put("generationConfig", Map.of(
-                        "temperature", temperature != null ? temperature : 0.3,
-                        "maxOutputTokens", 8192
-                ));
+        int maxKeyAttempts = Math.min(availableKeys.size(), 3);
+        for (int keyAttempt = 0; keyAttempt < maxKeyAttempts; keyAttempt++) {
+            String apiKey = getEffectiveApiKey();
+            if (!StringUtils.hasText(apiKey)) {
+                break;
+            }
 
-                String jsonPayload = objectMapper.writeValueAsString(bodyMap);
-
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(url))
-                        .timeout(Duration.ofSeconds(25))
-                        .header("Content-Type", "application/json")
-                        .header("x-goog-api-key", apiKey)
-                        .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
-                        .build();
-
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                int status = response.statusCode();
-
-                if (status == 200) {
-                    JsonNode root = objectMapper.readTree(response.body());
-                    JsonNode candidates = root.path("candidates");
-                    if (candidates.isArray() && !candidates.isEmpty()) {
-                        JsonNode textNode = candidates.get(0).path("content").path("parts").get(0).path("text");
-                        if (!textNode.isMissingNode() && StringUtils.hasText(textNode.asText())) {
-                            log.info("[GeminiDirectClient] Gọi thành công Gemini Model: {} (ký tự trả về: {})", model, textNode.asText().length());
-                            return Optional.of(textNode.asText());
-                        }
+            for (String model : CANDIDATE_MODELS) {
+                String url = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + apiKey;
+                try {
+                    Map<String, Object> bodyMap = new HashMap<>();
+                    if (StringUtils.hasText(systemPrompt)) {
+                        bodyMap.put("system_instruction", Map.of(
+                                "parts", List.of(Map.of("text", systemPrompt))
+                        ));
                     }
-                } else if (status == 429) {
-                    log.warn("[GeminiDirectClient] Key bị quá hạn mức 429 trên model {}. Đang xoay key...", model);
-                    rotateKey();
-                    apiKey = getEffectiveApiKey();
-                } else if (status == 503 || status == 404) {
-                    log.warn("[GeminiDirectClient] Model {} trả về HTTP {}. Chuyển sang model kế tiếp...", model, status);
-                } else {
-                    log.warn("[GeminiDirectClient] Gemini API lỗi HTTP {}: {}", status, response.body());
+                    bodyMap.put("contents", List.of(
+                            Map.of("parts", List.of(Map.of("text", userPrompt)))
+                    ));
+                    bodyMap.put("generationConfig", Map.of(
+                            "temperature", temperature != null ? temperature : 0.3,
+                            "maxOutputTokens", 8192
+                    ));
+
+                    String jsonPayload = objectMapper.writeValueAsString(bodyMap);
+
+                    HttpRequest request = HttpRequest.newBuilder()
+                            .uri(URI.create(url))
+                            .timeout(Duration.ofSeconds(25))
+                            .header("Content-Type", "application/json")
+                            .header("x-goog-api-key", apiKey)
+                            .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
+                            .build();
+
+                    HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                    int status = response.statusCode();
+
+                    if (status == 200) {
+                        JsonNode root = objectMapper.readTree(response.body());
+                        JsonNode candidates = root.path("candidates");
+                        if (candidates.isArray() && !candidates.isEmpty()) {
+                            JsonNode textNode = candidates.get(0).path("content").path("parts").get(0).path("text");
+                            if (!textNode.isMissingNode() && StringUtils.hasText(textNode.asText())) {
+                                log.info("[GeminiDirectClient] Gọi thành công Gemini Model: {} (ký tự trả về: {})", model, textNode.asText().length());
+                                return Optional.of(textNode.asText());
+                            }
+                        }
+                    } else if (status == 401 || status == 429) {
+                        log.warn("[GeminiDirectClient] Key gặp lỗi HTTP {} trên model {}. Đang xoay key...", status, model);
+                        rotateKey();
+                        break; // Chuyển sang thử key kế tiếp ngay
+                    } else if (status == 503 || status == 404) {
+                        log.warn("[GeminiDirectClient] Model {} trả về HTTP {}. Chuyển sang model kế tiếp...", model, status);
+                    } else {
+                        log.warn("[GeminiDirectClient] Gemini API lỗi HTTP {}: {}", status, response.body());
+                    }
+                } catch (Exception e) {
+                    log.warn("[GeminiDirectClient] Lỗi khi gọi Gemini model {}: {}", model, e.getMessage());
                 }
-            } catch (Exception e) {
-                log.warn("[GeminiDirectClient] Lỗi khi gọi Gemini model {}: {}", model, e.getMessage());
             }
         }
 
