@@ -107,7 +107,7 @@ public class AiChatController {
                 if (geminiReply.isPresent() && !geminiReply.get().isBlank()) {
                     return ResponseEntity.ok(Map.of(
                             "status", "success",
-                            "provider", "gemini_cloud",
+                            "provider", "gemini",
                             "model", "Google Gemini Flash",
                             "reply", geminiReply.get()
                     ));

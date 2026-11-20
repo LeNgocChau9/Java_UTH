@@ -68,6 +68,9 @@ public class CodeIndexService implements CodeIndexServicePort {
     @Autowired(required = false)
     private AiRuntimeConfigService aiRuntimeConfigService;
 
+    @Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.ai.GeminiDirectClient geminiDirectClient;
+
     @Autowired
     public CodeIndexService(
             CodeEntityRepositoryPort codeEntityRepository,
@@ -963,8 +966,25 @@ public class CodeIndexService implements CodeIndexServicePort {
                     }
                 }
             } catch (Exception ex) {
-                log.debug("[RegenerateEntityDoc] AI Engine không phản hồi, sử dụng bộ sinh AST cục bộ cho {}: {}",
-                        targetName, ex.getMessage());
+                log.debug("[RegenerateEntityDoc] AI Engine không phản hồi: {}. Thử kích hoạt Gemini...", ex.getMessage());
+            }
+        }
+
+        // Kích hoạt Google Gemini Direct nếu AI Engine offline (Render production)
+        if (geminiDirectClient != null && geminiDirectClient.isAvailable()) {
+            try {
+                String prompt = "Viết lại mục tài liệu Markdown kỹ thuật cho thực thể '" + targetName
+                        + "' với chữ ký '" + entity.getSignature() + "'. Mã nguồn:\n```\n" + sourceSnippet + "\n```";
+                var geminiText = geminiDirectClient.callGemini(null, prompt, 0.2);
+                if (geminiText.isPresent() && !geminiText.get().isBlank()) {
+                    String trimmed = geminiText.get().trim();
+                    if (!trimmed.startsWith("#")) {
+                        trimmed = hashes + " " + targetName + "\n\n" + trimmed;
+                    }
+                    return new SectionGenerationOutcome(trimmed, "gemini");
+                }
+            } catch (Exception e) {
+                log.debug("[RegenerateEntityDoc] Lỗi khi gọi Gemini Direct: {}", e.getMessage());
             }
         }
 

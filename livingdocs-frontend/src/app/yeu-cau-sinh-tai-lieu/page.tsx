@@ -199,7 +199,7 @@ function YeuCauSinhContent() {
       ? `Tự động sinh tài liệu kỹ thuật cho ${paramEntityType || "phần tử"} ${paramClassName}${paramMethodName ? "." + paramMethodName : ""}`
       : "")
   );
-  const [aiProvider, setAiProvider] = useState<"auto" | "ollama" | "gemini">("ollama");
+  const [aiProvider, setAiProvider] = useState<"auto" | "ollama" | "gemini">("gemini");
   const [localModelName, setLocalModelName] = useState<string>("Local Model");
   const [step, setStep] = useState<Step>("idle");
   const [repositories, setRepositories] = useState<RepoItem[]>([]);
