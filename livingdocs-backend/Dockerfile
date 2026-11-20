@@ -23,8 +23,8 @@ USER appuser
 # Copy file jar từ Stage 1
 COPY --from=builder /build/target/*.jar app.jar
 
-# Cấu hình RAM: tối đa 384MB để hoạt động hoàn hảo trong gói 512MB RAM miễn phí của Render
-ENV JAVA_OPTS="-Xmx384m -Xms128m -XX:+UseG1GC -XX:+ExitOnOutOfMemoryError" \
+# Cấu hình RAM & GC tối ưu cho gói Render Free 512MB RAM (ngăn ngừa triệt để lỗi Out of Memory / 502 Bad Gateway)
+ENV JAVA_OPTS="-Xmx256m -Xms96m -Xss512k -XX:MaxMetaspaceSize=128m -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError" \
     PORT=8080
 
 EXPOSE 8080
