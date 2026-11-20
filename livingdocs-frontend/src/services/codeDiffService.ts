@@ -96,9 +96,12 @@ export const codeDiffService = {
   async previewComment(repositoryId: number, prNumber: number): Promise<string> {
     const res = await apiClient.post<string>(
       `/api/code-diff/repositories/${repositoryId}/pull-requests/${prNumber}/preview-comment`,
-      null,
+      {},
       {
-        headers: { Accept: "text/plain" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/plain",
+        },
         responseType: "text" as any,
       }
     );
@@ -110,7 +113,11 @@ export const codeDiffService = {
    */
   async postDriftComment(repositoryId: number, prNumber: number): Promise<any> {
     const res = await apiClient.post(
-      `/api/code-diff/repositories/${repositoryId}/pull-requests/${prNumber}/drift-comment`
+      `/api/code-diff/repositories/${repositoryId}/pull-requests/${prNumber}/drift-comment`,
+      {},
+      {
+        headers: { "Content-Type": "application/json" },
+      }
     );
     return res.data;
   },
