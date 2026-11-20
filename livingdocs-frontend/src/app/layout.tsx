@@ -38,7 +38,12 @@ export default function RootLayout({
       lang="vi"
       className={`${robotoSans.variable} ${robotoMono.variable} ${display.variable} h-full antialiased`}
     >
-      <body className="min-h-dvh bg-[#f7faf8] text-slate-900">{children}</body>
+      <body
+        suppressHydrationWarning
+        className="min-h-dvh bg-[#f7faf8] text-slate-900"
+      >
+        {children}
+      </body>
     </html>
   );
 }
