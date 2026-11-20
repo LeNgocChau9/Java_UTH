@@ -129,13 +129,14 @@ export default function FileBox({ theme = "light", fill = false, triggerDrop = t
   const firstTheme = useRef(true);
   /* gradient and filter ids, unique per instance */
   const id = useId().replace(/[^a-zA-Z0-9_-]/g, "");
-  const ref = (name: string) => `url(#${id}-${name})`;
 
   useEffect(() => {
     const root = rootRef.current;
     const posterEl = posterRef.current;
     const scene = sceneRef.current;
     if (!root || !posterEl || !scene) return;
+
+    const ref = (name: string) => `url(#${id}-${name})`;
 
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
     const timers = new Set<number>();

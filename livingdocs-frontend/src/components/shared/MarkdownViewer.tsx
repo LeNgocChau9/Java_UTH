@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useId } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Code, Eye, ZoomIn, ZoomOut, RotateCcw, Copy, Check, AlertTriangle } from "lucide-react";
+import { Code, Eye, ZoomIn, ZoomOut, Copy, Check, AlertTriangle } from "lucide-react";
 
 type MarkdownViewerProps = {
   content: string;
@@ -47,8 +47,8 @@ function MermaidBlock({ chart }: { chart: string }) {
             mermaidInstance = m.default || m;
           } catch {
             // Nạp từ CDN ESM nếu bundle client chưa tải sẵn
-            // @ts-ignore
-            const m = await import(/* webpackIgnore: true */ "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs");
+            const cdnUrl = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+            const m: any = await import(/* webpackIgnore: true */ cdnUrl);
             mermaidInstance = m.default || m;
           }
           (window as any).mermaid = mermaidInstance;
