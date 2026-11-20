@@ -58,13 +58,13 @@ public class AuthServiceImpl implements AuthServicePort {
                 .build();
 
         User savedUser = userRepositoryPort.save(newUser);
-        // Đăng ký tài khoản mặc định vai trò ADMIN
-        userRepositoryPort.changeRole(savedUser.getUserId(), "ADMIN");
+        // Đăng ký tài khoản mặc định vai trò MANAGER
+        userRepositoryPort.changeRole(savedUser.getUserId(), "MANAGER");
 
         User freshUser = userRepositoryPort.findById(savedUser.getUserId()).orElse(savedUser);
         java.util.Set<String> roleStrings = freshUser.getRoles() != null && !freshUser.getRoles().isEmpty()
                 ? freshUser.getRoles().stream().map(Enum::name).collect(java.util.stream.Collectors.toSet())
-                : java.util.Collections.singleton("ROLE_ADMIN");
+                : java.util.Collections.singleton("ROLE_MANAGER");
         String token = jwtTokenProvider.generateToken(freshUser.getUserId(), freshUser.getEmail(), roleStrings);
 
         return AuthResponse.builder()
