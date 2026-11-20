@@ -19,6 +19,7 @@ import com.example.livingdocs_backend.infrastructure.persistence.repository.Spri
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentVersionRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataReviewRepository;
 import com.example.livingdocs_backend.infrastructure.security.UserPrincipal;
+import com.example.livingdocs_backend.infrastructure.ai.GeminiDirectClient;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -51,6 +52,9 @@ public class AutoDraftServiceImpl implements AutoDraftServicePort {
     private final AuditServicePort auditServicePort;
     private final ChangelogServicePort changelogServicePort;
     private final RestClient restClient;
+
+    @Autowired(required = false)
+    private GeminiDirectClient geminiDirectClient;
 
     @Autowired
     public AutoDraftServiceImpl(
@@ -435,11 +439,28 @@ public class AutoDraftServiceImpl implements AutoDraftServicePort {
                     .retrieve()
                     .body(DocRewriteResponseDto.class);
         } catch (Exception ex) {
-            log.warn("[AutoDraft] Không thể gọi AI Engine (/v1/docs/rewrite-suggestion): {}. Sử dụng nội dung cập nhật dự phòng.", ex.getMessage());
-            return DocRewriteResponseDto.builder()
-                    .updated_doc(currentDoc + "\n\n<!-- [AI Draft Update on Drift] -->\n" + codeDiff)
-                    .summary_of_changes("[Fallback] Cập nhật bản nháp tài liệu theo code diff.")
-                    .build();
+            log.warn("[AutoDraft] Không thể gọi AI Engine (/v1/docs/rewrite-suggestion): {}. Chuyển sang gọi trực tiếp Google Gemini...", ex.getMessage());
         }
+
+        // Ưu tiên gọi trực tiếp Google Gemini Cloud nếu AI Engine offline (Render production)
+        if (geminiDirectClient != null && geminiDirectClient.isAvailable()) {
+            try {
+                log.info("[AutoDraft] Gọi Gemini Direct rewrite cho '{}'...", title);
+                var geminiRewrite = geminiDirectClient.rewriteDocSnippet(currentDoc, codeDiff, title);
+                if (geminiRewrite.isPresent() && StringUtils.hasText(geminiRewrite.get())) {
+                    return DocRewriteResponseDto.builder()
+                            .updated_doc(geminiRewrite.get())
+                            .summary_of_changes("[Google Gemini] Tự động cập nhật tài liệu dựa trên thay đổi mã nguồn.")
+                            .build();
+                }
+            } catch (Exception e) {
+                log.warn("[AutoDraft] Lỗi khi gọi Gemini Rewrite: {}", e.getMessage());
+            }
+        }
+
+        return DocRewriteResponseDto.builder()
+                .updated_doc(currentDoc + "\n\n<!-- [AI Draft Update on Drift] -->\n" + codeDiff)
+                .summary_of_changes("[Fallback] Cập nhật bản nháp tài liệu theo code diff.")
+                .build();
     }
 }

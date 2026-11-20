@@ -94,18 +94,32 @@ export const codeDiffService = {
    * Xem trước định dạng Markdown comment review chuyên nghiệp sẽ đăng lên PR GitHub
    */
   async previewComment(repositoryId: number, prNumber: number): Promise<string> {
-    const res = await apiClient.post<string>(
-      `/api/code-diff/repositories/${repositoryId}/pull-requests/${prNumber}/preview-comment`,
-      {},
-      {
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "text/plain",
-        },
-        responseType: "text" as any,
-      }
-    );
-    return res.data;
+    try {
+      const res = await apiClient.post<string>(
+        `/api/code-diff/repositories/${repositoryId}/pull-requests/${prNumber}/preview-comment`,
+        {},
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "text/plain, application/json, */*",
+          },
+          responseType: "text" as any,
+        }
+      );
+      return res.data;
+    } catch {
+      // Fallback sang GET nếu POST trả về lỗi (ví dụ 415 Unsupported Media Type)
+      const res = await apiClient.get<string>(
+        `/api/code-diff/repositories/${repositoryId}/pull-requests/${prNumber}/preview-comment`,
+        {
+          headers: {
+            Accept: "text/plain, application/json, */*",
+          },
+          responseType: "text" as any,
+        }
+      );
+      return res.data;
+    }
   },
 
   /**

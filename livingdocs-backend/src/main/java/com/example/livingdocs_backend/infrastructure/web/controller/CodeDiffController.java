@@ -99,7 +99,8 @@ public class CodeDiffController {
         return ResponseEntity.ok(result);
     }
 
-    @GetMapping(value = "/repositories/{repositoryId}/pull-requests/{prNumber}/preview-comment", produces = MediaType.TEXT_PLAIN_VALUE)
+    @GetMapping(value = "/repositories/{repositoryId}/pull-requests/{prNumber}/preview-comment",
+            produces = {MediaType.TEXT_PLAIN_VALUE, MediaType.APPLICATION_JSON_VALUE, "*/*"})
     @Operation(summary = "Xem trước định dạng Markdown comment chuyên nghiệp qua GET (không cần body)")
     public ResponseEntity<String> previewCommentGet(
             @PathVariable Long repositoryId,
@@ -107,7 +108,9 @@ public class CodeDiffController {
         return previewComment(repositoryId, prNumber, null);
     }
 
-    @PostMapping(value = "/repositories/{repositoryId}/pull-requests/{prNumber}/preview-comment", produces = MediaType.TEXT_PLAIN_VALUE)
+    @PostMapping(value = "/repositories/{repositoryId}/pull-requests/{prNumber}/preview-comment",
+            consumes = {MediaType.APPLICATION_JSON_VALUE, "*/*"},
+            produces = {MediaType.TEXT_PLAIN_VALUE, MediaType.APPLICATION_JSON_VALUE, "*/*"})
     @Operation(summary = "Xem trước định dạng Markdown comment chuyên nghiệp sẽ đăng lên PR GitHub (Bảng tổng hợp, link web, danh sách hàm)")
     public ResponseEntity<String> previewComment(
             @PathVariable Long repositoryId,

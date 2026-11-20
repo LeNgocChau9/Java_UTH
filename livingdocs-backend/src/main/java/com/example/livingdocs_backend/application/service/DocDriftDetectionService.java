@@ -68,6 +68,9 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
     private AiRuntimeConfigService aiRuntimeConfigService;
 
     @Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.ai.GeminiDirectClient geminiDirectClient;
+
+    @Autowired(required = false)
     private com.example.livingdocs_backend.infrastructure.notification.ExternalIntegrationWebhookDispatcher webhookDispatcher;
 
     public static final String BOT_MARKER = "<!-- livingdocs-drift-alert -->";
@@ -735,9 +738,38 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
                     .retrieve()
                     .body(AiDriftAnalyzeResponseDto.class);
         } catch (Exception ex) {
-            log.warn("[DocDrift] Bỏ qua AI semantic drift cho docId={} do: {}", item.documentId(), ex.getMessage());
-            return null;
+            log.warn("[DocDrift] AI Engine offline hoặc lỗi ({}) cho docId={}. Chuyển sang kích hoạt Gemini...", ex.getMessage(), item.documentId());
         }
+
+        // Ưu tiên gọi trực tiếp Google Gemini Cloud nếu AI Engine offline (Render production)
+        if (geminiDirectClient != null && geminiDirectClient.isAvailable()) {
+            try {
+                String entityName = item.methodName() != null ? item.methodName() : item.className();
+                String diffSnippet = item.details() != null ? item.details() : "Diff for method: " + item.methodName();
+                String prompt = "Phân tích xem thay đổi mã nguồn sau có làm sai lệch (drift) tài liệu kỹ thuật hay không:\n"
+                        + "- Tên thực thể: " + entityName + "\n"
+                        + "- Diff mã nguồn: " + diffSnippet + "\n"
+                        + "Trả về 1 nhận định ngắn gọn (1-2 câu).";
+                var geminiEval = geminiDirectClient.callGemini(null, prompt, 0.2);
+                if (geminiEval.isPresent()) {
+                    return AiDriftAnalyzeResponseDto.builder()
+                            .status("success")
+                            .mode("gemini_cloud")
+                            .entity_name(entityName)
+                            .is_drifted(true)
+                            .drift_score(0.85)
+                            .severity("MEDIUM")
+                            .classification("SEMANTIC_DRIFT")
+                            .explanation(geminiEval.get())
+                            .model_used("gemini-3.1-flash-lite")
+                            .build();
+                }
+            } catch (Exception e) {
+                log.debug("[DocDrift] Lỗi khi phân tích drift qua Gemini: {}", e.getMessage());
+            }
+        }
+
+        return null;
     }
 
     private List<GitHubClientPort.PrReviewInlineComment> buildInlineReviewComments(

@@ -282,20 +282,22 @@ export default function LivingDocsYouMindLandingPage() {
         });
       });
 
-      // Staggered bento cards
-      gsap.from(".bento-motion-card", {
-        y: 28,
-        opacity: 0,
-        duration: 0.6,
-        stagger: 0.08,
-        ease: "power2.out",
-        clearProps: "transform",
-        scrollTrigger: {
-          trigger: ".bento-motion-grid",
-          start: "top 82%",
-          once: true,
-        },
-      });
+      // Staggered bento cards (chỉ chạy hiệu ứng khi phần tử tồn tại trên DOM)
+      if (pageRef.current?.querySelector(".bento-motion-card") && pageRef.current?.querySelector(".bento-motion-grid")) {
+        gsap.from(".bento-motion-card", {
+          y: 28,
+          opacity: 0,
+          duration: 0.6,
+          stagger: 0.08,
+          ease: "power2.out",
+          clearProps: "transform",
+          scrollTrigger: {
+            trigger: ".bento-motion-grid",
+            start: "top 82%",
+            once: true,
+          },
+        });
+      }
     }, pageRef);
 
     return () => ctx.revert();

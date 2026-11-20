@@ -20,6 +20,7 @@ import com.example.livingdocs_backend.infrastructure.persistence.repository.Spri
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataAdminSettingRepository;
+import com.example.livingdocs_backend.infrastructure.ai.GeminiDirectClient;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -65,6 +66,9 @@ public class AiDocumentationService implements AiDocumentationServicePort {
 
     @Autowired(required = false)
     private AiRuntimeConfigService aiRuntimeConfigService;
+
+    @Autowired(required = false)
+    private GeminiDirectClient geminiDirectClient;
 
     public AiDocumentationService(
             @Value("${ai.engine.url:http://localhost:8000}") String aiEngineUrl
@@ -544,8 +548,38 @@ public class AiDocumentationService implements AiDocumentationServicePort {
                 return response;
             }
         } catch (Exception ex) {
-            log.warn("[AiDocService] Không thể kết nối AI Engine (/v1/docs/generate) cho scope={}: {}. Sử dụng bộ tổng hợp AST dự phòng.",
+            log.warn("[AiDocService] Không thể kết nối AI Engine (/v1/docs/generate) cho scope={}: {}. Chuyển sang kích hoạt Google Gemini Cloud...",
                     scope, ex.getMessage());
+        }
+
+        // Ưu tiên gọi trực tiếp Google Gemini Cloud API nếu AI Engine FastAPI offline (Render production)
+        if (geminiDirectClient != null && geminiDirectClient.isAvailable()) {
+            try {
+                log.info("[AiDocService] Kích hoạt Google Gemini Direct Client cho scope={}, target={}", scope, context.targetSourcePath);
+                var geminiContent = geminiDirectClient.generateTechnicalDoc(
+                        context.templateType,
+                        context.primaryName,
+                        context.targetSourcePath,
+                        context.sourceCommit,
+                        limitedEntities,
+                        context.sourceCode,
+                        context.documentTitle
+                );
+                if (geminiContent.isPresent() && StringUtils.hasText(geminiContent.get())) {
+                    String md = geminiContent.get();
+                    return AiDocGenerateResponseDto.builder()
+                            .status("success")
+                            .mode("gemini_cloud")
+                            .template_type(context.templateType)
+                            .file_path(context.targetSourcePath)
+                            .generated_content(md)
+                            .confidence_score(calculateRealConfidenceScore(md, context.aiEntities))
+                            .grounding_evidence(Collections.emptyList())
+                            .build();
+                }
+            } catch (Exception e) {
+                log.warn("[AiDocService] Lỗi khi sinh tài liệu qua Gemini Direct: {}. Sử dụng bộ tổng hợp AST dự phòng.", e.getMessage());
+            }
         }
 
         String fallbackMarkdown = buildScopeFallbackMarkdown(context, scope);

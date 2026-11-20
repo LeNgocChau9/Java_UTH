@@ -1,6 +1,7 @@
 package com.example.livingdocs_backend.infrastructure.web.controller;
 
 import com.example.livingdocs_backend.application.service.AiRuntimeConfigService;
+import com.example.livingdocs_backend.infrastructure.ai.GeminiDirectClient;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,6 +31,9 @@ public class AiChatController {
 
     @Autowired(required = false)
     private AiRuntimeConfigService aiRuntimeConfigService;
+
+    @Autowired(required = false)
+    private GeminiDirectClient geminiDirectClient;
 
     public AiChatController(@Value("${ai.engine.url:http://localhost:8000}") String aiEngineUrl) {
         this.restClient = RestClient.builder()
@@ -78,7 +82,39 @@ public class AiChatController {
                 return ResponseEntity.ok(response);
             }
         } catch (Exception ex) {
-            log.warn("[AiChatController] Không thể kết nối AI Engine (/v1/chat): {}. Sử dụng bộ phản hồi dự phòng.", ex.getMessage());
+            log.warn("[AiChatController] Không thể kết nối AI Engine (/v1/chat): {}. Chuyển sang kích hoạt Google Gemini Cloud...", ex.getMessage());
+        }
+
+        // 4. Kích hoạt trực tiếp Google Gemini Cloud nếu AI Engine offline (Render production)
+        if (geminiDirectClient != null && geminiDirectClient.isAvailable()) {
+            try {
+                StringBuilder ragContext = new StringBuilder();
+                if (payload.get("context_chunks") instanceof List<?> chunks && !chunks.isEmpty()) {
+                    ragContext.append("### TÀI LIỆU LIÊN QUAN:\n");
+                    for (Object c : chunks) {
+                        ragContext.append(c.toString()).append("\n");
+                    }
+                }
+                if (payload.get("code_entities") instanceof List<?> entities && !entities.isEmpty()) {
+                    ragContext.append("\n### THỰC THỂ MÃ NGUỒN LIÊN QUAN:\n");
+                    for (Object e : entities) {
+                        ragContext.append(e.toString()).append("\n");
+                    }
+                }
+
+                log.info("[AiChatController] Hỏi đáp qua Google Gemini Direct Client...");
+                var geminiReply = geminiDirectClient.answerChat(message, ragContext.toString());
+                if (geminiReply.isPresent() && !geminiReply.get().isBlank()) {
+                    return ResponseEntity.ok(Map.of(
+                            "status", "success",
+                            "provider", "gemini_cloud",
+                            "model", "Google Gemini Flash",
+                            "reply", geminiReply.get()
+                    ));
+                }
+            } catch (Exception ex) {
+                log.warn("[AiChatController] Lỗi khi gọi Gemini Direct Chat: {}", ex.getMessage());
+            }
         }
 
         String fallbackReply = "Chào bạn! Tôi là **Trợ lý AI LivingDocs**.\n\n"
