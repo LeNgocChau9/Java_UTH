@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -723,6 +724,100 @@ public class GitHubClient implements GitHubClientPort {
         } catch (Exception ex) {
             log.error("Lỗi ngoại lệ khi đăng comment lên PR #{}: {}", prNumber, ex.getMessage(), ex);
             throw new GitHubApiException("Không thể đăng comment lên PR: " + ex.getMessage(), 500, ex);
+        }
+    }
+
+    @Override
+    public Long createPullRequestReview(
+            String token,
+            String owner,
+            String repo,
+            int prNumber,
+            String commitId,
+            String body,
+            String event,
+            List<PrReviewInlineComment> comments
+    ) {
+        String uri = UriComponentsBuilder.fromPath("/repos/{owner}/{repo}/pulls/{pull_number}/reviews")
+                .buildAndExpand(owner, repo, prNumber)
+                .toUriString();
+
+        log.info("[GitHubClient] Tạo PR Inline Review (/pulls/{}/reviews) cho repo {}/{}", prNumber, owner, repo);
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        if (StringUtils.hasText(commitId)) {
+            payload.put("commit_id", commitId.trim());
+        }
+        payload.put("body", StringUtils.hasText(body) ? body : "LivingDocs PR Review");
+        payload.put("event", StringUtils.hasText(event) ? event : "COMMENT");
+
+        if (comments != null && !comments.isEmpty()) {
+            List<Map<String, Object>> commentList = new ArrayList<>();
+            for (var c : comments) {
+                if (StringUtils.hasText(c.path()) && c.line() != null && StringUtils.hasText(c.body())) {
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("path", c.path());
+                    item.put("line", c.line());
+                    item.put("side", StringUtils.hasText(c.side()) ? c.side() : "RIGHT");
+                    item.put("body", c.body());
+                    commentList.add(item);
+                }
+            }
+            if (!commentList.isEmpty()) {
+                payload.put("comments", commentList);
+            }
+        }
+
+        try {
+            var requestSpec = restClient.post()
+                    .uri(uri)
+                    .header(HttpHeaders.USER_AGENT, "LivingDocs-GitHubClient/1.0")
+                    .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .body(payload);
+
+            if (StringUtils.hasText(token)) {
+                requestSpec.header(HttpHeaders.AUTHORIZATION, "Bearer " + token.trim());
+            }
+
+            var responseEntity = requestSpec.retrieve().toEntity(GitCommentResponse.class);
+            GitCommentResponse reviewResponse = responseEntity.getBody();
+            if (reviewResponse != null && reviewResponse.id() != null) {
+                log.info("[GitHubClient] Tạo PR Review thành công trên PR #{}, review_id={}", prNumber, reviewResponse.id());
+                return reviewResponse.id();
+            }
+            return 1L;
+        } catch (RestClientResponseException ex) {
+            log.warn("[GitHubClient] Không tạo được PR review có inline comments (HTTP {}), fallback sang review chung: {}",
+                    ex.getStatusCode(), ex.getResponseBodyAsString());
+            try {
+                Map<String, Object> fallbackPayload = new LinkedHashMap<>();
+                if (StringUtils.hasText(commitId)) {
+                    fallbackPayload.put("commit_id", commitId.trim());
+                }
+                fallbackPayload.put("body", body);
+                fallbackPayload.put("event", "COMMENT");
+
+                var fbSpec = restClient.post()
+                        .uri(uri)
+                        .header(HttpHeaders.USER_AGENT, "LivingDocs-GitHubClient/1.0")
+                        .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.APPLICATION_JSON)
+                        .body(fallbackPayload);
+                if (StringUtils.hasText(token)) {
+                    fbSpec.header(HttpHeaders.AUTHORIZATION, "Bearer " + token.trim());
+                }
+                var fbRes = fbSpec.retrieve().toEntity(GitCommentResponse.class).getBody();
+                return fbRes != null ? fbRes.id() : createPullRequestComment(token, owner, repo, prNumber, body);
+            } catch (Exception fbEx) {
+                log.error("[GitHubClient] Fallback review cũng lỗi, gọi sang issue-comment: {}", fbEx.getMessage());
+                return createPullRequestComment(token, owner, repo, prNumber, body);
+            }
+        } catch (Exception ex) {
+            log.error("[GitHubClient] Lỗi kết nối khi gọi reviews API, fallback sang comment: {}", ex.getMessage());
+            return createPullRequestComment(token, owner, repo, prNumber, body);
         }
     }
 

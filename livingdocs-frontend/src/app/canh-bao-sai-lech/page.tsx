@@ -34,12 +34,14 @@ import {
 import { apiClient } from "@/services/apiClient";
 import { repoService, RepoItem } from "@/services/repoService";
 import { healthReportService } from "@/services/healthReportService";
+import { codeDiffService } from "@/services/codeDiffService";
 
 export type SeverityType = "low" | "medium" | "high" | "critical";
 export type ClassificationType = "SIGNATURE" | "SEMANTIC" | "REFERENCE";
 
 export interface DriftAlertItem {
   id: number;
+  documentId?: number;
   docTitle: string;
   docPath: string;
   repo: string;
@@ -327,6 +329,138 @@ function CanhBaoSaiLechContent() {
     }, 20);
   };
 
+  // State & Handlers cho API CodeDiffController & PrMergeBlockingController
+  const [prModalState, setPrModalState] = useState<{
+    isOpen: boolean;
+    type: "diff" | "ast" | "preview" | "blocking" | null;
+    loading: boolean;
+    title: string;
+    data: any;
+    repoId?: number;
+    prNumber?: number;
+  }>({
+    isOpen: false,
+    type: null,
+    loading: false,
+    title: "",
+    data: null,
+  });
+  const [isPostingReview, setIsPostingReview] = useState(false);
+
+  const getTargetRepoId = useCallback(() => {
+    if (selectedRepoId && selectedRepoId !== "all" && !isNaN(Number(selectedRepoId))) {
+      return Number(selectedRepoId);
+    }
+    if (repositories.length > 0 && repositories[0].repositoryId) {
+      return repositories[0].repositoryId;
+    }
+    return 1;
+  }, [selectedRepoId, repositories]);
+
+  const handleOpenPrDiff = async (prNumber: number, repoIdParam?: number) => {
+    const repoId = repoIdParam || getTargetRepoId();
+    setPrModalState({
+      isOpen: true,
+      type: "diff",
+      loading: true,
+      title: `Git Diff - Pull Request #${prNumber}`,
+      data: null,
+      repoId,
+      prNumber,
+    });
+    try {
+      const res = await codeDiffService.pullDiff(repoId, prNumber);
+      setPrModalState((prev) => ({ ...prev, loading: false, data: res }));
+    } catch (err: any) {
+      setPrModalState((prev) => ({
+        ...prev,
+        loading: false,
+        data: { error: err.response?.data?.message || err.message || "Không thể tải Git Diff từ GitHub" },
+      }));
+    }
+  };
+
+  const handleOpenPrAst = async (prNumber: number, repoIdParam?: number) => {
+    const repoId = repoIdParam || getTargetRepoId();
+    setPrModalState({
+      isOpen: true,
+      type: "ast",
+      loading: true,
+      title: `Phân tích AST & Bắt sai lệch - PR #${prNumber}`,
+      data: null,
+      repoId,
+      prNumber,
+    });
+    try {
+      const res = await codeDiffService.pullAndAnalyze(repoId, prNumber);
+      setPrModalState((prev) => ({ ...prev, loading: false, data: res }));
+    } catch (err: any) {
+      setPrModalState((prev) => ({
+        ...prev,
+        loading: false,
+        data: { error: err.response?.data?.message || err.message || "Không thể phân tích AST PR" },
+      }));
+    }
+  };
+
+  const handleOpenPrPreviewComment = async (prNumber: number, repoIdParam?: number) => {
+    const repoId = repoIdParam || getTargetRepoId();
+    setPrModalState({
+      isOpen: true,
+      type: "preview",
+      loading: true,
+      title: `Xem trước GitHub Inline Review Bot (suggestion patch) - PR #${prNumber}`,
+      data: null,
+      repoId,
+      prNumber,
+    });
+    try {
+      const res = await codeDiffService.previewComment(repoId, prNumber);
+      setPrModalState((prev) => ({ ...prev, loading: false, data: res }));
+    } catch (err: any) {
+      setPrModalState((prev) => ({
+        ...prev,
+        loading: false,
+        data: { error: err.response?.data?.message || err.message || "Không thể tải trước review comment" },
+      }));
+    }
+  };
+
+  const handleOpenPrBlocking = async (prNumber: number, repoIdParam?: number) => {
+    const repoId = repoIdParam || getTargetRepoId();
+    setPrModalState({
+      isOpen: true,
+      type: "blocking",
+      loading: true,
+      title: `Kiểm tra Chặn Merge Gate (PrMergeBlocking) - PR #${prNumber}`,
+      data: null,
+      repoId,
+      prNumber,
+    });
+    try {
+      const res = await codeDiffService.evaluatePrBlocking(repoId, prNumber);
+      setPrModalState((prev) => ({ ...prev, loading: false, data: res }));
+    } catch (err: any) {
+      setPrModalState((prev) => ({
+        ...prev,
+        loading: false,
+        data: { error: err.response?.data?.message || err.message || "Không thể đánh giá chặn merge" },
+      }));
+    }
+  };
+
+  const handlePostReviewComment = async (repoId: number, prNumber: number) => {
+    setIsPostingReview(true);
+    try {
+      const res = await codeDiffService.postDriftComment(repoId, prNumber);
+      alert(`Đã gửi GitHub Pull Request Review thành công!\nReview ID: ${res?.reviewId || "N/A"}\nURL: ${res?.reviewUrl || "Đã gửi lên GitHub"}`);
+    } catch (err: any) {
+      alert("Lỗi khi đăng bình luận: " + (err.response?.data?.message || err.message));
+    } finally {
+      setIsPostingReview(false);
+    }
+  };
+
   const counts = useMemo(() => {
     return {
       all: alerts.length,
@@ -487,6 +621,7 @@ function CanhBaoSaiLechContent() {
       if (realAlerts.length > 0) {
         const mapped: DriftAlertItem[] = realAlerts.map((item, idx) => ({
           id: item.alertId || item.id || idx + 1,
+          documentId: item.documentId || item.docId || undefined,
           docTitle: item.methodName
             ? `Tài liệu API phương thức ${item.methodName}()`
             : item.filePath
@@ -514,8 +649,12 @@ function CanhBaoSaiLechContent() {
           aiSuggestion: "Đồng bộ lại tài liệu kỹ thuật cho khớp với phiên bản mã nguồn mới nhất.",
           codeDiff: {
             fileName: item.filePath || "SourceCode.java",
-            oldCode: "// Phiên bản trước khi cập nhật:\n" + (item.diffSnippet || item.details || "// Không có diff chi tiết"),
-            newCode: "// Phiên bản mới đã merge:\n" + (item.diffSnippet || item.details || "// Không có diff chi tiết"),
+            oldCode: item.diffSnippet
+              ? (item.diffSnippet.split("\n").filter((l: string) => l.startsWith("-") || (!l.startsWith("+") && !l.startsWith("@@"))).map((l: string) => l.startsWith("-") ? l.substring(1) : l).join("\n") || `// Phiên bản cũ:\n${item.oldSignature || item.diffSnippet}`)
+              : (item.oldSignature ? `// Chữ ký hàm cũ:\n${item.oldSignature}` : `// Phiên bản trước khi cập nhật:\n// Phương thức: ${item.methodName || "N/A"}\n// File: ${item.filePath || "N/A"}\n// Chưa đồng bộ với PR mới`),
+            newCode: item.diffSnippet
+              ? (item.diffSnippet.split("\n").filter((l: string) => l.startsWith("+") || (!l.startsWith("-") && !l.startsWith("@@"))).map((l: string) => l.startsWith("+") ? l.substring(1) : l).join("\n") || `// Phiên bản mới:\n${item.newSignature || item.diffSnippet}`)
+              : (item.newSignature ? `// Chữ ký hàm mới:\n${item.newSignature}` : `// Phiên bản mới đã merge:\n// Chi tiết: ${item.details || "Mã nguồn đã thay đổi."}`),
           },
           docDiff: {
             sectionTitle: `Mục: ${item.methodName || "Đặc tả kỹ thuật"}`,
@@ -672,22 +811,12 @@ function CanhBaoSaiLechContent() {
   const handleAcceptFix = async (alertItem: DriftAlertItem) => {
     setAcceptingId(alertItem.id);
     try {
-      try {
-        await apiClient.patch(`/api/drift-alerts/${alertItem.id}`, {
-          action: "RESOLVE",
-          comment: "Người dùng chấp nhận đề xuất cập nhật tài liệu từ Trung tâm Cảnh báo",
-        });
-      } catch (e) {
-        console.info("Persisting resolve status for alert #", alertItem.id);
-      }
-      try {
-        await apiClient.post(`/api/drift-alerts/${alertItem.id}/auto-draft`);
-        await apiClient.post(`/api/drift-alerts/${alertItem.id}/accept-draft`);
-      } catch (e) {
-        console.info("Using frontend draft sync simulation for alert #", alertItem.id);
-      }
-
-      await new Promise((r) => setTimeout(r, 600));
+      await apiClient.patch(`/api/drift-alerts/${alertItem.id}`, {
+        action: "RESOLVE",
+        comment: "Người dùng chấp nhận đề xuất cập nhật tài liệu từ Trung tâm Cảnh báo",
+      });
+      await apiClient.post(`/api/drift-alerts/${alertItem.id}/auto-draft`);
+      const acceptRes = await apiClient.post(`/api/drift-alerts/${alertItem.id}/accept-draft`);
 
       setAlerts((prev) =>
         prev.map((a) =>
@@ -695,7 +824,7 @@ function CanhBaoSaiLechContent() {
             ? {
                 ...a,
                 status: "RESOLVED",
-                draftVersionId: 100 + a.id,
+                draftVersionId: acceptRes?.data?.versionId || alertItem.documentId || 1,
               }
             : a
         )
@@ -704,14 +833,15 @@ function CanhBaoSaiLechContent() {
       setSuccessToast({
         show: true,
         title: "Đã chấp nhận đề xuất & Tạo bản nháp mới!",
-        message: `Đã tự động áp dụng nội dung AI đề xuất vào bản nháp DRAFT (v2.1) cho "${alertItem.docTitle}". Cảnh báo đã được đánh dấu RESOLVED.`,
+        message: `Đã áp dụng nội dung AI đề xuất vào bản nháp cho "${alertItem.docTitle}". Cảnh báo #${alertItem.id} đã được đánh dấu RESOLVED.`,
       });
 
       setTimeout(() => {
         setSuccessToast((prev) => ({ ...prev, show: false }));
       }, 5000);
     } catch (err: any) {
-      alert("Không thể tạo bản nháp: " + (err.message || "Lỗi hệ thống"));
+      console.error("Lỗi khi giải quyết cảnh báo:", err);
+      alert("Không thể tạo bản nháp / giải quyết cảnh báo: " + (err.response?.data?.message || err.message || "Lỗi hệ thống"));
     } finally {
       setAcceptingId(null);
     }
@@ -719,6 +849,7 @@ function CanhBaoSaiLechContent() {
 
   // Hành động 2: Chỉnh sửa (Mở trực tiếp sang trang Trình soạn thảo Editor kèm nội dung tài liệu & đề xuất)
   const handleEdit = (alertItem: DriftAlertItem) => {
+    const targetDocId = alertItem.documentId || alertItem.id;
     // Lưu tạm thời thông tin tài liệu cần sửa vào sessionStorage để Editor nạp mượt mà (ngay cả khi DB chưa có docId này)
     if (typeof window !== "undefined") {
       sessionStorage.setItem(
@@ -731,7 +862,7 @@ function CanhBaoSaiLechContent() {
         })
       );
     }
-    router.push(`/tai-lieu-cua-toi/editor?docId=${alertItem.id}&fromAlert=${alertItem.id}`);
+    router.push(`/tai-lieu-cua-toi/editor?docId=${targetDocId}&fromAlert=${alertItem.id}`);
   };
 
   // Hành động 3: Bỏ qua (Đánh dấu trạng thái IGNORED)
@@ -1967,30 +2098,81 @@ function CanhBaoSaiLechContent() {
                 </div>
               </div>
 
-              {/* Thông tin Pull Request liên quan */}
+              {/* Thông tin Pull Request liên quan & Các công cụ CodeDiff/PrMergeBlocking */}
               {selectedAlert.pr && (
                 <div
                   style={{
                     background: "#f8fafc",
                     border: "1px solid #e2e8f0",
                     borderRadius: 8,
-                    padding: "10px 14px",
+                    padding: "12px 16px",
                     marginBottom: 16,
                     display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    flexWrap: "wrap",
+                    flexDirection: "column",
                     gap: 10,
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <GitPullRequest size={16} style={{ color: "#087f5b" }} />
-                    <span style={{ fontSize: 13, fontWeight: 600, color: "#0f172a" }}>
-                      PR #{selectedAlert.pr.number}: {selectedAlert.pr.title}
-                    </span>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      flexWrap: "wrap",
+                      gap: 10,
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <GitPullRequest size={16} style={{ color: "#087f5b" }} />
+                      <span style={{ fontSize: 13, fontWeight: 600, color: "#0f172a" }}>
+                        PR #{selectedAlert.pr.number}: {selectedAlert.pr.title}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 11, color: "#64748b" }}>
+                      Nhánh: <code style={{ background: "#e2e8f0", padding: "1px 5px", borderRadius: 3, color: "#0f172a" }}>{selectedAlert.pr.branch}</code> • Bởi: <strong>{selectedAlert.pr.author}</strong> ({selectedAlert.pr.mergedAt})
+                    </div>
                   </div>
-                  <div style={{ fontSize: 11, color: "#64748b" }}>
-                    Nhánh: <code style={{ background: "#e2e8f0", padding: "1px 5px", borderRadius: 3, color: "#0f172a" }}>{selectedAlert.pr.branch}</code> • Bởi: <strong>{selectedAlert.pr.author}</strong> ({selectedAlert.pr.mergedAt})
+
+                  {/* Thanh công cụ CodeDiff & Merge Gate Bot */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", paddingTop: 8, borderTop: "1px dashed #cbd5e1" }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#475569", marginRight: 4 }}>
+                      Công cụ PR Review Bot & Quality Gate:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenPrDiff(selectedAlert.pr!.number)}
+                      className="ld-btn ld-btn-secondary ld-btn-xs"
+                      style={{ fontSize: 11, padding: "5px 10px", background: "#ffffff", border: "1px solid #cbd5e1" }}
+                    >
+                      <FileDiff size={12} style={{ color: "#0284c7" }} />
+                      Kéo Git Diff (/pull-diff)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenPrAst(selectedAlert.pr!.number)}
+                      className="ld-btn ld-btn-secondary ld-btn-xs"
+                      style={{ fontSize: 11, padding: "5px 10px", background: "#ffffff", border: "1px solid #cbd5e1" }}
+                    >
+                      <Zap size={12} style={{ color: "#f59e0b" }} />
+                      Phân tích AST (/pull-and-analyze)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenPrPreviewComment(selectedAlert.pr!.number)}
+                      className="ld-btn ld-btn-secondary ld-btn-xs"
+                      style={{ fontSize: 11, padding: "5px 10px", background: "#ffffff", border: "1px solid #cbd5e1" }}
+                    >
+                      <Code size={12} style={{ color: "#7c3aed" }} />
+                      Xem trước Review Bot (/preview-comment)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenPrBlocking(selectedAlert.pr!.number)}
+                      className="ld-btn ld-btn-secondary ld-btn-xs"
+                      style={{ fontSize: 11, padding: "5px 10px", background: "#ffffff", border: "1px solid #cbd5e1" }}
+                    >
+                      <ShieldAlert size={12} style={{ color: "#dc2626" }} />
+                      Chặn PR Gate (/evaluate)
+                    </button>
                   </div>
                 </div>
               )}
@@ -2687,6 +2869,301 @@ function CanhBaoSaiLechContent() {
               </div>
             </div>
           )}
+        </div>
+      </div>
+    )}
+    {/* Modal hiển thị chi tiết API CodeDiff / Bot Review / PR Merge Blocking */}
+    {prModalState.isOpen && (
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(15, 23, 42, 0.6)",
+          zIndex: 9999,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 20,
+        }}
+        onClick={() => setPrModalState((prev) => ({ ...prev, isOpen: false }))}
+      >
+        <div
+          style={{
+            background: "#ffffff",
+            borderRadius: 12,
+            width: "100%",
+            maxWidth: 850,
+            maxHeight: "90vh",
+            display: "flex",
+            flexDirection: "column",
+            boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.2)",
+            overflow: "hidden",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Modal Header */}
+          <div
+            style={{
+              padding: "16px 20px",
+              borderBottom: "1px solid #e2e8f0",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              background: "#f8fafc",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <GitPullRequest size={18} style={{ color: "#087f5b" }} />
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#0f172a" }}>
+                {prModalState.title}
+              </h3>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPrModalState((prev) => ({ ...prev, isOpen: false }))}
+              style={{
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
+                padding: 4,
+                color: "#64748b",
+              }}
+            >
+              <XCircle size={20} />
+            </button>
+          </div>
+
+          {/* Modal Body */}
+          <div style={{ padding: 20, overflowY: "auto", flex: 1 }}>
+            {prModalState.loading ? (
+              <div style={{ textAlign: "center", padding: "40px 0", color: "#64748b" }}>
+                <RefreshCw size={28} className="animate-spin" style={{ margin: "0 auto 12px", color: "#087f5b" }} />
+                <p style={{ fontSize: 14 }}>Đang kết nối GitHub & Phân tích hệ thống...</p>
+              </div>
+            ) : prModalState.data?.error ? (
+              <div
+                style={{
+                  padding: 16,
+                  borderRadius: 8,
+                  background: "#fef2f2",
+                  border: "1px solid #fecaca",
+                  color: "#991b1b",
+                  fontSize: 13,
+                }}
+              >
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>Đã xảy ra lỗi:</div>
+                <div>{prModalState.data.error}</div>
+              </div>
+            ) : (
+              <div>
+                {/* 1. Kéo Git Diff */}
+                {prModalState.type === "diff" && (
+                  <div>
+                    <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+                      <span className="ld-badge" style={{ background: "#ecfdf5", color: "#047857" }}>
+                        PR #{prModalState.data?.prNumber || prModalState.prNumber}
+                      </span>
+                      <span className="ld-badge" style={{ background: "#f1f5f9", color: "#334155" }}>
+                        Nhánh: {prModalState.data?.baseBranch || "base"} ← {prModalState.data?.headBranch || "head"}
+                      </span>
+                      <span className="ld-badge" style={{ background: "#f0f9ff", color: "#0284c7" }}>
+                        Files thay đổi: {prModalState.data?.changedFilesCount ?? (prModalState.data?.files?.length || 0)}
+                      </span>
+                    </div>
+
+                    <div style={{ marginBottom: 12, fontWeight: 600, fontSize: 13, color: "#334155" }}>
+                      Unified Git Diff Snippet:
+                    </div>
+                    <pre
+                      style={{
+                        background: "#0f172a",
+                        color: "#f8fafc",
+                        padding: 14,
+                        borderRadius: 8,
+                        fontSize: 12,
+                        lineHeight: 1.5,
+                        overflowX: "auto",
+                        maxHeight: 380,
+                      }}
+                    >
+                      {prModalState.data?.diffSnippet ||
+                        prModalState.data?.diffContent ||
+                        (prModalState.data?.files && JSON.stringify(prModalState.data.files, null, 2)) ||
+                        "// Không có nội dung diff"}
+                    </pre>
+                  </div>
+                )}
+
+                {/* 2. Phân tích AST & Bắt sai lệch */}
+                {prModalState.type === "ast" && (
+                  <div>
+                    <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+                      <span className="ld-badge" style={{ background: "#ecfdf5", color: "#047857" }}>
+                        Số tài liệu trôi dạt: {prModalState.data?.affectedDocsCount ?? (prModalState.data?.driftAlerts?.length || 0)}
+                      </span>
+                      <span className="ld-badge" style={{ background: "#f5f3ff", color: "#7c3aed" }}>
+                        Trạng thái AST: {prModalState.data?.status || "Đã phân tích"}
+                      </span>
+                    </div>
+
+                    <div style={{ marginBottom: 12, fontWeight: 600, fontSize: 13, color: "#334155" }}>
+                      Kết quả phân tích trôi dạt AST:
+                    </div>
+                    <pre
+                      style={{
+                        background: "#f8fafc",
+                        border: "1px solid #cbd5e1",
+                        color: "#0f172a",
+                        padding: 14,
+                        borderRadius: 8,
+                        fontSize: 12,
+                        lineHeight: 1.5,
+                        overflowX: "auto",
+                        maxHeight: 380,
+                      }}
+                    >
+                      {JSON.stringify(prModalState.data, null, 2)}
+                    </pre>
+                  </div>
+                )}
+
+                {/* 3. Xem trước Review Bot */}
+                {prModalState.type === "preview" && (
+                  <div>
+                    <div style={{ marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: 13, color: "#64748b" }}>
+                        Nội dung bình luận review inline GitHub (kèm khối ```suggestion vá tài liệu trực tiếp):
+                      </span>
+                      <button
+                        type="button"
+                        disabled={isPostingReview}
+                        onClick={() => handlePostReviewComment(prModalState.repoId!, prModalState.prNumber!)}
+                        className="ld-btn ld-btn-primary ld-btn-sm"
+                        style={{ background: "#087f5b", color: "#fff", gap: 6, fontSize: 12, fontWeight: 600 }}
+                      >
+                        {isPostingReview ? (
+                          <>
+                            <RefreshCw size={13} className="animate-spin" />
+                            Đang đăng lên GitHub...
+                          </>
+                        ) : (
+                          <>
+                            <ExternalLink size={13} />
+                            Đăng Inline Review lên GitHub (/pulls/{prModalState.prNumber}/reviews)
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    <div
+                      style={{
+                        border: "1px solid #cbd5e1",
+                        borderRadius: 8,
+                        background: "#ffffff",
+                        padding: 16,
+                        maxHeight: 400,
+                        overflowY: "auto",
+                      }}
+                    >
+                      <pre
+                        style={{
+                          margin: 0,
+                          fontSize: 12,
+                          lineHeight: 1.6,
+                          whiteSpace: "pre-wrap",
+                          wordBreak: "break-word",
+                          color: "#1e293b",
+                          fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                        }}
+                      >
+                        {prModalState.data?.previewComment ||
+                          prModalState.data?.commentBody ||
+                          prModalState.data?.body ||
+                          JSON.stringify(prModalState.data, null, 2)}
+                      </pre>
+                    </div>
+                  </div>
+                )}
+
+                {/* 4. Đánh giá Chặn PR Merge Gate */}
+                {prModalState.type === "blocking" && (
+                  <div>
+                    <div
+                      style={{
+                        padding: 16,
+                        borderRadius: 8,
+                        marginBottom: 16,
+                        background: prModalState.data?.canMerge || prModalState.data?.decision === "ALLOWED" ? "#ecfdf5" : "#fef2f2",
+                        border: `1px solid ${prModalState.data?.canMerge || prModalState.data?.decision === "ALLOWED" ? "#a7f3d0" : "#fecaca"}`,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                      }}
+                    >
+                      {prModalState.data?.canMerge || prModalState.data?.decision === "ALLOWED" ? (
+                        <CheckCircle2 size={24} style={{ color: "#047857" }} />
+                      ) : (
+                        <ShieldAlert size={24} style={{ color: "#dc2626" }} />
+                      )}
+                      <div>
+                        <div
+                          style={{
+                            fontSize: 15,
+                            fontWeight: 700,
+                            color: prModalState.data?.canMerge || prModalState.data?.decision === "ALLOWED" ? "#065f46" : "#991b1b",
+                          }}
+                        >
+                          Kết luận Gate: {prModalState.data?.canMerge || prModalState.data?.decision === "ALLOWED" ? "CHO PHÉP MERGE (ALLOWED)" : "CHẶN MERGE (BLOCKED)"}
+                        </div>
+                        <div style={{ fontSize: 13, color: "#475569", marginTop: 2 }}>
+                          {prModalState.data?.reason || prModalState.data?.message || "Đã kiểm tra chất lượng tài liệu so với mã nguồn."}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ marginBottom: 12, fontWeight: 600, fontSize: 13, color: "#334155" }}>
+                      Chi tiết đánh giá chính sách tài liệu:
+                    </div>
+                    <pre
+                      style={{
+                        background: "#f8fafc",
+                        border: "1px solid #cbd5e1",
+                        color: "#0f172a",
+                        padding: 14,
+                        borderRadius: 8,
+                        fontSize: 12,
+                        lineHeight: 1.5,
+                        overflowX: "auto",
+                        maxHeight: 280,
+                      }}
+                    >
+                      {JSON.stringify(prModalState.data, null, 2)}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Modal Footer */}
+          <div
+            style={{
+              padding: "12px 20px",
+              borderTop: "1px solid #e2e8f0",
+              background: "#f8fafc",
+              display: "flex",
+              justifyContent: "flex-end",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setPrModalState((prev) => ({ ...prev, isOpen: false }))}
+              className="ld-btn ld-btn-secondary ld-btn-sm"
+              style={{ fontSize: 12, padding: "6px 14px" }}
+            >
+              Đóng
+            </button>
+          </div>
         </div>
       </div>
     )}

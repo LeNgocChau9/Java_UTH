@@ -219,6 +219,10 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
                                         .changeType(changeType)
                                         .severity(severity)
                                         .details(details)
+                                        .startLine(entity.start_line())
+                                        .endLine(entity.end_line())
+                                        .oldSignature(entity.old_signature())
+                                        .newSignature(entity.new_signature())
                                         .build());
                             }
                         }
@@ -239,6 +243,10 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
                                     .changeType(changeType)
                                     .severity(severity)
                                     .details(details)
+                                    .startLine(entity.start_line())
+                                    .endLine(entity.end_line())
+                                    .oldSignature(entity.old_signature())
+                                    .newSignature(entity.new_signature())
                                     .build());
                         }
                     }
@@ -261,6 +269,10 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
                                     .changeType(changeType)
                                     .severity(severity)
                                     .details(details)
+                                    .startLine(entity.start_line())
+                                    .endLine(entity.end_line())
+                                    .oldSignature(entity.old_signature())
+                                    .newSignature(entity.new_signature())
                                     .build());
                         }
                     }
@@ -359,7 +371,7 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
         // 4. Định dạng Markdown comment chi tiết và chuyên nghiệp kèm deep link tới trang cảnh báo
         String commentMarkdown = buildPrDriftCommentMarkdown(prNumber, affectedDocs, diffRequest, savedAlerts);
 
-        // 5. Gọi GitHub REST API đăng mới hoặc cập nhật comment cũ trên PR
+        // 5. Nâng cấp sang GitHub Pull Request Reviews API (/pulls/{pr}/reviews) kèm inline suggestion comments
         Long commentId = null;
         String repoFullName = repo.getRepoFullName();
         String commentUrl = null;
@@ -371,24 +383,28 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
                 String owner = parts[0];
                 String repoName = parts[1];
 
-                // Tự động kiểm tra và cập nhật comment cũ nếu PR được push thêm commit mới
-                // (synchronize)
-                Long existingCommentId = gitHubClient.findExistingPullRequestComment(token, owner, repoName, prNumber,
-                        BOT_MARKER);
-                if (existingCommentId != null && existingCommentId > 0) {
-                    log.info("[DocDrift] Tìm thấy comment cảnh báo cũ ID={} trên PR #{}. Đang cập nhật nội dung mới...",
-                            existingCommentId, prNumber);
-                    commentId = gitHubClient.updatePullRequestComment(token, owner, repoName, existingCommentId,
-                            commentMarkdown);
-                } else {
-                    log.info("[DocDrift] Chưa có comment cũ trên PR #{}. Đăng comment cảnh báo mới...", prNumber);
-                    commentId = gitHubClient.createPullRequestComment(token, owner, repoName, prNumber,
-                            commentMarkdown);
-                }
+                List<GitHubClientPort.PrReviewInlineComment> inlineComments = buildInlineReviewComments(affectedDocs, diffRequest);
+                String headCommit = (diffRequest != null && StringUtils.hasText(diffRequest.head_commit_hash()))
+                        ? diffRequest.head_commit_hash().trim()
+                        : null;
 
-                commentUrl = String.format("https://github.com/%s/pull/%d#issuecomment-%s", repoFullName, prNumber,
+                log.info("[DocDrift] Đăng GitHub Pull Request Review (/pulls/{}/reviews) kèm {} inline suggestion comments...",
+                        prNumber, inlineComments.size());
+
+                commentId = gitHubClient.createPullRequestReview(
+                        token,
+                        owner,
+                        repoName,
+                        prNumber,
+                        headCommit,
+                        commentMarkdown,
+                        "COMMENT",
+                        inlineComments
+                );
+
+                commentUrl = String.format("https://github.com/%s/pull/%d#pullrequestreview-%s", repoFullName, prNumber,
                         commentId != null ? commentId : "latest");
-                log.info("[DocDrift] Đã đăng/cập nhật comment cảnh báo lên PR #{} thành công! CommentId={}", prNumber,
+                log.info("[DocDrift] Đã đăng/cập nhật PR Review thành công lên PR #{}! ReviewId={}", prNumber,
                         commentId);
             } else {
                 log.warn(
@@ -722,6 +738,57 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
             log.warn("[DocDrift] Bỏ qua AI semantic drift cho docId={} do: {}", item.documentId(), ex.getMessage());
             return null;
         }
+    }
+
+    private List<GitHubClientPort.PrReviewInlineComment> buildInlineReviewComments(
+            List<AffectedDocumentResultDto> affectedDocs,
+            AstDiffRequestDto diffRequest
+    ) {
+        if (affectedDocs == null || affectedDocs.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<GitHubClientPort.PrReviewInlineComment> list = new ArrayList<>();
+        Set<String> seenPositions = new HashSet<>();
+
+        for (AffectedDocumentResultDto item : affectedDocs) {
+            String filePath = item.relatedFilePath();
+            Integer line = (item.startLine() != null && item.startLine() > 0) ? item.startLine() : 1;
+            String key = filePath + ":" + line;
+
+            if (StringUtils.hasText(filePath) && seenPositions.add(key)) {
+                StringBuilder body = new StringBuilder();
+                body.append("⚠️ **LivingDocs Code-Review Bot**: Phát hiện sai lệch tài liệu tại phương thức `")
+                        .append(item.methodName() != null ? item.methodName() : "thành phần mã nguồn")
+                        .append("` (")
+                        .append(item.changeType() != null ? item.changeType() : "MODIFIED")
+                        .append(").\n\n");
+                body.append("- **Tài liệu liên kết**: `").append(item.documentTitle() != null ? item.documentTitle() : "Tài liệu kỹ thuật").append("` (`")
+                        .append(item.documentPath() != null ? item.documentPath() : "docs/").append("`)\n");
+                if (StringUtils.hasText(item.details())) {
+                    body.append("- **Chi tiết sai lệch**: ").append(item.details()).append("\n");
+                }
+                body.append("\n**Đề xuất bản vá Javadoc/Tài liệu (Nhấn Commit suggestion để áp dụng trực tiếp trên GitHub):**\n");
+                body.append("```suggestion\n");
+                body.append("    /**\n");
+                body.append("     * ").append(item.details() != null ? item.details().replace("\n", " ") : "Cập nhật đặc tả phương thức theo tài liệu LivingDocs").append("\n");
+                body.append("     * @see ").append(item.documentPath() != null ? item.documentPath() : "docs/").append("\n");
+                if (StringUtils.hasText(item.newSignature())) {
+                    body.append("     * ").append(item.newSignature()).append("\n");
+                }
+                body.append("     */\n");
+                body.append("```\n");
+
+                list.add(new GitHubClientPort.PrReviewInlineComment(
+                        filePath,
+                        line,
+                        "RIGHT",
+                        body.toString()
+                ));
+            }
+        }
+
+        return list;
     }
 
     private String buildPrDriftCommentMarkdown(int prNumber, List<AffectedDocumentResultDto> affectedDocs,

@@ -83,9 +83,36 @@ public interface GitHubClientPort {
     }
 
     /**
+     * DTO đại diện cho một inline review comment trên file và dòng code bị trôi dạt.
+     */
+    record PrReviewInlineComment(
+            String path,
+            Integer line,
+            String side,
+            String body
+    ) {}
+
+    /**
      * Đăng bình luận (Comment) lên Pull Request qua GitHub REST API.
      */
     Long createPullRequestComment(String token, String owner, String repo, int prNumber, String body);
+
+    /**
+     * Tạo GitHub Pull Request Review (/repos/{owner}/{repo}/pulls/{prNumber}/reviews)
+     * hỗ trợ bình luận inline đúng file & dòng code bị trôi dạt kèm suggestion patch.
+     */
+    default Long createPullRequestReview(
+            String token,
+            String owner,
+            String repo,
+            int prNumber,
+            String commitId,
+            String body,
+            String event,
+            List<PrReviewInlineComment> comments
+    ) {
+        return createPullRequestComment(token, owner, repo, prNumber, body);
+    }
 
     /**
      * Cập nhật bình luận (Comment) đã tồn tại trên Pull Request qua GitHub REST

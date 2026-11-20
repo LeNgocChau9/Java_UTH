@@ -2,13 +2,12 @@ package com.example.livingdocs_backend.application.dto;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonProperty;
+
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.time.Instant;
 
 /**
  * DTO cấu hình chính sách phê duyệt (1 cấp vs 2 cấp) theo loại tài liệu (doc_type).

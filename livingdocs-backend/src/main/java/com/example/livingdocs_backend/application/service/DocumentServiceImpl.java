@@ -1,5 +1,7 @@
 package com.example.livingdocs_backend.application.service;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -10,9 +12,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Timestamp;
 
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -21,16 +20,13 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.multipart.MultipartFile;
 
-import com.example.livingdocs_backend.application.dto.ImportExternalDocRequest;
-import com.example.livingdocs_backend.infrastructure.parser.DocxToMarkdownParser;
-import com.example.livingdocs_backend.infrastructure.persistence.entity.DocCodeLinkEntity;
-
 import com.example.livingdocs_backend.application.dto.ChangelogResponse;
 import com.example.livingdocs_backend.application.dto.CreateDocumentRequest;
 import com.example.livingdocs_backend.application.dto.DocumentAuditLogResponse;
 import com.example.livingdocs_backend.application.dto.DocumentDetailResponse;
 import com.example.livingdocs_backend.application.dto.DocumentResponse;
 import com.example.livingdocs_backend.application.dto.DocumentVersionResponse;
+import com.example.livingdocs_backend.application.dto.ImportExternalDocRequest;
 import com.example.livingdocs_backend.application.dto.IntegrityCheckResponse;
 import com.example.livingdocs_backend.application.dto.ManagerReviewDecisionRequest;
 import com.example.livingdocs_backend.application.dto.PublishToGitHubRequest;
@@ -57,7 +53,9 @@ import com.example.livingdocs_backend.domain.model.DocumentVersion;
 import com.example.livingdocs_backend.domain.repository.DocumentRepositoryPort;
 import com.example.livingdocs_backend.domain.repository.DocumentVersionRepositoryPort;
 import com.example.livingdocs_backend.domain.util.HashUtils;
+import com.example.livingdocs_backend.infrastructure.parser.DocxToMarkdownParser;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.CodeEntityJpaEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.DocCodeLinkEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataCodeEntityRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocCodeLinkRepository;

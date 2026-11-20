@@ -15,5 +15,9 @@ public record AffectedDocumentResultDto(
                 String methodName,
                 String changeType,
                 String severity,
-                String details) {
+                String details,
+                Integer startLine,
+                Integer endLine,
+                String oldSignature,
+                String newSignature) {
 }

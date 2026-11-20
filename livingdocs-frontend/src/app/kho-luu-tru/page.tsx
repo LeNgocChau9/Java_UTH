@@ -28,7 +28,12 @@ import {
   Calendar,
   Webhook,
   X,
+  Zap,
+  FileDiff,
+  ShieldAlert,
+  Code,
 } from "lucide-react";
+import { codeDiffService } from "@/services/codeDiffService";
 
 export default function RepoManagementPage() {
   const [repos, setRepos] = useState<RepoItem[]>([]);
@@ -67,6 +72,124 @@ export default function RepoManagementPage() {
 
   // Search filter
   const [searchTerm, setSearchTerm] = useState("");
+
+  // State & Handlers cho API CodeDiffController & PrMergeBlockingController
+  const [prModalState, setPrModalState] = useState<{
+    isOpen: boolean;
+    type: "diff" | "ast" | "preview" | "blocking" | null;
+    loading: boolean;
+    title: string;
+    data: any;
+    repoId?: number;
+    prNumber?: number;
+  }>({
+    isOpen: false,
+    type: null,
+    loading: false,
+    title: "",
+    data: null,
+  });
+  const [isPostingReview, setIsPostingReview] = useState(false);
+
+  const handleOpenPrDiff = async (repoId: number, prNumber: number) => {
+    setPrModalState({
+      isOpen: true,
+      type: "diff",
+      loading: true,
+      title: `Git Diff - Pull Request #${prNumber}`,
+      data: null,
+      repoId,
+      prNumber,
+    });
+    try {
+      const res = await codeDiffService.pullDiff(repoId, prNumber);
+      setPrModalState((prev) => ({ ...prev, loading: false, data: res }));
+    } catch (err: any) {
+      setPrModalState((prev) => ({
+        ...prev,
+        loading: false,
+        data: { error: err.response?.data?.message || err.message || "Không thể tải Git Diff từ GitHub" },
+      }));
+    }
+  };
+
+  const handleOpenPrAst = async (repoId: number, prNumber: number) => {
+    setPrModalState({
+      isOpen: true,
+      type: "ast",
+      loading: true,
+      title: `Phân tích AST & Bắt sai lệch - PR #${prNumber}`,
+      data: null,
+      repoId,
+      prNumber,
+    });
+    try {
+      const res = await codeDiffService.pullAndAnalyze(repoId, prNumber);
+      setPrModalState((prev) => ({ ...prev, loading: false, data: res }));
+    } catch (err: any) {
+      setPrModalState((prev) => ({
+        ...prev,
+        loading: false,
+        data: { error: err.response?.data?.message || err.message || "Không thể phân tích AST PR" },
+      }));
+    }
+  };
+
+  const handleOpenPrPreviewComment = async (repoId: number, prNumber: number) => {
+    setPrModalState({
+      isOpen: true,
+      type: "preview",
+      loading: true,
+      title: `Xem trước GitHub Inline Review Bot (suggestion patch) - PR #${prNumber}`,
+      data: null,
+      repoId,
+      prNumber,
+    });
+    try {
+      const res = await codeDiffService.previewComment(repoId, prNumber);
+      setPrModalState((prev) => ({ ...prev, loading: false, data: res }));
+    } catch (err: any) {
+      setPrModalState((prev) => ({
+        ...prev,
+        loading: false,
+        data: { error: err.response?.data?.message || err.message || "Không thể tải trước review comment" },
+      }));
+    }
+  };
+
+  const handleOpenPrBlocking = async (repoId: number, prNumber: number) => {
+    setPrModalState({
+      isOpen: true,
+      type: "blocking",
+      loading: true,
+      title: `Kiểm tra Chặn Merge Gate (PrMergeBlocking) - PR #${prNumber}`,
+      data: null,
+      repoId,
+      prNumber,
+    });
+    try {
+      const res = await codeDiffService.evaluatePrBlocking(repoId, prNumber);
+      setPrModalState((prev) => ({ ...prev, loading: false, data: res }));
+    } catch (err: any) {
+      setPrModalState((prev) => ({
+        ...prev,
+        loading: false,
+        data: { error: err.response?.data?.message || err.message || "Không thể đánh giá chặn merge" },
+      }));
+    }
+  };
+
+  const handlePostReviewComment = async (repoId: number, prNumber: number) => {
+    setIsPostingReview(true);
+    try {
+      const res = await codeDiffService.postDriftComment(repoId, prNumber);
+      alert(`Đã gửi GitHub Pull Request Review thành công!\nReview ID: ${res?.reviewId || "N/A"}\nURL: ${res?.reviewUrl || "Đã gửi lên GitHub"}`);
+    } catch (err: any) {
+      alert("Lỗi khi đăng bình luận: " + (err.response?.data?.message || err.message));
+    } finally {
+      setIsPostingReview(false);
+    }
+  };
 
   const loadRepositories = async () => {
     try {
@@ -864,6 +987,61 @@ export default function RepoManagementPage() {
                                     {pr.baseBranch}
                                   </code>
                                 </div>
+
+                                {selectedRepo && (
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: 6,
+                                      marginTop: 8,
+                                      paddingTop: 8,
+                                      borderTop: "1px dashed #e2e8f0",
+                                      flexWrap: "wrap",
+                                    }}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenPrDiff(selectedRepo.repositoryId, pr.prNumber)}
+                                      className="ld-btn ld-btn-secondary ld-btn-xs"
+                                      style={{ fontSize: 11, padding: "3px 8px", background: "#f8fafc", border: "1px solid #cbd5e1" }}
+                                      title="Kéo mã nguồn và unified diff của PR từ GitHub"
+                                    >
+                                      <FileDiff size={12} style={{ color: "#0284c7" }} />
+                                      Kéo Git Diff
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenPrAst(selectedRepo.repositoryId, pr.prNumber)}
+                                      className="ld-btn ld-btn-secondary ld-btn-xs"
+                                      style={{ fontSize: 11, padding: "3px 8px", background: "#f8fafc", border: "1px solid #cbd5e1" }}
+                                      title="Phân tích AST & Bắt các thay đổi tài liệu trôi dạt"
+                                    >
+                                      <Zap size={12} style={{ color: "#f59e0b" }} />
+                                      Phân tích AST
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenPrPreviewComment(selectedRepo.repositoryId, pr.prNumber)}
+                                      className="ld-btn ld-btn-secondary ld-btn-xs"
+                                      style={{ fontSize: 11, padding: "3px 8px", background: "#f8fafc", border: "1px solid #cbd5e1" }}
+                                      title="Xem trước GitHub Review Comment kèm khối ```suggestion"
+                                    >
+                                      <Code size={12} style={{ color: "#7c3aed" }} />
+                                      Xem trước Review Bot
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenPrBlocking(selectedRepo.repositoryId, pr.prNumber)}
+                                      className="ld-btn ld-btn-secondary ld-btn-xs"
+                                      style={{ fontSize: 11, padding: "3px 8px", background: "#f8fafc", border: "1px solid #cbd5e1" }}
+                                      title="Kiểm tra xem PR có bị chặn merge theo chính sách tài liệu không"
+                                    >
+                                      <ShieldAlert size={12} style={{ color: "#dc2626" }} />
+                                      Chặn PR Gate
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                             </div>
 
@@ -1160,6 +1338,301 @@ export default function RepoManagementPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Modal hiển thị chi tiết API CodeDiff / Bot Review / PR Merge Blocking */}
+      {prModalState.isOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15, 23, 42, 0.6)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+          }}
+          onClick={() => setPrModalState((prev) => ({ ...prev, isOpen: false }))}
+        >
+          <div
+            style={{
+              background: "#ffffff",
+              borderRadius: 12,
+              width: "100%",
+              maxWidth: 850,
+              maxHeight: "90vh",
+              display: "flex",
+              flexDirection: "column",
+              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.2)",
+              overflow: "hidden",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div
+              style={{
+                padding: "16px 20px",
+                borderBottom: "1px solid #e2e8f0",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                background: "#f8fafc",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <GitPullRequest size={18} style={{ color: "#087f5b" }} />
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#0f172a" }}>
+                  {prModalState.title}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPrModalState((prev) => ({ ...prev, isOpen: false }))}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  padding: 4,
+                  color: "#64748b",
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: 20, overflowY: "auto", flex: 1 }}>
+              {prModalState.loading ? (
+                <div style={{ textAlign: "center", padding: "40px 0", color: "#64748b" }}>
+                  <RefreshCw size={28} className="animate-spin" style={{ margin: "0 auto 12px", color: "#087f5b" }} />
+                  <p style={{ fontSize: 14 }}>Đang kết nối GitHub & Phân tích hệ thống...</p>
+                </div>
+              ) : prModalState.data?.error ? (
+                <div
+                  style={{
+                    padding: 16,
+                    borderRadius: 8,
+                    background: "#fef2f2",
+                    border: "1px solid #fecaca",
+                    color: "#991b1b",
+                    fontSize: 13,
+                  }}
+                >
+                  <div style={{ fontWeight: 700, marginBottom: 4 }}>Đã xảy ra lỗi:</div>
+                  <div>{prModalState.data.error}</div>
+                </div>
+              ) : (
+                <div>
+                  {/* 1. Kéo Git Diff */}
+                  {prModalState.type === "diff" && (
+                    <div>
+                      <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+                        <span className="ld-badge" style={{ background: "#ecfdf5", color: "#047857" }}>
+                          PR #{prModalState.data?.prNumber || prModalState.prNumber}
+                        </span>
+                        <span className="ld-badge" style={{ background: "#f1f5f9", color: "#334155" }}>
+                          Nhánh: {prModalState.data?.baseBranch || "base"} ← {prModalState.data?.headBranch || "head"}
+                        </span>
+                        <span className="ld-badge" style={{ background: "#f0f9ff", color: "#0284c7" }}>
+                          Files thay đổi: {prModalState.data?.changedFilesCount ?? (prModalState.data?.files?.length || 0)}
+                        </span>
+                      </div>
+
+                      <div style={{ marginBottom: 12, fontWeight: 600, fontSize: 13, color: "#334155" }}>
+                        Unified Git Diff Snippet:
+                      </div>
+                      <pre
+                        style={{
+                          background: "#0f172a",
+                          color: "#f8fafc",
+                          padding: 14,
+                          borderRadius: 8,
+                          fontSize: 12,
+                          lineHeight: 1.5,
+                          overflowX: "auto",
+                          maxHeight: 380,
+                        }}
+                      >
+                        {prModalState.data?.diffSnippet ||
+                          prModalState.data?.diffContent ||
+                          (prModalState.data?.files && JSON.stringify(prModalState.data.files, null, 2)) ||
+                          "// Không có nội dung diff"}
+                      </pre>
+                    </div>
+                  )}
+
+                  {/* 2. Phân tích AST & Bắt sai lệch */}
+                  {prModalState.type === "ast" && (
+                    <div>
+                      <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+                        <span className="ld-badge" style={{ background: "#ecfdf5", color: "#047857" }}>
+                          Số tài liệu trôi dạt: {prModalState.data?.affectedDocsCount ?? (prModalState.data?.driftAlerts?.length || 0)}
+                        </span>
+                        <span className="ld-badge" style={{ background: "#f5f3ff", color: "#7c3aed" }}>
+                          Trạng thái AST: {prModalState.data?.status || "Đã phân tích"}
+                        </span>
+                      </div>
+
+                      <div style={{ marginBottom: 12, fontWeight: 600, fontSize: 13, color: "#334155" }}>
+                        Kết quả phân tích trôi dạt AST:
+                      </div>
+                      <pre
+                        style={{
+                          background: "#f8fafc",
+                          border: "1px solid #cbd5e1",
+                          color: "#0f172a",
+                          padding: 14,
+                          borderRadius: 8,
+                          fontSize: 12,
+                          lineHeight: 1.5,
+                          overflowX: "auto",
+                          maxHeight: 380,
+                        }}
+                      >
+                        {JSON.stringify(prModalState.data, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+
+                  {/* 3. Xem trước Review Bot */}
+                  {prModalState.type === "preview" && (
+                    <div>
+                      <div style={{ marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: 13, color: "#64748b" }}>
+                          Nội dung bình luận review inline GitHub (kèm khối ```suggestion vá tài liệu trực tiếp):
+                        </span>
+                        <button
+                          type="button"
+                          disabled={isPostingReview}
+                          onClick={() => handlePostReviewComment(prModalState.repoId!, prModalState.prNumber!)}
+                          className="ld-btn ld-btn-primary ld-btn-sm"
+                          style={{ background: "#087f5b", color: "#fff", gap: 6, fontSize: 12, fontWeight: 600 }}
+                        >
+                          {isPostingReview ? (
+                            <>
+                              <RefreshCw size={13} className="animate-spin" />
+                              Đang đăng lên GitHub...
+                            </>
+                          ) : (
+                            <>
+                              <ExternalLink size={13} />
+                              Đăng Inline Review lên GitHub (/pulls/{prModalState.prNumber}/reviews)
+                            </>
+                          )}
+                        </button>
+                      </div>
+
+                      <div
+                        style={{
+                          border: "1px solid #cbd5e1",
+                          borderRadius: 8,
+                          background: "#ffffff",
+                          padding: 16,
+                          maxHeight: 400,
+                          overflowY: "auto",
+                        }}
+                      >
+                        <pre
+                          style={{
+                            margin: 0,
+                            fontSize: 12,
+                            lineHeight: 1.6,
+                            whiteSpace: "pre-wrap",
+                            wordBreak: "break-word",
+                            color: "#1e293b",
+                            fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                          }}
+                        >
+                          {prModalState.data?.previewComment ||
+                            prModalState.data?.commentBody ||
+                            prModalState.data?.body ||
+                            JSON.stringify(prModalState.data, null, 2)}
+                        </pre>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 4. Đánh giá Chặn PR Merge Gate */}
+                  {prModalState.type === "blocking" && (
+                    <div>
+                      <div
+                        style={{
+                          padding: 16,
+                          borderRadius: 8,
+                          marginBottom: 16,
+                          background: prModalState.data?.canMerge || prModalState.data?.decision === "ALLOWED" ? "#ecfdf5" : "#fef2f2",
+                          border: `1px solid ${prModalState.data?.canMerge || prModalState.data?.decision === "ALLOWED" ? "#a7f3d0" : "#fecaca"}`,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 12,
+                        }}
+                      >
+                        {prModalState.data?.canMerge || prModalState.data?.decision === "ALLOWED" ? (
+                          <CheckCircle2 size={24} style={{ color: "#047857" }} />
+                        ) : (
+                          <ShieldAlert size={24} style={{ color: "#dc2626" }} />
+                        )}
+                        <div>
+                          <div
+                            style={{
+                              fontSize: 15,
+                              fontWeight: 700,
+                              color: prModalState.data?.canMerge || prModalState.data?.decision === "ALLOWED" ? "#065f46" : "#991b1b",
+                            }}
+                          >
+                            Kết luận Gate: {prModalState.data?.canMerge || prModalState.data?.decision === "ALLOWED" ? "CHO PHÉP MERGE (ALLOWED)" : "CHẶN MERGE (BLOCKED)"}
+                          </div>
+                          <div style={{ fontSize: 13, color: "#475569", marginTop: 2 }}>
+                            {prModalState.data?.reason || prModalState.data?.message || "Đã kiểm tra chất lượng tài liệu so với mã nguồn."}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ marginBottom: 12, fontWeight: 600, fontSize: 13, color: "#334155" }}>
+                        Chi tiết đánh giá chính sách tài liệu:
+                      </div>
+                      <pre
+                        style={{
+                          background: "#f8fafc",
+                          border: "1px solid #cbd5e1",
+                          color: "#0f172a",
+                          padding: 14,
+                          borderRadius: 8,
+                          fontSize: 12,
+                          lineHeight: 1.5,
+                          overflowX: "auto",
+                          maxHeight: 280,
+                        }}
+                      >
+                        {JSON.stringify(prModalState.data, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div
+              style={{
+                padding: "12px 20px",
+                borderTop: "1px solid #e2e8f0",
+                background: "#f8fafc",
+                display: "flex",
+                justifyContent: "flex-end",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setPrModalState((prev) => ({ ...prev, isOpen: false }))}
+                className="ld-btn ld-btn-secondary ld-btn-sm"
+                style={{ fontSize: 12, padding: "6px 14px" }}
+              >
+                Đóng
+              </button>
+            </div>
           </div>
         </div>
       )}

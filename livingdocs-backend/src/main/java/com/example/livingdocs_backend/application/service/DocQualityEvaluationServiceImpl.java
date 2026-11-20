@@ -1,8 +1,30 @@
 package com.example.livingdocs_backend.application.service;
 
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
 import com.example.livingdocs_backend.application.dto.TemplateValidationResult;
 import com.example.livingdocs_backend.application.dto.drift.PrMergeBlockingPolicyDto;
-import com.example.livingdocs_backend.application.dto.quality.*;
+import com.example.livingdocs_backend.application.dto.quality.DocumentQualityEvaluationRequest;
+import com.example.livingdocs_backend.application.dto.quality.DocumentQualityEvaluationResponse;
+import com.example.livingdocs_backend.application.dto.quality.MissingEntityDto;
+import com.example.livingdocs_backend.application.dto.quality.MissingParamDto;
+import com.example.livingdocs_backend.application.dto.quality.PhantomSymbolDto;
+import com.example.livingdocs_backend.application.dto.quality.QualityWarningDto;
 import com.example.livingdocs_backend.application.port.DocQualityEvaluationServicePort;
 import com.example.livingdocs_backend.domain.model.Document;
 import com.example.livingdocs_backend.domain.repository.DocumentRepositoryPort;
@@ -13,17 +35,9 @@ import com.example.livingdocs_backend.infrastructure.persistence.entity.Reposito
 import com.example.livingdocs_backend.infrastructure.persistence.repository.DocTemplateRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataCodeEntityRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
-
-import java.time.Instant;
-import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 /**
  * Triển khai dịch vụ Chấm điểm Chất lượng Tài liệu & Chống Ảo giác AI (Anti-Hallucination Gate - Task Tuần 7).
