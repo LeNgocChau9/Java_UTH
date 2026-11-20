@@ -19,6 +19,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -101,12 +102,14 @@ public class CiDriftScanController {
     }
 
     @GetMapping("/repositories/{repoId}")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Lấy danh sách các cảnh báo trôi dạt theo Repository từ bảng drift_alerts")
     public ResponseEntity<List<DriftAlert>> getAlertsByRepo(@PathVariable Long repoId) {
         return ResponseEntity.ok(ciDriftScanService.getAlertsByRepo(repoId));
     }
 
     @GetMapping("/repositories/{repoId}/pull-requests/{prNumber}")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Lấy danh sách các cảnh báo trôi dạt theo PR từ bảng drift_alerts")
     public ResponseEntity<List<DriftAlert>> getAlertsByPr(
             @PathVariable Long repoId,

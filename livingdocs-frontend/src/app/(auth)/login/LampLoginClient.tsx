@@ -407,7 +407,7 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
                 >
                   {activeTab === "signin"
                     ? "Đăng nhập LivingDocs"
-                    : "Tạo tài khoản quản trị"}
+                    : "Tạo tài khoản quản lý (Manager)"}
                 </h1>
               </div>
 
@@ -518,7 +518,7 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
                   >
                     Email{" "}
                     {activeTab === "register"
-                      ? "quản trị viên"
+                      ? "quản lý (Manager)"
                       : "tài khoản"}
                   </label>
                   <div className="relative">
@@ -624,7 +624,7 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
                     <span>
                       {activeTab === "signin"
                         ? "Đăng nhập"
-                        : "Đăng ký tài khoản Admin"}
+                        : "Đăng ký tài khoản Manager"}
                     </span>
                   )}
                 </button>

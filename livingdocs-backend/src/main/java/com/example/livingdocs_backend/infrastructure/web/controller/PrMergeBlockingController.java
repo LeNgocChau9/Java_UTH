@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
@@ -22,12 +23,14 @@ public class PrMergeBlockingController {
     private final PrMergeBlockingServicePort prMergeBlockingService;
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Lấy cấu hình chính sách chặn gộp Pull Request")
     public ResponseEntity<PrMergeBlockingPolicyDto> getPolicy() {
         return ResponseEntity.ok(prMergeBlockingService.getBlockingPolicy());
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Quản lý cập nhật cấu hình chính sách chặn gộp Pull Request (STRICT / WARN_ONLY)")
     public ResponseEntity<PrMergeBlockingPolicyDto> updatePolicy(
             @RequestBody PrMergeBlockingPolicyDto dto,
@@ -40,6 +43,7 @@ public class PrMergeBlockingController {
     }
 
     @PostMapping("/evaluate/{repositoryId}/{prNumber}")
+    @PreAuthorize("hasAnyRole('DEVELOPER','TECH_LEAD','MANAGER','ADMIN')")
     @Operation(summary = "Kích hoạt đánh giá lại trạng thái Checks API và gửi kết quả lên GitHub PR")
     public ResponseEntity<GitHubCheckRunResultDto> evaluateCheck(
             @PathVariable Long repositoryId,

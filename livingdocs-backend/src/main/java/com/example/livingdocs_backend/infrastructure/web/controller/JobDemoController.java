@@ -14,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -37,6 +38,7 @@ public class JobDemoController {
             description = "Cho phép tra cứu các tác vụ nền gần đây hoặc theo trạng thái (QUEUED, PROCESSING, COMPLETED, FAILED, DEAD)."
     )
     @GetMapping
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     public ResponseEntity<List<JobProgressResponseDto>> listJobs(
             @RequestParam(required = false) JobStatus status,
             @RequestParam(defaultValue = "50") int limit
@@ -53,6 +55,7 @@ public class JobDemoController {
             description = "Phát trực tiếp các trạng thái thực tế của job: FETCHING_REPO -> EXTRACTING_AST -> RAG_CONTEXT -> LLM_GENERATING -> COMPLETED / FAILED."
     )
     @GetMapping(value = "/{jobId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     public ResponseEntity<SseEmitter> streamJobProgress(
             @Parameter(description = "Mã định danh tác vụ nền (jobId)", example = "1")
             @PathVariable Long jobId
@@ -72,6 +75,7 @@ public class JobDemoController {
             description = "Cho phép frontend polling / theo dõi trạng thái tiến trình sinh tài liệu hoặc quét mã nguồn (QUEUED, PROCESSING, COMPLETED, FAILED/DEAD), thông tin exponential backoff và payload/kết quả thực thi."
     )
     @GetMapping("/{jobId}")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     public ResponseEntity<JobProgressResponseDto> getJobDetails(
             @Parameter(description = "Mã định danh tác vụ nền (jobId)", example = "1")
             @PathVariable Long jobId
@@ -87,6 +91,7 @@ public class JobDemoController {
             description = "Liệt kê các tác vụ đã thử lại tối đa số lần cho phép (3 lần) và thất bại, kèm nguyên nhân chi tiết để quản trị viên theo dõi và xử lý."
     )
     @GetMapping("/dlq")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     public ResponseEntity<List<JobProgressResponseDto>> getDeadLetterJobs(
             @Parameter(description = "Số lượng job tối đa cần lấy", example = "50")
             @RequestParam(defaultValue = "50") int limit
@@ -103,6 +108,7 @@ public class JobDemoController {
             description = "Cho phép Quản trị viên kích hoạt lại một job đã vào DLQ (chỉ cho phép với trạng thái FAILED hoặc DEAD; chuyển về QUEUED, đặt lại attempts = 0, xóa nextRetryAt và lastError)."
     )
     @PostMapping("/dlq/{jobId}/retry")
+    @PreAuthorize("hasAnyRole('ADMIN','TECH_LEAD','DEVELOPER')")
     public ResponseEntity<?> retryDeadLetterJob(
             @Parameter(description = "Mã định danh tác vụ nền (jobId)", example = "1")
             @PathVariable Long jobId
@@ -136,6 +142,7 @@ public class JobDemoController {
             description = "Alias của /api/jobs/dlq/{jobId}/retry để kích hoạt lại job thất bại."
     )
     @PostMapping("/{jobId}/retry")
+    @PreAuthorize("hasAnyRole('ADMIN','TECH_LEAD','DEVELOPER')")
     public ResponseEntity<?> retryJob(
             @Parameter(description = "Mã định danh tác vụ nền (jobId)", example = "1")
             @PathVariable Long jobId
@@ -145,6 +152,7 @@ public class JobDemoController {
 
     @Operation(summary = "Kiểm tra thông tin job trong DLQ trước khi retry")
     @GetMapping("/dlq/{jobId}/retry")
+    @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     public ResponseEntity<JobProgressResponseDto> getJobDlqRetryInfo(
             @Parameter(description = "Mã định danh tác vụ nền (jobId)", example = "1")
             @PathVariable Long jobId
@@ -157,6 +165,7 @@ public class JobDemoController {
 
     @Operation(summary = "Đẩy một job lỗi giả lập để kiểm thử cơ chế Retry 3 lần và Dead Letter Queue (DLQ)")
     @PostMapping("/demo/enqueue-failing")
+    @PreAuthorize("hasAnyRole('ADMIN','TECH_LEAD','DEVELOPER')")
     public ResponseEntity<JobProgressResponseDto> enqueueFailingJob(
             @RequestParam(defaultValue = "3") int maxAttempts,
             @RequestBody(required = false) Map<String, Object> payload

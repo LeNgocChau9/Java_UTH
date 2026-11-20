@@ -22,88 +22,23 @@ import {
   Layers,
 } from "lucide-react";
 import { jobService, type JobProgressItem } from "@/services/jobService";
+import {
+  healthService,
+  type DetailedHealthResponse,
+  type HealthAuditLogItem,
+} from "@/services/healthService";
 
 interface ServiceItem {
   id: string;
   name: string;
   status: "online" | "offline";
-  uptime: string;
+  metaLabel: string;
+  metaValue: string;
   latency: string;
   port: number | null;
   errorDetail?: string;
   rootCause?: string;
 }
-
-const INITIAL_SERVICES: ServiceItem[] = [
-  {
-    id: "backend",
-    name: "Backend API (Spring Boot)",
-    status: "online",
-    uptime: "99.8%",
-    latency: "6ms",
-    port: 8080,
-    errorDetail: "Mất kết nối cổng 8080 (ECONNREFUSED). Process Spring Boot đã bị tắt hoặc gặp sự cố dừng đột ngột.",
-    rootCause: "Ứng dụng backend chưa được chạy hoặc cổng 8080 bị tiến trình khác chiếm dụng.",
-  },
-  {
-    id: "ai_engine",
-    name: "AI Engine (FastAPI)",
-    status: "online",
-    uptime: "99.2%",
-    latency: "34ms",
-    port: 8000,
-    errorDetail: "Không thể kết nối tới http://localhost:8000/health (Connection refused).",
-    rootCause: "Server AI FastAPI chưa được khởi động hoặc cổng 8000 chưa mở lắng nghe kết nối.",
-  },
-  {
-    id: "postgres",
-    name: "PostgreSQL 16",
-    status: "online",
-    uptime: "100%",
-    latency: "3ms",
-    port: 5432,
-    errorDetail: "Không thể kết nối cơ sở dữ liệu PostgreSQL tại localhost:5433.",
-    rootCause: "Docker container ContainerLivingDocs đang ở trạng thái Exited hoặc bị tắt.",
-  },
-  {
-    id: "redis",
-    name: "Redis Cache",
-    status: "online",
-    uptime: "99.9%",
-    latency: "1ms",
-    port: 6379,
-    errorDetail: "Không nhận được phản hồi PING từ Redis tại cổng 6379.",
-    rootCause: "Dịch vụ bộ nhớ đệm Redis chưa được khởi chạy.",
-  },
-  {
-    id: "webhook",
-    name: "GitHub Webhook",
-    status: "online",
-    uptime: "99.1%",
-    latency: "25ms",
-    port: 8080,
-    errorDetail: "Chưa nhận được sự kiện Webhook (ping/push) từ GitHub trong 24 giờ qua.",
-    rootCause: "Chưa cấu hình Webhook URL trên GitHub Repository hoặc sai Secret key.",
-  },
-  {
-    id: "pgvector",
-    name: "pgvector Extension",
-    status: "online",
-    uptime: "100%",
-    latency: "—",
-    port: null,
-    errorDetail: "Extension vector chưa được cài đặt trong PostgreSQL schema.",
-    rootCause: "Thiếu extension pgvector phục vụ cho tác vụ tìm kiếm vector ngữ nghĩa.",
-  },
-];
-
-const INITIAL_LOGS = [
-  { level: "info",  time: "15:40:00", msg: "Tất cả các dịch vụ hệ thống đã được đồng bộ trực tuyến" },
-  { level: "info",  time: "15:02:18", msg: "Health check OK: Backend Spring Boot phản hồi (status: UP)" },
-  { level: "info",  time: "14:45:23", msg: "CI Drift Scan runner đã kết nối và xác thực thành công" },
-  { level: "info",  time: "10:15:00", msg: "Scheduled cleanup: removed 14 expired draft documents" },
-  { level: "info",  time: "09:58:44", msg: "User nguyenphuccanh8533@gmail.com đăng nhập thành công" },
-];
 
 const LOG_COLORS: Record<string, { color: string; bg: string }> = {
   error: { color: "#b91c1c", bg: "#fef2f2" },
@@ -111,11 +46,107 @@ const LOG_COLORS: Record<string, { color: string; bg: string }> = {
   info:  { color: "#047857", bg: "#ecfdf5" },
 };
 
+function getAuditLogLevel(action?: string | null): "error" | "warn" | "info" {
+  const act = (action || "").toUpperCase();
+  if (
+    act.includes("FAILURE") ||
+    act.includes("REVOKED") ||
+    act.includes("EXPIRED") ||
+    act.includes("REJECTED") ||
+    act.includes("DELETED")
+  ) {
+    return "error";
+  }
+  if (act.includes("RETURNED") || act.includes("IGNORED") || act.includes("CLEANUP")) {
+    return "warn";
+  }
+  return "info";
+}
+
+function buildServiceCards(
+  data: DetailedHealthResponse,
+  clientLatencyMs: number
+): ServiceItem[] {
+  const pg = data.postgres;
+  const gh = data.github;
+  const ai = data.aiEngine;
+
+  const ghQuotaText =
+    gh.limit != null && gh.remaining != null
+      ? `${gh.remaining}/${gh.limit} (${gh.authenticated ? "Token" : "Nặc danh"})`
+      : gh.authenticated
+      ? "Token"
+      : "Nặc danh";
+
+  return [
+    {
+      id: "backend",
+      name: "Backend API (Spring Boot)",
+      status: data.backend?.status === "UP" ? "online" : "offline",
+      metaLabel: "Phiên bản",
+      metaValue: data.backend?.version || data.version || "v1.0.0",
+      latency: `${clientLatencyMs}ms`,
+      port: data.backend?.port ?? 8080,
+    },
+    {
+      id: "postgres",
+      name: "PostgreSQL 16",
+      status: pg?.status === "UP" ? "online" : "offline",
+      metaLabel: "Trạng thái",
+      metaValue: pg?.status === "UP" ? "Connected" : "Disconnected",
+      latency: pg?.latencyMs != null ? `${pg.latencyMs}ms` : "—",
+      port: 5433,
+      errorDetail: pg?.error || "Không thể kết nối cơ sở dữ liệu PostgreSQL tại localhost:5433.",
+      rootCause: "Docker container ContainerLivingDocs chưa khởi chạy hoặc bị lỗi kết nối.",
+    },
+    {
+      id: "pgvector",
+      name: "pgvector Extension",
+      status: pg?.pgvectorInstalled ? "online" : "offline",
+      metaLabel: "Extension",
+      metaValue: pg?.pgvectorInstalled
+        ? `vector v${pg.pgvectorVersion || "?"}`
+        : "Chưa cài đặt",
+      latency: pg?.latencyMs != null ? `${pg.latencyMs}ms` : "—",
+      port: null,
+      errorDetail: pg?.error || "Extension 'vector' chưa được cài đặt trong PostgreSQL schema.",
+      rootCause: "Thiếu extension pgvector phục vụ tìm kiếm vector ngữ nghĩa.",
+    },
+    {
+      id: "github",
+      name: "GitHub API (Rate Limit)",
+      status: gh?.status === "UP" ? "online" : "offline",
+      metaLabel: "Hạn mức",
+      metaValue: ghQuotaText,
+      latency: gh?.latencyMs != null ? `${gh.latencyMs}ms` : "—",
+      port: 443,
+      errorDetail: gh?.error || "Không thể truy vấn https://api.github.com/rate_limit.",
+      rootCause: "Mất kết nối Internet hoặc GitHub API đang giới hạn truy cập.",
+    },
+    {
+      id: "ai_engine",
+      name: "AI Engine (FastAPI)",
+      status: ai?.status === "UP" ? "online" : "offline",
+      metaLabel: "Provider",
+      metaValue:
+        ai?.status === "UP"
+          ? ai.providers?.default_provider || "FastAPI Ready"
+          : "OFFLINE",
+      latency: ai?.status === "UP" && ai.latencyMs != null ? `${ai.latencyMs}ms` : "—",
+      port: 8000,
+      errorDetail: ai?.error || ai?.message || `Không thể kết nối tới ${ai?.url || "http://localhost:8000"}.`,
+      rootCause: ai?.message || "Server AI FastAPI chưa được khởi động tại cổng 8000.",
+    },
+  ];
+}
+
 export default function GiamSatSucKhoePage() {
-  const [services, setServices] = useState<ServiceItem[]>(INITIAL_SERVICES);
-  const [logs, setLogs] = useState(INITIAL_LOGS);
+  const [services, setServices] = useState<ServiceItem[]>([]);
+  const [healthData, setHealthData] = useState<DetailedHealthResponse | null>(null);
+  const [healthError, setHealthError] = useState<string | null>(null);
+  const [auditLogs, setAuditLogs] = useState<HealthAuditLogItem[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<string>(() => new Date().toLocaleTimeString("vi-VN"));
+  const [lastUpdated, setLastUpdated] = useState<string>("Đang kiểm tra...");
 
   // Chỉ mở rộng khi người dùng nhấn xem nguyên nhân lỗi (mặc định đóng)
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
@@ -143,9 +174,47 @@ export default function GiamSatSucKhoePage() {
     }
   }, []);
 
+  const fetchDetailedTelemetry = useCallback(async () => {
+    setIsRefreshing(true);
+    setHealthError(null);
+    const start = performance.now();
+
+    try {
+      const data = await healthService.getDetailedHealth();
+      const roundTripMs = Math.max(1, Math.round(performance.now() - start));
+      const nowStr = new Date().toLocaleTimeString("vi-VN");
+      setLastUpdated(nowStr);
+      setHealthData(data);
+      setServices(buildServiceCards(data, roundTripMs));
+      setAuditLogs(Array.isArray(data.recentAuditLogs) ? data.recentAuditLogs : []);
+    } catch {
+      const nowStr = new Date().toLocaleTimeString("vi-VN");
+      setLastUpdated(nowStr);
+      setHealthError("Không thể kết nối tới Backend API (/api/health/detailed).");
+      setServices([
+        {
+          id: "backend",
+          name: "Backend API (Spring Boot)",
+          status: "offline",
+          metaLabel: "Trạng thái",
+          metaValue: "Unreachable",
+          latency: "—",
+          port: 8080,
+          errorDetail: "Không nhận được phản hồi từ GET /api/health/detailed.",
+          rootCause: "Ứng dụng Spring Boot Backend chưa được khởi động hoặc gặp sự cố.",
+        },
+      ]);
+      setHealthData(null);
+      setAuditLogs([]);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadJobs();
-  }, [loadJobs]);
+    void fetchDetailedTelemetry();
+  }, [loadJobs, fetchDetailedTelemetry]);
 
   const handleRetryJob = async (jobId: number) => {
     setRetryingJobId(jobId);
@@ -172,58 +241,8 @@ export default function GiamSatSucKhoePage() {
   };
 
   const handleRefresh = async () => {
-    setIsRefreshing(true);
-    const start = performance.now();
-
-    try {
-      void loadJobs();
-      const res = await fetch("/api/health", { cache: "no-store" }).catch(() => null);
-      const elapsed = Math.max(4, Math.round(performance.now() - start));
-      const nowStr = new Date().toLocaleTimeString("vi-VN");
-      setLastUpdated(nowStr);
-
-      const isBackendUp = res ? res.ok : true;
-
-      setServices((prev) =>
-        prev.map((s) => {
-          if (s.id === "backend") {
-            return {
-              ...s,
-              status: isBackendUp ? "online" : "offline",
-              latency: `${elapsed}ms`,
-            };
-          }
-          if (s.id === "ai_engine") {
-            return {
-              ...s,
-              status: "online",
-              latency: `${Math.floor(Math.random() * 20) + 25}ms`,
-            };
-          }
-          if (s.id === "postgres") {
-            return {
-              ...s,
-              status: "online",
-              latency: `${Math.floor(Math.random() * 3) + 2}ms`,
-            };
-          }
-          return s;
-        })
-      );
-
-      setLogs((prev) => [
-        {
-          level: "info",
-          time: nowStr,
-          msg: `Health check OK: Hệ thống phản hồi ổn định (${elapsed}ms)`,
-        },
-        ...prev.slice(0, 6),
-      ]);
-    } catch {
-      // fallback
-    } finally {
-      setTimeout(() => setIsRefreshing(false), 350);
-    }
+    void loadJobs();
+    await fetchDetailedTelemetry();
   };
 
   const offlineServices = services.filter((s) => s.status === "offline");
@@ -300,26 +319,55 @@ export default function GiamSatSucKhoePage() {
           gap: 12,
           marginBottom: 20,
           border: "1px solid",
-          borderColor: offlineServices.length === 0 ? "#bbf7d0" : "#fed7aa",
-          background: offlineServices.length === 0 ? "#f0fdf4" : "#fffbeb",
+          borderColor:
+            services.length === 0
+              ? "#cbd5e1"
+              : offlineServices.length === 0
+              ? "#bbf7d0"
+              : "#fed7aa",
+          background:
+            services.length === 0
+              ? "#f8fafc"
+              : offlineServices.length === 0
+              ? "#f0fdf4"
+              : "#fffbeb",
         }}
       >
-        {offlineServices.length === 0 ? (
+        {services.length === 0 ? (
+          <Loader2 size={22} className="animate-spin" style={{ color: "#0f766e", flexShrink: 0 }} />
+        ) : offlineServices.length === 0 ? (
           <CheckCircle size={22} style={{ color: "#059669", flexShrink: 0 }} />
         ) : (
           <AlertTriangle size={22} style={{ color: "#d97706", flexShrink: 0 }} />
         )}
         <div style={{ flex: 1 }}>
-          <p style={{ fontSize: 14, fontWeight: 600, color: offlineServices.length === 0 ? "#059669" : "#b45309", margin: 0 }}>
-            {offlineServices.length === 0
+          <p
+            style={{
+              fontSize: 14,
+              fontWeight: 600,
+              color:
+                services.length === 0
+                  ? "#334155"
+                  : offlineServices.length === 0
+                  ? "#059669"
+                  : "#b45309",
+              margin: 0,
+            }}
+          >
+            {services.length === 0
+              ? "Đang kiểm tra trạng thái các dịch vụ hệ thống..."
+              : offlineServices.length === 0
               ? "Tất cả dịch vụ đang hoạt động ổn định"
               : `Phát hiện ${offlineServices.length} dịch vụ đang gặp sự cố`}
           </p>
           <p style={{ fontSize: 12, color: "#475569", margin: "2px 0 0" }}>
-            {onlineCount}/{services.length} services online ·{" "}
-            {offlineServices.length === 0
-              ? "Hệ thống sẵn sàng phục vụ 100%"
-              : `Dịch vụ ngoại tuyến: ${offlineServices.map((s) => s.name).join(", ")}`}
+            {services.length === 0
+              ? "Đang thu thập telemetry thực tế từ Backend, PostgreSQL, GitHub API và AI Engine"
+              : `${onlineCount}/${services.length} services online · ${
+                  offlineServices.length === 0
+                    ? "Hệ thống sẵn sàng phục vụ 100%"
+                    : `Dịch vụ ngoại tuyến: ${offlineServices.map((s) => s.name).join(", ")}`
+                }`}
           </p>
         </div>
       </div>
@@ -381,8 +429,8 @@ export default function GiamSatSucKhoePage() {
               </div>
 
               {/* Thông số cơ bản */}
-              <div style={{ display: "flex", gap: 14, fontSize: 12, color: "#64748b", marginTop: 8 }}>
-                <span>Uptime: <strong style={{ color: "#334155" }}>{svc.uptime}</strong></span>
+              <div style={{ display: "flex", gap: 14, fontSize: 12, color: "#64748b", marginTop: 8, flexWrap: "wrap" }}>
+                <span>{svc.metaLabel}: <strong style={{ color: "#334155" }}>{svc.metaValue}</strong></span>
                 <span>Độ trễ: <strong style={{ color: "#334155" }}>{svc.latency}</strong></span>
                 {svc.port && <span>Port: <strong style={{ color: "#334155" }}>{svc.port}</strong></span>}
               </div>
@@ -447,6 +495,187 @@ export default function GiamSatSucKhoePage() {
             </div>
           );
         })}
+      </div>
+
+      {/* AI Engine Providers & Quota Metrics Dashboard */}
+      <div className="ld-card" style={{ border: "1px solid #e2e8f0", marginBottom: 24 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: 10,
+            marginBottom: 14,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Cpu size={16} style={{ color: "#0f766e" }} />
+            <div>
+              <h2 style={{ fontSize: 15, fontWeight: 700, color: "#0f172a", margin: 0 }}>
+                Trạng thái AI Engine Providers &amp; Quota Rate-Limit Controller
+              </h2>
+              <p style={{ fontSize: 12, color: "#64748b", margin: "2px 0 0" }}>
+                Dữ liệu thời gian thực từ FastAPI (/v1/ai/providers &amp; /v1/quota/metrics)
+              </p>
+            </div>
+          </div>
+
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 11.5,
+              fontWeight: 700,
+              padding: "3px 10px",
+              borderRadius: 9999,
+              background: healthData?.aiEngine?.status === "UP" ? "#ecfdf5" : "#fef2f2",
+              color: healthData?.aiEngine?.status === "UP" ? "#047857" : "#b91c1c",
+              border: `1px solid ${healthData?.aiEngine?.status === "UP" ? "#a7f3d0" : "#fecaca"}`,
+            }}
+          >
+            {healthData?.aiEngine?.status === "UP" ? "AI ENGINE ONLINE" : "AI ENGINE OFFLINE"}
+          </span>
+        </div>
+
+        {healthError ? (
+          <div style={{ padding: 12, borderRadius: 8, background: "#fef2f2", border: "1px solid #fecaca", fontSize: 12.5, color: "#991b1b" }}>
+            {healthError}
+          </div>
+        ) : !healthData ? (
+          <div style={{ padding: 16, textAlign: "center", color: "#64748b", fontSize: 12.5 }}>
+            Đang truy vấn thông số AI Engine...
+          </div>
+        ) : healthData.aiEngine?.status !== "UP" ? (
+          <div
+            style={{
+              padding: 12,
+              borderRadius: 8,
+              background: "#fffbeb",
+              border: "1px solid #fde68a",
+              color: "#92400e",
+              fontSize: 12.5,
+            }}
+          >
+            <strong>AI Engine hiện đang ngoại tuyến ({healthData.aiEngine?.url}):</strong>{" "}
+            {healthData.aiEngine?.message}
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14 }}>
+            {/* Gemini Cloud Provider */}
+            <div style={{ padding: 12, borderRadius: 8, border: "1px solid #e2e8f0", background: "#f8fafc" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>Google Gemini Cloud Pool</span>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    padding: "2px 8px",
+                    borderRadius: 9999,
+                    background: healthData.aiEngine.providers?.providers?.gemini?.available ? "#ecfdf5" : "#fef2f2",
+                    color: healthData.aiEngine.providers?.providers?.gemini?.available ? "#047857" : "#b91c1c",
+                  }}
+                >
+                  {healthData.aiEngine.providers?.providers?.gemini?.available ? "Khả dụng" : "Chưa có Key"}
+                </span>
+              </div>
+              <div style={{ fontSize: 12, color: "#475569", display: "flex", flexDirection: "column", gap: 3 }}>
+                <span>
+                  Models:{" "}
+                  <strong style={{ fontFamily: "monospace", color: "#0f172a" }}>
+                    {healthData.aiEngine.providers?.providers?.gemini?.models?.join(", ") || "—"}
+                  </strong>
+                </span>
+                <span>
+                  Loại: <strong>{healthData.aiEngine.providers?.providers?.gemini?.type || "cloud"}</strong>
+                </span>
+              </div>
+            </div>
+
+            {/* Ollama Local GPU Provider */}
+            <div style={{ padding: 12, borderRadius: 8, border: "1px solid #e2e8f0", background: "#f8fafc" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>Ollama Local GPU</span>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    padding: "2px 8px",
+                    borderRadius: 9999,
+                    background: healthData.aiEngine.providers?.providers?.ollama?.available ? "#ecfdf5" : "#fffbeb",
+                    color: healthData.aiEngine.providers?.providers?.ollama?.available ? "#047857" : "#b45309",
+                  }}
+                >
+                  {healthData.aiEngine.providers?.providers?.ollama?.available ? "Sẵn sàng" : "Không khả dụng"}
+                </span>
+              </div>
+              <div style={{ fontSize: 12, color: "#475569", display: "flex", flexDirection: "column", gap: 3 }}>
+                <span>
+                  Model:{" "}
+                  <strong style={{ fontFamily: "monospace", color: "#0f172a" }}>
+                    {healthData.aiEngine.providers?.providers?.ollama?.model || "—"}
+                  </strong>
+                </span>
+                <span>
+                  Thiết bị: <strong>{healthData.aiEngine.providers?.providers?.ollama?.device || "N/A"}</strong>
+                </span>
+              </div>
+            </div>
+
+            {/* Quota Rate-Limit Controller */}
+            <div style={{ padding: 12, borderRadius: 8, border: "1px solid #e2e8f0", background: "#f8fafc" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>Quota &amp; Rate-Limit Controller</span>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    padding: "2px 8px",
+                    borderRadius: 9999,
+                    background: healthData.aiEngine.quotaMetrics?.status === "healthy" ? "#ecfdf5" : "#fffbeb",
+                    color: healthData.aiEngine.quotaMetrics?.status === "healthy" ? "#047857" : "#b45309",
+                  }}
+                >
+                  {(healthData.aiEngine.quotaMetrics?.status || "unknown").toUpperCase()}
+                </span>
+              </div>
+              {healthData.aiEngine.quotaMetrics ? (
+                <div style={{ fontSize: 12, color: "#475569", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 10px" }}>
+                  <span>
+                    Active Model:{" "}
+                    <strong style={{ fontFamily: "monospace", color: "#0f172a" }}>
+                      {healthData.aiEngine.quotaMetrics.active_model}
+                    </strong>
+                  </span>
+                  <span>
+                    RPM:{" "}
+                    <strong>
+                      {healthData.aiEngine.quotaMetrics.current_rpm}/{healthData.aiEngine.quotaMetrics.max_rpm}
+                    </strong>
+                  </span>
+                  <span>
+                    Tổng Request: <strong>{healthData.aiEngine.quotaMetrics.total_requests}</strong>
+                  </span>
+                  <span>
+                    Retries / 429:{" "}
+                    <strong>
+                      {healthData.aiEngine.quotaMetrics.total_retries} / {healthData.aiEngine.quotaMetrics.quota_429_count}
+                    </strong>
+                  </span>
+                  <span>
+                    Failovers: <strong>{healthData.aiEngine.quotaMetrics.total_model_failovers}</strong>
+                  </span>
+                  <span>
+                    Key Rotations: <strong>{healthData.aiEngine.quotaMetrics.total_key_rotations}</strong>
+                  </span>
+                </div>
+              ) : (
+                <span style={{ fontSize: 12, color: "#64748b" }}>Không lấy được số liệu quota metrics.</span>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Live Jobs & Dead-Letter Queue (DLQ) Monitor */}
@@ -808,48 +1037,76 @@ export default function GiamSatSucKhoePage() {
         </div>
       )}
 
-      {/* Logs section */}
+      {/* Logs section (Real data from audit_logs) */}
       <div className="ld-card" style={{ border: "1px solid #e2e8f0" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-          <Clock size={15} style={{ color: "#64748b" }} />
-          <h2 style={{ fontSize: 14, fontWeight: 600, color: "#0f172a", margin: 0 }}>
-            Nhật ký sự kiện gần đây
-          </h2>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Clock size={15} style={{ color: "#64748b" }} />
+            <h2 style={{ fontSize: 14, fontWeight: 600, color: "#0f172a", margin: 0 }}>
+              Nhật ký sự kiện gần đây (từ bảng audit_logs)
+            </h2>
+          </div>
+          <span style={{ fontSize: 11.5, color: "#64748b" }}>
+            {auditLogs.length} bản ghi mới nhất
+          </span>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {logs.map((logItem, idx) => {
-            const meta = LOG_COLORS[logItem.level] ?? LOG_COLORS.info;
-            return (
-              <div
-                key={idx}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  padding: "6px 10px",
-                  borderRadius: 6,
-                  background: meta.bg,
-                  fontSize: 12,
-                }}
-              >
-                <span style={{ fontFamily: "monospace", color: "#64748b", fontSize: 11 }}>
-                  {logItem.time}
-                </span>
-                <span
+          {auditLogs.length === 0 ? (
+            <div style={{ padding: 16, textAlign: "center", fontSize: 12.5, color: "#64748b" }}>
+              Chưa có bản ghi nhật ký kiểm toán nào trong cơ sở dữ liệu.
+            </div>
+          ) : (
+            auditLogs.map((logItem) => {
+              const level = getAuditLogLevel(logItem.action);
+              const meta = LOG_COLORS[level] ?? LOG_COLORS.info;
+              const formattedTime = logItem.createdAt
+                ? new Date(logItem.createdAt).toLocaleString("vi-VN")
+                : "—";
+              const resourceTag = logItem.resourceType
+                ? `${logItem.resourceType}${logItem.resourceId ? ` #${logItem.resourceId}` : ""}`
+                : "";
+              const message = [
+                resourceTag ? `[${resourceTag}]` : "",
+                logItem.actorId ? `(Actor #${logItem.actorId})` : "",
+                logItem.detail || "Thao tác hệ thống",
+              ]
+                .filter(Boolean)
+                .join(" ");
+
+              return (
+                <div
+                  key={logItem.logId}
                   style={{
-                    textTransform: "uppercase",
-                    fontWeight: 700,
-                    fontSize: 10,
-                    color: meta.color,
-                    minWidth: 42,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "6px 10px",
+                    borderRadius: 6,
+                    background: meta.bg,
+                    fontSize: 12,
+                    flexWrap: "wrap",
                   }}
                 >
-                  {logItem.level}
-                </span>
-                <span style={{ color: "#1e293b" }}>{logItem.msg}</span>
-              </div>
-            );
-          })}
+                  <span style={{ fontFamily: "monospace", color: "#64748b", fontSize: 11 }}>
+                    {formattedTime}
+                  </span>
+                  <span
+                    style={{
+                      textTransform: "uppercase",
+                      fontWeight: 700,
+                      fontSize: 10.5,
+                      color: meta.color,
+                      minWidth: 140,
+                      fontFamily: "monospace",
+                    }}
+                  >
+                    {logItem.action || "SYSTEM"}
+                  </span>
+                  <span style={{ color: "#1e293b", flex: 1 }}>{message}</span>
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
     </AppShell>

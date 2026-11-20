@@ -289,7 +289,7 @@ class DriftAnalyzeResponse(BaseModel):
         description="Danh sách đề xuất sửa đổi cụ thể cho từng phần tài liệu bị ảnh hưởng."
     )
     model_used: str = Field(
-        default="gemini-3.5-flash-lite",
+        default="gemini-3.8-flash",
         description="Tên model Gemini đã sử dụng."
     )
 
@@ -395,7 +395,7 @@ class DocRewriteResponse(BaseModel):
         description="Danh sách các mục đề xuất viết lại (chứa section_title, old_content, suggested_content, reason)"
     )
     model_used: str = Field(
-        default="gemini-3.5-flash-lite",
+        default="gemini-3.8-flash",
         description="Model Gemini hoặc thuật toán phân tích đã thực hiện viết lại"
     )
 
@@ -431,7 +431,7 @@ class ChatResponse(BaseModel):
     status: str = Field(default="success")
     reply: str = Field(..., description="Nội dung câu trả lời của trợ lý AI")
     provider: str = Field(default="gemini", description="Mô hình / dịch vụ AI xử lý: gemini, ollama, fallback")
-    model: str = Field(default="gemini-2.5-flash", description="Tên mô hình cụ thể")
+    model: str = Field(default="gemini-3.8-flash", description="Tên mô hình cụ thể")
     citations: List[str] = Field(default=[], description="Danh sách các nguồn tài liệu hoặc mã nguồn được trích dẫn")
 
 

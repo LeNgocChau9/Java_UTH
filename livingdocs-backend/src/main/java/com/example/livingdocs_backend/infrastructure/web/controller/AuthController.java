@@ -24,6 +24,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
@@ -88,6 +89,7 @@ public class AuthController {
     }
 
     @GetMapping({"/me", "/users/me", "/profile"})
+    @PreAuthorize("isAuthenticated()")
     @SecurityRequirement(name = "BearerAuth")
     @Operation(summary = "Lấy thông tin tài khoản hiện tại", description = "Xác thực Bearer token từ Authorization header và trả về thông tin cá nhân kèm tùy chọn thông báo")
     public ResponseEntity<UserProfileResponse> getCurrentUser(Principal principal) {
@@ -99,6 +101,7 @@ public class AuthController {
     }
 
     @PutMapping({"/me", "/users/me", "/profile"})
+    @PreAuthorize("isAuthenticated()")
     @SecurityRequirement(name = "BearerAuth")
     @Operation(summary = "Cập nhật thông tin cá nhân", description = "Cho phép người dùng tự đổi họ tên, ảnh đại diện, đổi mật khẩu và lưu tùy chọn thông báo của chính mình")
     public ResponseEntity<UserProfileResponse> updateProfile(
@@ -112,6 +115,7 @@ public class AuthController {
     }
 
     @PutMapping({"/me/password", "/users/me/password"})
+    @PreAuthorize("isAuthenticated()")
     @SecurityRequirement(name = "BearerAuth")
     @Operation(summary = "Đổi mật khẩu cá nhân", description = "Cho phép người dùng tự đổi mật khẩu bằng cách xác nhận mật khẩu hiện tại (oldPassword) và mật khẩu mới (newPassword)")
     public ResponseEntity<UserProfileResponse> changePassword(
@@ -125,6 +129,7 @@ public class AuthController {
     }
 
     @GetMapping({"/me/notification-preferences", "/users/me/notification-preferences", "/profile/notification-preferences"})
+    @PreAuthorize("isAuthenticated()")
     @SecurityRequirement(name = "BearerAuth")
     @Operation(summary = "Xem tùy chọn nhận thông báo cá nhân", description = "Trả về cấu hình bật/tắt thông báo: tài liệu mới cần duyệt (reviewEnabled), cảnh báo sai lệch mã nguồn (driftAlertEnabled/documentEnabled), sự cố mã khóa truy cập GitHub (githubTokenIssueEnabled/githubEnabled) và nhận qua email (emailEnabled)")
     public ResponseEntity<com.example.livingdocs_backend.application.dto.UserNotificationPreferencesDto> getNotificationPreferences(
@@ -136,6 +141,7 @@ public class AuthController {
     }
 
     @PutMapping({"/me/notification-preferences", "/users/me/notification-preferences", "/profile/notification-preferences"})
+    @PreAuthorize("isAuthenticated()")
     @SecurityRequirement(name = "BearerAuth")
     @Operation(summary = "Cập nhật tùy chọn nhận thông báo cá nhân", description = "Lưu cấu hình bật/tắt nhận thông báo khi có tài liệu mới cần duyệt, cảnh báo sai lệch mã nguồn hoặc khi mã khóa truy cập GitHub gặp sự cố cần cấp quyền lại")
     public ResponseEntity<com.example.livingdocs_backend.application.dto.UserNotificationPreferencesDto> updateNotificationPreferences(

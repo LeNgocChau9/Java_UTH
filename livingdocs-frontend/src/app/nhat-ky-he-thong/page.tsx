@@ -1,9 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Clock, Filter, History, RefreshCw, ShieldAlert } from "lucide-react";
+import { AlertCircle, CheckCircle2, Clock, Database, Filter, History, RefreshCw, Save, ShieldAlert, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
-import { getAuditLogs, type AuditLogItem } from "@/services/auditService";
+import {
+  getAuditLogs,
+  getRetentionConfig,
+  triggerManualCleanup,
+  updateRetentionConfig,
+  type AuditLogItem,
+  type AuditRetentionConfig,
+} from "@/services/auditService";
 
 const ACTIONS = [
   { value: "", label: "Mọi hành động" },
@@ -41,6 +48,29 @@ export default function AuditLogPage() {
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState("");
 
+  // Retention Management state
+  const [retentionConfig, setRetentionConfig] = useState<AuditRetentionConfig | null>(null);
+  const [retentionDaysInput, setRetentionDaysInput] = useState<number>(90);
+  const [autoCleanupInput, setAutoCleanupInput] = useState<boolean>(true);
+  const [loadingRetention, setLoadingRetention] = useState<boolean>(false);
+  const [savingRetention, setSavingRetention] = useState<boolean>(false);
+  const [cleaningUp, setCleaningUp] = useState<boolean>(false);
+  const [retentionNotice, setRetentionNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  const loadRetention = useCallback(async () => {
+    setLoadingRetention(true);
+    try {
+      const cfg = await getRetentionConfig();
+      setRetentionConfig(cfg);
+      setRetentionDaysInput(cfg.retentionDays ?? 90);
+      setAutoCleanupInput(cfg.autoCleanupEnabled ?? true);
+    } catch {
+      // Nếu 403 hoặc lỗi tải sẽ được xử lý qua bảng chính
+    } finally {
+      setLoadingRetention(false);
+    }
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -67,7 +97,63 @@ export default function AuditLogPage() {
 
   useEffect(() => {
     void load();
-  }, [load]);
+    void loadRetention();
+  }, [load, loadRetention]);
+
+  const handleSaveRetention = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const clampedDays = Math.min(365, Math.max(30, Number(retentionDaysInput) || 90));
+    setRetentionDaysInput(clampedDays);
+    setSavingRetention(true);
+    setRetentionNotice(null);
+    try {
+      const updated = await updateRetentionConfig({
+        retentionDays: clampedDays,
+        autoCleanupEnabled: autoCleanupInput,
+      });
+      setRetentionConfig(updated);
+      setRetentionDaysInput(updated.retentionDays);
+      setAutoCleanupInput(updated.autoCleanupEnabled);
+      setRetentionNotice({
+        type: "success",
+        text: `Đã lưu chính sách lưu trữ: giữ nhật ký ${updated.retentionDays} ngày (${updated.autoCleanupEnabled ? "Bật tự động dọn dẹp" : "Tắt tự động dọn dẹp"}).`,
+      });
+      await load();
+    } catch {
+      setRetentionNotice({
+        type: "error",
+        text: "Không thể cập nhật chính sách lưu trữ. Vui lòng kiểm tra quyền ADMIN/TECH_LEAD.",
+      });
+    } finally {
+      setSavingRetention(false);
+    }
+  };
+
+  const handleManualCleanup = async () => {
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("Bạn có chắc chắn muốn dọn dẹp các nhật ký đã hết hạn ngay bây giờ?")
+    ) {
+      return;
+    }
+    setCleaningUp(true);
+    setRetentionNotice(null);
+    try {
+      const result = await triggerManualCleanup();
+      setRetentionNotice({
+        type: "success",
+        text: result.message || `Dọn dẹp xong ${result.auditLogsDeleted} audit logs và ${result.changelogsDeleted} changelogs.`,
+      });
+      await Promise.all([loadRetention(), load()]);
+    } catch {
+      setRetentionNotice({
+        type: "error",
+        text: "Không thể thực hiện dọn dẹp nhật ký ngay lúc này.",
+      });
+    } finally {
+      setCleaningUp(false);
+    }
+  };
 
   return (
     <AppShell>
@@ -139,6 +225,120 @@ export default function AuditLogPage() {
           </div>
         )}
         {error && <p className="text-sm text-red-600">{error}</p>}
+
+        {!forbidden && (
+          <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-50 text-emerald-700 rounded-lg">
+                  <Database size={18} />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-gray-900">
+                    Quản trị Chính sách Lưu trữ &amp; Dọn dẹp Nhật ký (Audit Retention)
+                  </h2>
+                  <p className="text-xs text-gray-500">
+                    Cấu hình thời hạn lưu trữ từ 30 – 365 ngày và kích hoạt dọn dẹp các bản ghi quá hạn
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleManualCleanup()}
+                disabled={cleaningUp || loadingRetention}
+                className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-white bg-rose-600 rounded-lg hover:bg-rose-700 disabled:opacity-60 cursor-pointer"
+              >
+                <Trash2 size={14} />
+                {cleaningUp ? "Đang dọn dẹp..." : "Dọn dẹp nhật ký ngay"}
+              </button>
+            </div>
+
+            {retentionNotice && (
+              <div
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium ${
+                  retentionNotice.type === "success"
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                    : "border-rose-200 bg-rose-50 text-rose-800"
+                }`}
+              >
+                {retentionNotice.type === "success" ? (
+                  <CheckCircle2 size={15} className="shrink-0" />
+                ) : (
+                  <AlertCircle size={15} className="shrink-0" />
+                )}
+                <span>{retentionNotice.text}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs bg-gray-50 p-3 rounded-lg border border-gray-100">
+              <div>
+                <span className="text-gray-500 block">Thời hạn hiện tại</span>
+                <strong className="text-sm text-gray-900">
+                  {retentionConfig ? `${retentionConfig.retentionDays} ngày` : "—"}
+                </strong>
+              </div>
+              <div>
+                <span className="text-gray-500 block">Tự động dọn dẹp</span>
+                <strong className={`text-sm ${retentionConfig?.autoCleanupEnabled ? "text-emerald-700" : "text-gray-700"}`}>
+                  {retentionConfig
+                    ? retentionConfig.autoCleanupEnabled
+                      ? "Đang bật"
+                      : "Đang tắt"
+                    : "—"}
+                </strong>
+              </div>
+              <div>
+                <span className="text-gray-500 block">Lần dọn dẹp gần nhất</span>
+                <strong className="text-gray-900">
+                  {retentionConfig?.lastCleanupAt
+                    ? new Date(retentionConfig.lastCleanupAt).toLocaleString("vi-VN")
+                    : "Chưa từng chạy"}
+                </strong>
+              </div>
+              <div>
+                <span className="text-gray-500 block">Kết quả gần nhất</span>
+                <strong className="text-gray-900">
+                  {retentionConfig?.lastCleanupStatus
+                    ? `${retentionConfig.lastCleanupStatus} (${retentionConfig.lastAuditLogsDeleted ?? 0} audit / ${retentionConfig.lastChangelogsDeleted ?? 0} changelog)`
+                    : "—"}
+                </strong>
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveRetention} className="flex flex-col sm:flex-row sm:items-end gap-4 pt-1">
+              <label className="block text-xs font-medium text-gray-700">
+                Số ngày lưu trữ (30 - 365 ngày)
+                <input
+                  type="number"
+                  min={30}
+                  max={365}
+                  value={retentionDaysInput}
+                  onChange={(e) => setRetentionDaysInput(Number(e.target.value))}
+                  className="mt-1 w-44 text-sm border border-gray-300 rounded-lg px-3 py-1.5 bg-white"
+                />
+              </label>
+
+              <label className="inline-flex items-center gap-2 text-xs font-medium text-gray-700 pb-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={autoCleanupInput}
+                  onChange={(e) => setAutoCleanupInput(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                Tự động dọn dẹp định kỳ hàng ngày
+              </label>
+
+              <button
+                type="submit"
+                disabled={savingRetention || loadingRetention}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-[#07543f] rounded-lg hover:bg-[#054332] disabled:opacity-60 cursor-pointer"
+              >
+                <Save size={14} />
+                {savingRetention ? "Đang lưu..." : "Lưu chính sách"}
+              </button>
+            </form>
+          </div>
+        )}
 
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
           <table className="w-full text-left text-sm">

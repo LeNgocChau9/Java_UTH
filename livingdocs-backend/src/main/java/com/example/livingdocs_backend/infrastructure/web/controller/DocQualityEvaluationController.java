@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping({"/v1/docs", "/api/v1/docs", "/api/documents"})
+@PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
 @RequiredArgsConstructor
 @Tag(name = "Document Quality & Anti-Hallucination Gate", description = "Chấm điểm chất lượng tài liệu Markdown dựa trên AST thật và phát hiện ký hiệu ảo giác (Phantom Symbols)")
 public class DocQualityEvaluationController {

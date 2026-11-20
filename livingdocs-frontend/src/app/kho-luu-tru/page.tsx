@@ -9,6 +9,7 @@ import {
   PullRequestItem,
   CommitItem,
   SyncResult,
+  WebhookDeliveryItem,
 } from "@/services/repoService";
 import {
   GitBranch,
@@ -25,6 +26,7 @@ import {
   ShieldCheck,
   FolderGit2,
   Calendar,
+  Webhook,
   X,
 } from "lucide-react";
 
@@ -32,11 +34,12 @@ export default function RepoManagementPage() {
   const [repos, setRepos] = useState<RepoItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [selectedRepo, setSelectedRepo] = useState<RepoItem | null>(null);
-  const [activeTab, setActiveTab] = useState<"prs" | "commits">("prs");
+  const [activeTab, setActiveTab] = useState<"prs" | "commits" | "webhooks">("prs");
 
-  // Pull Requests & Commits data for selected repo
+  // Pull Requests, Commits & Webhook Deliveries data for selected repo
   const [pullRequests, setPullRequests] = useState<PullRequestItem[]>([]);
   const [commits, setCommits] = useState<CommitItem[]>([]);
+  const [webhookDeliveries, setWebhookDeliveries] = useState<WebhookDeliveryItem[]>([]);
   const [detailsLoading, setDetailsLoading] = useState<boolean>(false);
 
   // Sync state
@@ -172,20 +175,22 @@ export default function RepoManagementPage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Khi chọn repo thì tải PRs & Commits
+  // Khi chọn repo thì tải PRs, Commits & Webhook Delivery Logs
   useEffect(() => {
     if (!selectedRepo) return;
     const fetchRepoDetails = async () => {
       setDetailsLoading(true);
       try {
-        const [prs, cms] = await Promise.all([
+        const [prs, cms, deliveries] = await Promise.all([
           repoService.getRepoPullRequests(selectedRepo.repositoryId).catch(() => []),
           repoService.getRepoCommits(selectedRepo.repositoryId).catch(() => []),
+          repoService.getWebhookDeliveries(selectedRepo.repositoryId).catch(() => []),
         ]);
         setPullRequests(prs);
         setCommits(cms);
+        setWebhookDeliveries(deliveries);
       } catch (err) {
-        console.error("Lỗi tải chi tiết PR / Commit:", err);
+        console.error("Lỗi tải chi tiết PR / Commit / Webhook:", err);
       } finally {
         setDetailsLoading(false);
       }
@@ -214,12 +219,14 @@ export default function RepoManagementPage() {
       // Cập nhật lại repo list & reload chi tiết nếu đang chọn
       await loadRepositories();
       if (selectedRepo?.repositoryId === repo.repositoryId) {
-        const [prs, cms] = await Promise.all([
+        const [prs, cms, deliveries] = await Promise.all([
           repoService.getRepoPullRequests(repo.repositoryId),
           repoService.getRepoCommits(repo.repositoryId),
+          repoService.getWebhookDeliveries(repo.repositoryId).catch(() => []),
         ]);
         setPullRequests(prs);
         setCommits(cms);
+        setWebhookDeliveries(deliveries);
       }
     } catch (err: any) {
       console.error("Lỗi khi sync repository:", err);
@@ -328,6 +335,16 @@ export default function RepoManagementPage() {
           </h1>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button
+            type="button"
+            onClick={handleManualVerifyTokens}
+            disabled={verifyingTokens}
+            className="ld-btn ld-btn-secondary"
+            style={{ display: "flex", alignItems: "center", gap: 6 }}
+          >
+            <ShieldCheck size={16} className={verifyingTokens ? "animate-pulse" : ""} />
+            {verifyingTokens ? "Đang kiểm tra..." : "Kiểm tra toàn vẹn Token"}
+          </button>
           <button
             type="button"
             onClick={() => setIsModalOpen(true)}
@@ -724,8 +741,8 @@ export default function RepoManagementPage() {
                   </div>
                 </div>
 
-                {/* Tabs chuyển đổi PRs và Commits */}
-                <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+                {/* Tabs chuyển đổi PRs, Commits và Webhook Delivery Logs */}
+                <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
                   <button
                     type="button"
                     onClick={() => setActiveTab("prs")}
@@ -767,13 +784,39 @@ export default function RepoManagementPage() {
                   >
                     <GitCommit size={14} /> Commits ({commits.length})
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("webhooks")}
+                    style={{
+                      padding: "6px 14px",
+                      borderRadius: 6,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      border: "none",
+                      cursor: "pointer",
+                      background: activeTab === "webhooks" ? "#047857" : "#f1f5f9",
+                      color: activeTab === "webhooks" ? "#ffffff" : "#475569",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    <Webhook size={14} /> Webhook Delivery Logs ({webhookDeliveries.length})
+                  </button>
                 </div>
               </div>
 
               {/* Nội dung Tab */}
               {detailsLoading ? (
                 <div style={{ textAlign: "center", padding: "40px 0", color: "#64748b", fontSize: 13 }}>
-                  <RefreshCw className="animate-spin inline mr-2" size={16} /> Đang tải dữ liệu {activeTab === "prs" ? "Pull Requests" : "Commits"}...
+                  <RefreshCw className="animate-spin inline mr-2" size={16} /> Đang tải dữ liệu{" "}
+                  {activeTab === "prs"
+                    ? "Pull Requests"
+                    : activeTab === "commits"
+                    ? "Commits"
+                    : "Webhook Delivery Logs"}...
                 </div>
               ) : activeTab === "prs" ? (
                 /* TAB 1: PULL REQUESTS */
@@ -841,7 +884,7 @@ export default function RepoManagementPage() {
                     })}
                   </div>
                 )
-              ) : (
+              ) : activeTab === "commits" ? (
                 /* TAB 2: COMMITS */
                 commits.length === 0 ? (
                   <div style={{ textAlign: "center", padding: "40px 16px", color: "#64748b", fontSize: 13 }}>
@@ -890,6 +933,98 @@ export default function RepoManagementPage() {
                         </div>
                       </div>
                     ))}
+                  </div>
+                )
+              ) : (
+                /* TAB 3: WEBHOOK DELIVERY LOGS */
+                webhookDeliveries.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "40px 16px", color: "#64748b", fontSize: 13 }}>
+                    <Webhook size={32} style={{ margin: "0 auto 8px", opacity: 0.3 }} />
+                    <p>Chưa có lịch sử giao nhận GitHub Webhook nào cho kho lưu trữ này.</p>
+                    <p style={{ fontSize: 11, color: "#94a3b8" }}>
+                      Các sự kiện push / pull_request gửi tới <code>/api/webhooks/github</code> sẽ được ghi nhận tại đây.
+                    </p>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: 520, overflowY: "auto" }}>
+                    {webhookDeliveries.map((d) => {
+                      const isOk = d.status?.toUpperCase() === "SUCCESS";
+                      return (
+                        <div
+                          key={d.id}
+                          style={{
+                            border: "1px solid #e2e8f0",
+                            borderRadius: 6,
+                            padding: "10px 14px",
+                            background: "#ffffff",
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+                            <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                              <Webhook
+                                size={15}
+                                style={{
+                                  color: isOk ? "#047857" : "#dc2626",
+                                  marginTop: 2,
+                                  flexShrink: 0,
+                                }}
+                              />
+                              <div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                  <span style={{ fontSize: 13, fontWeight: 600, color: "#0f172a" }}>
+                                    {d.eventType}
+                                  </span>
+                                  {d.deliveryId && (
+                                    <code
+                                      style={{
+                                        fontSize: 11,
+                                        background: "#f1f5f9",
+                                        padding: "1px 6px",
+                                        borderRadius: 4,
+                                        color: "#475569",
+                                      }}
+                                    >
+                                      {d.deliveryId}
+                                    </code>
+                                  )}
+                                  {typeof d.latencyMs === "number" && (
+                                    <span style={{ fontSize: 11, color: "#64748b" }}>
+                                      • {d.latencyMs}ms
+                                    </span>
+                                  )}
+                                </div>
+                                {d.payloadSummary && (
+                                  <div style={{ fontSize: 12, color: "#334155", marginTop: 4 }}>
+                                    {d.payloadSummary}
+                                  </div>
+                                )}
+                                {d.errorMessage && (
+                                  <div style={{ fontSize: 11.5, color: "#b91c1c", marginTop: 4 }}>
+                                    Lỗi: {d.errorMessage}
+                                  </div>
+                                )}
+                                <div style={{ fontSize: 11, color: "#64748b", marginTop: 4 }}>
+                                  {formatDateTime(d.deliveredAt)}
+                                </div>
+                              </div>
+                            </div>
+
+                            <span
+                              className="ld-badge"
+                              style={{
+                                background: isOk ? "#ecfdf5" : "#fef2f2",
+                                color: isOk ? "#047857" : "#b91c1c",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                flexShrink: 0,
+                              }}
+                            >
+                              {d.status} ({d.httpStatus})
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )
               )}

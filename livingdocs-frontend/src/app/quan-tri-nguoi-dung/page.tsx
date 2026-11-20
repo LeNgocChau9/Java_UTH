@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AppShell } from "@/components/AppShell";
-import { Search, Users, UserCheck, UserX, Lock, Unlock, ShieldCheck, Loader2, ChevronDown, UserPlus, X, KeyRound, CheckCircle2, Clock } from "lucide-react";
+import { Search, Users, UserCheck, UserX, Lock, Unlock, ShieldCheck, Loader2, ChevronDown, UserPlus, X, KeyRound, CheckCircle2, Clock, RefreshCw } from "lucide-react";
 import { changeRole, changeStatus, createUser, listUsers, listPasswordResetRequests, approvePasswordReset, directResetPassword, type PasswordResetRequestItem } from "@/services/adminService";
 import type { AdminUser } from "@/types/auth";
 
@@ -32,6 +32,38 @@ function initials(name: string): string {
 function fmtDate(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("vi-VN");
+}
+
+function generateSecurePassword(length = 12): string {
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lower = "abcdefghijkmnopqrstuvwxyz";
+  const digits = "23456789";
+  const special = "!@#$%^&*()-_=+";
+  const all = upper + lower + digits + special;
+
+  const randomInt = (max: number): number => {
+    const arr = new Uint32Array(1);
+    window.crypto.getRandomValues(arr);
+    return arr[0] % max;
+  };
+
+  const chars: string[] = [
+    upper[randomInt(upper.length)],
+    lower[randomInt(lower.length)],
+    digits[randomInt(digits.length)],
+    special[randomInt(special.length)],
+  ];
+
+  for (let i = chars.length; i < length; i++) {
+    chars.push(all[randomInt(all.length)]);
+  }
+
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+
+  return chars.join("");
 }
 
 export default function AdminUsersPage() {
@@ -271,7 +303,7 @@ export default function AdminUsersPage() {
                             onClick={() => {
                               setResetTargetReq(req);
                               setResetTargetUser(null);
-                              setNewPasswordInput("Canh8533");
+                              setNewPasswordInput(generateSecurePassword(12));
                             }}
                             className="inline-flex items-center gap-1.5 rounded bg-emerald-600 px-3 py-1 font-semibold text-white hover:bg-emerald-700"
                           >
@@ -387,7 +419,7 @@ export default function AdminUsersPage() {
                           onClick={() => {
                             setResetTargetUser(u);
                             setResetTargetReq(null);
-                            setNewPasswordInput("Canh8533");
+                            setNewPasswordInput(generateSecurePassword(12));
                           }}
                           className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-emerald-600"
                           title="Đặt lại mật khẩu cho tài khoản này"
@@ -439,13 +471,23 @@ export default function AdminUsersPage() {
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Nhập mật khẩu mới cấp cho người dùng:
                   </label>
-                  <input
-                    type="text"
-                    value={newPasswordInput}
-                    onChange={(e) => setNewPasswordInput(e.target.value)}
-                    placeholder="Ví dụ: Canh8533"
-                    className="w-full rounded border border-slate-300 px-3 py-2 text-sm font-mono text-slate-900 outline-none focus:border-emerald-500"
-                  />
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={newPasswordInput}
+                      onChange={(e) => setNewPasswordInput(e.target.value)}
+                      placeholder="Nhập hoặc tạo mật khẩu ngẫu nhiên bảo mật"
+                      className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm font-mono text-slate-900 outline-none focus:border-emerald-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setNewPasswordInput(generateSecurePassword(12))}
+                      className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 shrink-0"
+                      title="Sinh mật khẩu ngẫu nhiên 12 ký tự (CSPRNG)"
+                    >
+                      <RefreshCw size={13} /> Tạo ngẫu nhiên
+                    </button>
+                  </div>
                 </div>
               </div>
 

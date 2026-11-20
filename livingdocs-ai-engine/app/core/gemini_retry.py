@@ -6,8 +6,8 @@ và Quota Rate-Limit Controller cho Google Gemini API trong LivingDocs AI Engine
 Nghiệp vụ kỹ thuật chính:
 1. Thuật toán Full Jitter Exponential Backoff: Phân phối độ trễ ngẫu nhiên đều để triệt tiêu hiện tượng Thundering Herd.
 2. Quota & Rate-Limit Controller: Điều tiết lưu lượng RPM (Requests Per Minute), giám sát tải, bảo đảm tính ổn định 99.5%.
-3. Tự động chuyển đổi Model dự phòng (Model Failover): Khi model pro (gemini-2.5-pro) gặp 429 Quota Exceeded hoặc 503 Service Unavailable,
-   hệ thống tự động chuyển đổi sang model flash (gemini-2.5-flash) và các model tương thích tiếp theo.
+3. Tự động chuyển đổi Model dự phòng (Model Failover): Khi model chính (gemini-3.8-flash) gặp 429 Quota Exceeded hoặc 503 Service Unavailable,
+   hệ thống tự động chuyển đổi sang model dự phòng (gemini-3.6-flash) và các model tương thích tiếp theo (gemini-3.5-flash-lite, gemini-3.1-flash-lite, gemini-3-flash-preview).
 4. Tự động xoay API Key (Multi-Key Pool Rotation): Phối hợp cùng GeminiKeyManager xoay vòng key khi một key cạn định mức.
 5. Decorator @with_gemini_retry: Hỗ trợ linh hoạt cho cả hàm đồng bộ (sync) và hàm bất đồng bộ (async).
 6. Tương thích ngược 100% với hàm execute_with_gemini_retry() hiện có của hệ thống.
@@ -27,18 +27,17 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
-# Định nghĩa các model chuẩn
-PRIMARY_MODEL = "gemini-2.5-pro"
-FALLBACK_MODEL = "gemini-2.5-flash"
+# Định nghĩa các model chuẩn (theo danh sách model hợp lệ mới nhất: Gemini 3.8 Flash, 3.6 Flash, 3.5 Flash-Lite, 3.1 Flash-Lite, 3 Flash Preview)
+PRIMARY_MODEL = "gemini-3.8-flash"
+FALLBACK_MODEL = "gemini-3.6-flash"
 
 # Chuỗi chuyển đổi model dự phòng theo thứ tự ưu tiên
 DEFAULT_MODEL_FALLBACK_CHAIN: List[str] = [
-    "gemini-2.5-pro",
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
+    "gemini-3.8-flash",
+    "gemini-3.6-flash",
     "gemini-3.5-flash-lite",
-    "gemini-flash-lite-latest",
+    "gemini-3.1-flash-lite",
+    "gemini-3-flash-preview",
 ]
 
 
@@ -159,7 +158,7 @@ def is_transient_error(exception: Optional[Exception]) -> bool:
 def get_fallback_model(current_model: str, fallback_chain: Optional[List[str]] = None) -> Optional[str]:
     """
     Tìm model dự phòng tiếp theo trong chuỗi.
-    Đặc biệt đảm bảo: khi current_model là gemini-2.5-pro -> trả về gemini-2.5-flash.
+    Đặc biệt đảm bảo: khi current_model là gemini-3.8-flash -> trả về gemini-3.6-flash.
     """
     chain = fallback_chain or DEFAULT_MODEL_FALLBACK_CHAIN
     if current_model in chain:
@@ -167,10 +166,6 @@ def get_fallback_model(current_model: str, fallback_chain: Optional[List[str]] =
         if idx + 1 < len(chain):
             return chain[idx + 1]
         return None
-
-    # Nếu là một biến thể của Pro (vd: gemini-pro, gemini-2.5-pro) -> chuyển sang Flash
-    if "pro" in current_model.lower():
-        return FALLBACK_MODEL
 
     return FALLBACK_MODEL if current_model != FALLBACK_MODEL else None
 
@@ -307,15 +302,15 @@ def with_gemini_retry(
 ):
     """
     Decorator tự động thử lại (Retry) với thuật toán Full Jitter Exponential Backoff,
-    tự động xoay API Key và chuyển đổi model dự phòng (từ gemini-2.5-pro sang gemini-2.5-flash).
+    tự động xoay API Key và chuyển đổi model dự phòng (từ gemini-3.8-flash sang gemini-3.6-flash).
 
     Hỗ trợ cả cú pháp không tham số:
         @with_gemini_retry
-        def call_gemini(prompt, model="gemini-2.5-pro"): ...
+        def call_gemini(prompt, model="gemini-3.8-flash"): ...
 
     và cú pháp có tham số tùy chỉnh:
-        @with_gemini_retry(max_retries=3, initial_delay=0.5, fallback_models=["gemini-2.5-pro", "gemini-2.5-flash"])
-        def call_gemini(prompt, model="gemini-2.5-pro"): ...
+        @with_gemini_retry(max_retries=3, initial_delay=0.5, fallback_models=["gemini-3.8-flash", "gemini-3.6-flash"])
+        def call_gemini(prompt, model="gemini-3.8-flash"): ...
     """
     def decorator(target_func: Callable):
         act_name = action_name or target_func.__name__
@@ -465,7 +460,7 @@ def _execute_sync_retry(
                 )
                 quota_controller.record_quota_exceeded(active_model)
 
-                # A. Tự động chuyển đổi model dự phòng (từ gemini-2.5-pro sang gemini-2.5-flash)
+                # A. Tự động chuyển đổi model dự phòng (từ gemini-3.8-flash sang gemini-3.6-flash)
                 if model_idx + 1 < len(chain_to_try):
                     prev_model = active_model
                     model_idx += 1

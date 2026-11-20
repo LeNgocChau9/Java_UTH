@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
  */
 @RestController
 @RequestMapping("/api/v1/code-entities")
+@PreAuthorize("hasAnyRole('DEVELOPER','STAFF','TECH_LEAD','ADMIN')")
 @RequiredArgsConstructor
 @Tag(name = "Code Entities & Localized Doc Regeneration", description = "API tạo lại tài liệu cục bộ cho từng thực thể mã nguồn (Class / Method) từ Cây mã nguồn")
 public class CodeIndexController {

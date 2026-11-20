@@ -4,6 +4,7 @@ import com.example.livingdocs_backend.application.dto.AuditCleanupResultDto;
 import com.example.livingdocs_backend.application.dto.AuditRetentionConfigDto;
 import com.example.livingdocs_backend.application.port.AuditServicePort;
 import com.example.livingdocs_backend.domain.model.AuditLog;
+import com.example.livingdocs_backend.infrastructure.security.UserPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -64,6 +65,9 @@ public class AuditLogController {
     private Long parseActorId(Authentication authentication) {
         if (authentication == null) {
             return null;
+        }
+        if (authentication.getPrincipal() instanceof UserPrincipal up) {
+            return up.getUserId();
         }
         try {
             return Long.parseLong(authentication.getName());

@@ -552,7 +552,7 @@ function CardAnimatedVisual({ type }: { type: VisualType }) {
               className="flex-1 rounded-xl border border-[#FDE047] bg-white p-2 text-center shadow-xs"
               style={{ animation: "fb-alt-a 3s ease-in-out infinite" }}
             >
-              <div className="font-extrabold text-[#854D0E]">Gemini 2.5</div>
+              <div className="font-extrabold text-[#854D0E]">Gemini 3.8</div>
               <div className="text-[8.5px] text-[#A16207]">Cloud Primary</div>
             </div>
             <GitBranch

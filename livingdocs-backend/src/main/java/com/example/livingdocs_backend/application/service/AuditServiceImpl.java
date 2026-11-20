@@ -116,6 +116,8 @@ public class AuditServiceImpl implements AuditServicePort {
                 .lastCleanupStatus(current.getLastCleanupStatus())
                 .lastAuditLogsDeleted(current.getLastAuditLogsDeleted())
                 .lastChangelogsDeleted(current.getLastChangelogsDeleted())
+                .updatedBy(actorId)
+                .updatedAt(Instant.now())
                 .build();
 
         try {
@@ -180,6 +182,8 @@ public class AuditServiceImpl implements AuditServicePort {
                         .lastCleanupStatus(success ? "SUCCESS" : "FAILED: " + errorMessage)
                         .lastAuditLogsDeleted(auditLogsDeleted)
                         .lastChangelogsDeleted(changelogsDeleted)
+                        .updatedBy(latestConfig.getUpdatedBy())
+                        .updatedAt(latestConfig.getUpdatedAt())
                         .build();
                 adminSettingRepository.save(AdminSettingEntity.builder()
                         .settingKey(AUDIT_RETENTION_SETTING_KEY)
@@ -200,6 +204,7 @@ public class AuditServiceImpl implements AuditServicePort {
                 .changelogsDeleted(changelogsDeleted)
                 .cutoffTime(cutoff)
                 .retentionDaysApplied(days)
+                .executedAt(Instant.now())
                 .triggerMethod(trigger)
                 .message(String.format("Đã dọn dẹp an toàn %d nhật ký kiểm toán và %d lịch sử thay đổi quá hạn %d ngày.", auditLogsDeleted, changelogsDeleted, days))
                 .build();

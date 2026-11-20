@@ -22,6 +22,14 @@ import {
   GitBranch,
   FileWarning,
   ClipboardCheck,
+  Copy,
+  Check,
+  Plus,
+  Trash2,
+  Terminal,
+  X,
+  Clock,
+  ShieldCheck,
 } from "lucide-react";
 import { apiClient } from "@/services/apiClient";
 import {
@@ -29,6 +37,12 @@ import {
   type ExternalIntegrationConfig,
   type TestExternalIntegrationResponse,
 } from "@/services/externalIntegrationService";
+import {
+  ciTokenService,
+  type CiTokenItem,
+  type CreatedCiTokenItem,
+} from "@/services/ciTokenService";
+import { repoService, type RepoItem } from "@/services/repoService";
 import { useSession } from "@/hooks/useSession";
 
 const CLOUD_PROVIDERS = [
@@ -84,9 +98,11 @@ export default function CaiDatPage() {
   const { roles } = useSession();
   const canManageIntegrations =
     roles.includes("ADMIN") || roles.includes("TECH_LEAD") || roles.includes("MANAGER");
+  const canManageCiTokens =
+    roles.includes("ADMIN") || roles.includes("TECH_LEAD") || roles.includes("DEVELOPER");
 
   const [activeTab, setActiveTab] = useState<
-    "cloud" | "local" | "pr_blocking" | "notifications" | "integrations"
+    "cloud" | "local" | "pr_blocking" | "notifications" | "integrations" | "ci_tokens"
   >("cloud");
 
   // State cấu hình AI
@@ -128,6 +144,25 @@ export default function CaiDatPage() {
     Record<string, { type: "success" | "error"; text: string }>
   >({});
 
+  // State CI/CD Tokens & GitHub Actions Generator
+  const [ciTokens, setCiTokens] = useState<CiTokenItem[]>([]);
+  const [ciRepos, setCiRepos] = useState<RepoItem[]>([]);
+  const [ciLoading, setCiLoading] = useState<boolean>(false);
+  const [ciError, setCiError] = useState<string | null>(null);
+  const [isCreateTokenOpen, setIsCreateTokenOpen] = useState<boolean>(false);
+  const [newTokenName, setNewTokenName] = useState<string>("");
+  const [newTokenRepoId, setNewTokenRepoId] = useState<string>("");
+  const [newTokenExpiryDays, setNewTokenExpiryDays] = useState<string>("90");
+  const [newTokenDesc, setNewTokenDesc] = useState<string>("");
+  const [creatingToken, setCreatingToken] = useState<boolean>(false);
+  const [createTokenError, setCreateTokenError] = useState<string | null>(null);
+  const [revealedToken, setRevealedToken] = useState<CreatedCiTokenItem | null>(null);
+  const [copiedToken, setCopiedToken] = useState<boolean>(false);
+  const [revokingTokenId, setRevokingTokenId] = useState<number | null>(null);
+  const [yamlRepoId, setYamlRepoId] = useState<string>("");
+  const [yamlBackendUrl, setYamlBackendUrl] = useState<string>("http://localhost:8080");
+  const [copiedYaml, setCopiedYaml] = useState<boolean>(false);
+
   // Đọc ?tab= từ URL khi mount
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -137,7 +172,8 @@ export default function CaiDatPage() {
       tabParam === "integrations" ||
       tabParam === "cloud" ||
       tabParam === "local" ||
-      tabParam === "pr_blocking"
+      tabParam === "pr_blocking" ||
+      tabParam === "ci_tokens"
     ) {
       setActiveTab(tabParam);
     }
@@ -211,6 +247,160 @@ export default function CaiDatPage() {
         }),
     ]).finally(() => setLoading(false));
   }, []);
+
+  const loadCiTokensData = async () => {
+    setCiLoading(true);
+    setCiError(null);
+    try {
+      const [tokens, reposList] = await Promise.all([
+        ciTokenService.getAllTokens(),
+        repoService.getRepositories().catch(() => [] as RepoItem[]),
+      ]);
+      setCiTokens(tokens);
+      setCiRepos(reposList);
+      if (reposList.length > 0 && !yamlRepoId) {
+        setYamlRepoId(String(reposList[0].repositoryId));
+      }
+    } catch (err: unknown) {
+      const anyErr = err as { response?: { status?: number; data?: { message?: string } } };
+      if (anyErr?.response?.status === 403) {
+        setCiError("Chỉ ADMIN, TECH_LEAD hoặc DEVELOPER mới có quyền quản lý CI/CD Tokens.");
+      } else {
+        setCiError(anyErr?.response?.data?.message || "Không thể tải danh sách CI/CD Tokens.");
+      }
+    } finally {
+      setCiLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === "ci_tokens") {
+      loadCiTokensData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  async function handleCreateCiToken(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newTokenName.trim()) {
+      setCreateTokenError("Vui lòng nhập tên CI Token.");
+      return;
+    }
+    setCreatingToken(true);
+    setCreateTokenError(null);
+    try {
+      const created = await ciTokenService.createToken({
+        tokenName: newTokenName.trim(),
+        repositoryId: newTokenRepoId ? Number(newTokenRepoId) : null,
+        expiresInDays: newTokenExpiryDays ? Number(newTokenExpiryDays) : null,
+        description: newTokenDesc.trim() || undefined,
+      });
+      setIsCreateTokenOpen(false);
+      setNewTokenName("");
+      setNewTokenRepoId("");
+      setNewTokenExpiryDays("90");
+      setNewTokenDesc("");
+      setRevealedToken(created);
+      setCopiedToken(false);
+      await loadCiTokensData();
+    } catch (err: unknown) {
+      const anyErr = err as { response?: { data?: { message?: string } } };
+      setCreateTokenError(anyErr?.response?.data?.message || "Không thể tạo CI Token mới.");
+    } finally {
+      setCreatingToken(false);
+    }
+  }
+
+  async function handleRevokeCiToken(tokenId: number) {
+    setRevokingTokenId(tokenId);
+    setCiError(null);
+    try {
+      await ciTokenService.revokeToken(tokenId);
+      await loadCiTokensData();
+    } catch (err: unknown) {
+      const anyErr = err as { response?: { data?: { message?: string } } };
+      setCiError(anyErr?.response?.data?.message || "Không thể thu hồi CI Token.");
+    } finally {
+      setRevokingTokenId(null);
+    }
+  }
+
+  function copyToClipboard(text: string, onDone: () => void) {
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(onDone).catch(() => {});
+    }
+  }
+
+  function formatCiDate(value?: string | null, fallback = "—") {
+    if (!value) return fallback;
+    try {
+      return new Date(value).toLocaleString("vi-VN", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return value;
+    }
+  }
+
+  const selectedYamlRepo = ciRepos.find((r) => String(r.repositoryId) === yamlRepoId);
+  const resolvedYamlRepoId = selectedYamlRepo ? selectedYamlRepo.repositoryId : 1;
+  const resolvedYamlRepoName = selectedYamlRepo ? selectedYamlRepo.repoFullName : "your-org/your-repo";
+  const resolvedYamlBranch = selectedYamlRepo?.defaultBranch || "main";
+  const cleanBackendUrl = (yamlBackendUrl || "http://localhost:8080").replace(/\/+$/, "");
+
+  const githubActionsYaml = `name: LivingDocs Drift Check (${resolvedYamlRepoName})
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: ["${resolvedYamlBranch}"]
+  push:
+    branches: ["${resolvedYamlBranch}"]
+
+jobs:
+  livingdocs-drift-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Collect changed source files
+        id: changed
+        run: |
+          FILES=$(git diff --name-only HEAD~1 HEAD | tr '\\n' ',' | sed 's/,$//')
+          echo "files=$FILES" >> $GITHUB_OUTPUT
+
+      - name: Report Drift Scan to LivingDocs
+        env:
+          LIVINGDOCS_CI_TOKEN: \${{ secrets.LIVINGDOCS_CI_TOKEN }}
+          LIVINGDOCS_API_URL: ${cleanBackendUrl}
+        run: |
+          FIRST_FILE=$(echo "\${{ steps.changed.outputs.files }}" | cut -d',' -f1)
+          if [ -z "$FIRST_FILE" ]; then FIRST_FILE="README.md"; fi
+          curl -fsSL -X POST "$LIVINGDOCS_API_URL/api/ci/drift-scan" \\
+            -H "Content-Type: application/json" \\
+            -H "X-CI-Token: $LIVINGDOCS_CI_TOKEN" \\
+            -d "{
+              \\"repoId\\": ${resolvedYamlRepoId},
+              \\"prNumber\\": \${{ github.event.pull_request.number || 0 }},
+              \\"commitHash\\": \\"\${{ github.sha }}\\",
+              \\"branch\\": \\"\${{ github.head_ref || github.ref_name }}\\",
+              \\"alerts\\": [
+                {
+                  \\"filePath\\": \\"$FIRST_FILE\\",
+                  \\"severity\\": \\"MEDIUM\\",
+                  \\"changeType\\": \\"CI_DIFF_DETECTED\\",
+                  \\"diffSnippet\\": \\"Changed files: \${{ steps.changed.outputs.files }}\\"
+                }
+              ]
+            }"
+`;
 
   // Quét danh sách model AI Local trong máy qua API Backend
   async function handleScanModels() {
@@ -430,7 +620,7 @@ export default function CaiDatPage() {
 
   return (
     <AppShell>
-      <div style={{ maxWidth: 760, margin: "0 auto", padding: "24px 16px" }}>
+      <div style={{ maxWidth: activeTab === "ci_tokens" ? 980 : 760, margin: "0 auto", padding: "24px 16px" }}>
         {/* Header */}
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
@@ -560,6 +750,28 @@ export default function CaiDatPage() {
           >
             <Webhook size={16} />
             Tích hợp ngoài
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("ci_tokens")}
+            style={{
+              padding: "8px 20px",
+              borderRadius: 6,
+              border: "none",
+              background: activeTab === "ci_tokens" ? "#ffffff" : "transparent",
+              color: activeTab === "ci_tokens" ? "#0f766e" : "#64748b",
+              fontWeight: activeTab === "ci_tokens" ? 700 : 500,
+              fontSize: 13.5,
+              boxShadow: activeTab === "ci_tokens" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              transition: "all 150ms ease",
+            }}
+          >
+            <Key size={16} />
+            CI/CD Tokens & GitHub Actions
           </button>
         </div>
 
@@ -1195,7 +1407,7 @@ export default function CaiDatPage() {
                 )}
               </div>
             </div>
-          ) : (
+          ) : activeTab === "integrations" ? (
             /* TIỆN ÍCH 5: TÍCH HỢP NGOÀI (SLACK, DISCORD, CUSTOM WEBHOOK) */
             <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 20 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1417,9 +1629,575 @@ export default function CaiDatPage() {
                   })
               )}
             </div>
+          ) : (
+            /* TIỆN ÍCH 6: CI/CD TOKENS & GITHUB ACTIONS GENERATOR */
+            <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 24 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <Key size={18} className="text-emerald-600" />
+                  <div>
+                    <h2 style={{ fontSize: 15, fontWeight: 700, color: "#0f172a", margin: 0 }}>
+                      CI/CD Tokens (lvd_ci_) & GitHub Actions Generator
+                    </h2>
+                    <p style={{ fontSize: 12, color: "#64748b", margin: "2px 0 0 0" }}>
+                      Cấp phát token bảo mật để GitHub Actions runner gửi báo cáo quét Drift về hệ thống LivingDocs.
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={loadCiTokensData}
+                    disabled={ciLoading}
+                    className="ld-btn ld-btn-secondary"
+                    style={{ height: 36, padding: "0 12px", fontSize: 12.5, display: "inline-flex", alignItems: "center", gap: 6 }}
+                  >
+                    <RefreshCw size={14} className={ciLoading ? "animate-spin" : ""} />
+                    Làm mới
+                  </button>
+                  {canManageCiTokens && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCreateTokenError(null);
+                        setIsCreateTokenOpen(true);
+                      }}
+                      className="ld-btn ld-btn-primary"
+                      style={{
+                        height: 36,
+                        padding: "0 16px",
+                        fontSize: 12.5,
+                        fontWeight: 600,
+                        background: "#0f766e",
+                        color: "#ffffff",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                      }}
+                    >
+                      <Plus size={14} /> Tạo CI Token mới
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {!canManageCiTokens && (
+                <div
+                  style={{
+                    padding: "10px 14px",
+                    borderRadius: 8,
+                    background: "#fffbeb",
+                    border: "1px solid #fde68a",
+                    color: "#92400e",
+                    fontSize: 12.5,
+                  }}
+                >
+                  Chỉ tài khoản <strong>ADMIN</strong>, <strong>TECH_LEAD</strong> hoặc <strong>DEVELOPER</strong> mới có quyền tạo và thu hồi CI/CD Tokens.
+                </div>
+              )}
+
+              {ciError && (
+                <div
+                  style={{
+                    padding: "10px 14px",
+                    borderRadius: 8,
+                    background: "#fef2f2",
+                    border: "1px solid #fecaca",
+                    color: "#b91c1c",
+                    fontSize: 12.5,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <AlertCircle size={15} />
+                  <span>{ciError}</span>
+                </div>
+              )}
+
+              {/* Bảng danh sách CI Tokens */}
+              <div style={{ border: "1px solid #e2e8f0", borderRadius: 10, overflowX: "auto" }}>
+                {ciLoading ? (
+                  <div style={{ padding: 28, textAlign: "center", color: "#64748b", fontSize: 13 }}>
+                    <RefreshCw size={18} className="animate-spin inline mr-2" /> Đang tải danh sách CI/CD Tokens...
+                  </div>
+                ) : ciTokens.length === 0 ? (
+                  <div style={{ padding: 32, textAlign: "center", color: "#64748b", fontSize: 13 }}>
+                    <Key size={28} style={{ margin: "0 auto 8px", opacity: 0.35 }} />
+                    <p style={{ margin: 0, fontWeight: 500 }}>Chưa có CI/CD Token nào được tạo.</p>
+                    <p style={{ margin: "4px 0 0", fontSize: 12, color: "#94a3b8" }}>
+                      Bấm <strong>&quot;Tạo CI Token mới&quot;</strong> để sinh chuỗi <code>lvd_ci_...</code> cho pipeline của bạn.
+                    </p>
+                  </div>
+                ) : (
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                    <thead>
+                      <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", textAlign: "left", color: "#475569" }}>
+                        <th style={{ padding: "10px 12px", fontWeight: 600 }}>Tên Token</th>
+                        <th style={{ padding: "10px 12px", fontWeight: 600 }}>Tiền tố</th>
+                        <th style={{ padding: "10px 12px", fontWeight: 600 }}>Repository</th>
+                        <th style={{ padding: "10px 12px", fontWeight: 600 }}>Ngày tạo</th>
+                        <th style={{ padding: "10px 12px", fontWeight: 600 }}>Hết hạn</th>
+                        <th style={{ padding: "10px 12px", fontWeight: 600 }}>Dùng gần nhất</th>
+                        <th style={{ padding: "10px 12px", fontWeight: 600 }}>Trạng thái</th>
+                        <th style={{ padding: "10px 12px", fontWeight: 600, textAlign: "right" }}>Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ciTokens.map((tk) => {
+                        const isRevoked = Boolean(tk.revoked ?? tk.isRevoked);
+                        const isExpired = Boolean(tk.expiresAt && new Date(tk.expiresAt).getTime() < Date.now());
+                        const statusLabel = isRevoked ? "Đã thu hồi" : isExpired ? "Hết hạn" : "Hoạt động";
+                        const statusBg = isRevoked || isExpired ? "#fef2f2" : "#ecfdf5";
+                        const statusColor = isRevoked || isExpired ? "#b91c1c" : "#047857";
+
+                        return (
+                          <tr key={tk.tokenId} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                            <td style={{ padding: "10px 12px" }}>
+                              <div style={{ fontWeight: 600, color: "#0f172a" }}>{tk.tokenName}</div>
+                              {tk.description && (
+                                <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{tk.description}</div>
+                              )}
+                            </td>
+                            <td style={{ padding: "10px 12px" }}>
+                              <code
+                                style={{
+                                  background: "#f1f5f9",
+                                  padding: "2px 6px",
+                                  borderRadius: 4,
+                                  fontFamily: "monospace",
+                                  color: "#0f172a",
+                                }}
+                              >
+                                {tk.tokenPrefix}...
+                              </code>
+                            </td>
+                            <td style={{ padding: "10px 12px", color: "#334155" }}>
+                              {tk.repositoryName || (tk.repositoryId ? `Repo #${tk.repositoryId}` : "Tất cả Repositories")}
+                            </td>
+                            <td style={{ padding: "10px 12px", color: "#475569", whiteSpace: "nowrap" }}>
+                              {formatCiDate(tk.createdAt)}
+                            </td>
+                            <td style={{ padding: "10px 12px", color: "#475569", whiteSpace: "nowrap" }}>
+                              {tk.expiresAt ? formatCiDate(tk.expiresAt) : "Không thời hạn"}
+                            </td>
+                            <td style={{ padding: "10px 12px", color: "#475569", whiteSpace: "nowrap" }}>
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                                <Clock size={12} />
+                                {formatCiDate(tk.lastUsedAt, "Chưa sử dụng")}
+                              </span>
+                            </td>
+                            <td style={{ padding: "10px 12px" }}>
+                              <span
+                                style={{
+                                  display: "inline-block",
+                                  padding: "2px 8px",
+                                  borderRadius: 999,
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  background: statusBg,
+                                  color: statusColor,
+                                }}
+                              >
+                                {statusLabel}
+                              </span>
+                            </td>
+                            <td style={{ padding: "10px 12px", textAlign: "right" }}>
+                              {!isRevoked && canManageCiTokens ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRevokeCiToken(tk.tokenId)}
+                                  disabled={revokingTokenId === tk.tokenId}
+                                  className="ld-btn ld-btn-sm"
+                                  style={{
+                                    padding: "4px 10px",
+                                    fontSize: 11.5,
+                                    color: "#b91c1c",
+                                    border: "1px solid #fecaca",
+                                    background: "#fff",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 4,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  <Trash2 size={12} />
+                                  {revokingTokenId === tk.tokenId ? "Đang thu hồi..." : "Thu hồi"}
+                                </button>
+                              ) : (
+                                <span style={{ fontSize: 11, color: "#94a3b8" }}>—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              {/* Trình sinh GitHub Actions YAML Snippet */}
+              <div
+                style={{
+                  border: "1px solid #e2e8f0",
+                  borderRadius: 10,
+                  padding: 18,
+                  background: "#f8fafc",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 14,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Terminal size={17} className="text-emerald-700" />
+                    <div>
+                      <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", margin: 0 }}>
+                        GitHub Actions YAML Snippet Generator (.github/workflows/livingdocs.yml)
+                      </h3>
+                      <p style={{ fontSize: 12, color: "#64748b", margin: "2px 0 0" }}>
+                        Chọn kho lưu trữ và dán trực tiếp workflow dưới đây vào repository của bạn.
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      copyToClipboard(githubActionsYaml, () => {
+                        setCopiedYaml(true);
+                        setTimeout(() => setCopiedYaml(false), 2500);
+                      })
+                    }
+                    className="ld-btn ld-btn-primary ld-btn-sm"
+                    style={{
+                      background: "#0f766e",
+                      color: "#ffffff",
+                      padding: "6px 14px",
+                      fontSize: 12,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    {copiedYaml ? <Check size={14} /> : <Copy size={14} />}
+                    {copiedYaml ? "Đã sao chép YAML!" : "Sao chép YAML"}
+                  </button>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "#334155", display: "block", marginBottom: 4 }}>
+                      Chọn Repository áp dụng
+                    </label>
+                    <select
+                      className="ld-select"
+                      style={{ width: "100%", height: 38, fontSize: 13 }}
+                      value={yamlRepoId}
+                      onChange={(e) => setYamlRepoId(e.target.value)}
+                    >
+                      {ciRepos.length === 0 ? (
+                        <option value="">Mặc định (repoId: 1)</option>
+                      ) : (
+                        ciRepos.map((repo) => (
+                          <option key={repo.repositoryId} value={String(repo.repositoryId)}>
+                            {repo.repoFullName} (ID: {repo.repositoryId})
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "#334155", display: "block", marginBottom: 4 }}>
+                      LivingDocs Backend URL
+                    </label>
+                    <input
+                      type="url"
+                      className="ld-input"
+                      style={{ width: "100%", height: 38, fontSize: 13 }}
+                      value={yamlBackendUrl}
+                      onChange={(e) => setYamlBackendUrl(e.target.value)}
+                      placeholder="https://api.livingdocs.your-domain.com"
+                    />
+                  </div>
+                </div>
+
+                <pre
+                  style={{
+                    margin: 0,
+                    padding: 14,
+                    borderRadius: 8,
+                    background: "#0f172a",
+                    color: "#e2e8f0",
+                    fontSize: 12,
+                    lineHeight: 1.55,
+                    overflowX: "auto",
+                    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                  }}
+                >
+                  {githubActionsYaml}
+                </pre>
+              </div>
+            </div>
           )}
         </div>
       </div>
+
+      {/* MODAL TẠO CI TOKEN MỚI */}
+      {isCreateTokenOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15, 23, 42, 0.45)",
+            backdropFilter: "blur(2px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: 16,
+          }}
+        >
+          <div className="ld-card" style={{ width: "100%", maxWidth: 480, padding: 24, position: "relative" }}>
+            <button
+              type="button"
+              onClick={() => setIsCreateTokenOpen(false)}
+              style={{
+                position: "absolute",
+                top: 16,
+                right: 16,
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: "#64748b",
+              }}
+            >
+              <X size={18} />
+            </button>
+
+            <h3 style={{ fontSize: 17, fontWeight: 700, color: "#0f172a", margin: "0 0 4px" }}>
+              Tạo CI/CD Token mới
+            </h3>
+            <p style={{ fontSize: 12, color: "#64748b", margin: "0 0 16px" }}>
+              Token dùng tiền tố <code>lvd_ci_</code> và chỉ được hiển thị một lần duy nhất sau khi tạo.
+            </p>
+
+            {createTokenError && (
+              <div
+                style={{
+                  background: "#fef2f2",
+                  border: "1px solid #fecaca",
+                  color: "#b91c1c",
+                  padding: "8px 12px",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  marginBottom: 14,
+                }}
+              >
+                {createTokenError}
+              </div>
+            )}
+
+            <form onSubmit={handleCreateCiToken} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 4 }}>
+                  Tên Token <span style={{ color: "#ef4444" }}>*</span>
+                </label>
+                <input
+                  className="ld-input"
+                  placeholder="Ví dụ: GitHub Action Main Pipeline"
+                  value={newTokenName}
+                  onChange={(e) => setNewTokenName(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 4 }}>
+                  Kho lưu trữ liên kết
+                </label>
+                <select
+                  className="ld-select"
+                  value={newTokenRepoId}
+                  onChange={(e) => setNewTokenRepoId(e.target.value)}
+                >
+                  <option value="">Tất cả Repositories trong Workspace</option>
+                  {ciRepos.map((r) => (
+                    <option key={r.repositoryId} value={String(r.repositoryId)}>
+                      {r.repoFullName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 4 }}>
+                  Thời hạn hiệu lực
+                </label>
+                <select
+                  className="ld-select"
+                  value={newTokenExpiryDays}
+                  onChange={(e) => setNewTokenExpiryDays(e.target.value)}
+                >
+                  <option value="30">30 ngày</option>
+                  <option value="90">90 ngày (Khuyến nghị)</option>
+                  <option value="365">365 ngày</option>
+                  <option value="">Không thời hạn</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 4 }}>
+                  Mô tả mục đích sử dụng
+                </label>
+                <input
+                  className="ld-input"
+                  placeholder="Ví dụ: Quét drift tự động khi mở PR trên nhánh main"
+                  value={newTokenDesc}
+                  onChange={(e) => setNewTokenDesc(e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setIsCreateTokenOpen(false)}
+                  className="ld-btn ld-btn-secondary"
+                  disabled={creatingToken}
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="ld-btn ld-btn-primary"
+                  disabled={creatingToken}
+                  style={{ background: "#0f766e", color: "#ffffff", gap: 6 }}
+                >
+                  {creatingToken && <RefreshCw size={13} className="animate-spin" />}
+                  {creatingToken ? "Đang tạo..." : "Tạo Token"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* DIALOG HIỂN THỊ TOKEN 1 LẦN DUY NHẤT */}
+      {revealedToken && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15, 23, 42, 0.55)",
+            backdropFilter: "blur(2px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10000,
+            padding: 16,
+          }}
+        >
+          <div className="ld-card" style={{ width: "100%", maxWidth: 560, padding: 24, position: "relative" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+              <ShieldCheck size={22} className="text-emerald-700" />
+              <h3 style={{ fontSize: 17, fontWeight: 700, color: "#0f172a", margin: 0 }}>
+                CI Token đã được tạo thành công
+              </h3>
+            </div>
+
+            <div
+              style={{
+                padding: "10px 14px",
+                borderRadius: 8,
+                background: "#fffbeb",
+                border: "1px solid #fde68a",
+                color: "#92400e",
+                fontSize: 12.5,
+                marginBottom: 14,
+              }}
+            >
+              <strong>Lưu ý bảo mật:</strong> Chuỗi token thô dưới đây chỉ hiển thị <strong>MỘT LẦN DUY NHẤT</strong>. Sau khi đóng hộp thoại này, bạn sẽ không thể xem lại giá trị đầy đủ.
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#334155", display: "block", marginBottom: 6 }}>
+                Chuỗi CI Token ({revealedToken.tokenName})
+              </label>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input
+                  type="text"
+                  readOnly
+                  value={revealedToken.token}
+                  className="ld-input"
+                  style={{
+                    flex: 1,
+                    fontFamily: "monospace",
+                    fontSize: 12.5,
+                    background: "#f8fafc",
+                    color: "#0f172a",
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    copyToClipboard(revealedToken.token, () => {
+                      setCopiedToken(true);
+                      setTimeout(() => setCopiedToken(false), 2500);
+                    })
+                  }
+                  className="ld-btn ld-btn-primary"
+                  style={{
+                    background: "#0f766e",
+                    color: "#ffffff",
+                    height: 38,
+                    padding: "0 14px",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {copiedToken ? <Check size={14} /> : <Copy size={14} />}
+                  {copiedToken ? "Đã sao chép!" : "Sao chép"}
+                </button>
+              </div>
+            </div>
+
+            <div
+              style={{
+                padding: 12,
+                borderRadius: 8,
+                background: "#f8fafc",
+                border: "1px solid #e2e8f0",
+                fontSize: 12,
+                color: "#334155",
+                lineHeight: 1.6,
+                marginBottom: 18,
+              }}
+            >
+              <strong>Hướng dẫn cấu hình GitHub Secrets:</strong>
+              <ol style={{ margin: "6px 0 0 18px", padding: 0 }}>
+                <li>Mở Repository trên GitHub → chọn tab <strong>Settings</strong>.</li>
+                <li>Chọn <strong>Secrets and variables</strong> → <strong>Actions</strong> → <strong>New repository secret</strong>.</li>
+                <li>Đặt Name là <code>LIVINGDOCS_CI_TOKEN</code> và dán chuỗi token vừa sao chép vào ô Secret.</li>
+              </ol>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={() => setRevealedToken(null)}
+                className="ld-btn ld-btn-primary"
+                style={{ background: "#0f766e", color: "#ffffff", padding: "8px 20px" }}
+              >
+                Tôi đã lưu token, đóng lại
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }
