@@ -1,3 +1,9 @@
+/**
+ * Task tuần 7: Tích hợp API CodeDiffController & PrMergeBlockingController
+ * - /pull-diff, /pull-and-analyze, /preview-comment, /drift-comment
+ * - /api/v1/settings/pr-blocking/evaluate/{repositoryId}/{prNumber}
+ */
+
 import { apiClient } from "./apiClient";
 
 export interface FileDiffItem {

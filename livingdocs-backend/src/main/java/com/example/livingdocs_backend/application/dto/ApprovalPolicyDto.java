@@ -1,5 +1,8 @@
 package com.example.livingdocs_backend.application.dto;
 
+/**
+ * Task tuần 7: DTO cấu hình chính sách duyệt và quy tắc chặn PR merge gate.
+ */
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonProperty;
 

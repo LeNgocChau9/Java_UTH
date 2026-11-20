@@ -3,7 +3,7 @@ package com.example.livingdocs_backend.application.dto.drift;
 import lombok.Builder;
 
 /**
- * DTO chứa thông tin các tài liệu bị ảnh hưởng bởi thay đổi mã nguồn trong PR.
+ * Task tuần 7: DTO chứa thông tin các tài liệu bị ảnh hưởng kèm vị trí dòng và chữ ký hàm để tạo suggestion patches.
  */
 @Builder
 public record AffectedDocumentResultDto(

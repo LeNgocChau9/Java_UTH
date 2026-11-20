@@ -1,5 +1,8 @@
 package com.example.livingdocs_backend.application.port;
 
+/**
+ * Task tuần 7: Port tương tác GitHub API, hỗ trợ GitHub PR Reviews API (/pulls/{pr}/reviews) và inline suggestions.
+ */
 import com.example.livingdocs_backend.application.dto.github.GitHubCheckRunResultDto;
 import com.example.livingdocs_backend.application.dto.github.GitHubCommitDto;
 import com.example.livingdocs_backend.application.dto.github.GitHubFileDto;

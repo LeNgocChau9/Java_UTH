@@ -1,5 +1,13 @@
 "use client";
 
+/**
+ * Task tuần 7: Gắn 4 action API CodeDiffController & PrMergeBlockingController vào Pull Requests
+ * - Nút Diff: Kéo Git Diff chi tiết từ GitHub API
+ * - Nút AST: Phân tích AST các hàm thay đổi & phát hiện trôi dạt tài liệu
+ * - Nút Review Bot: Xem trước bình luận inline suggestion patch & Đăng review lên GitHub
+ * - Nút Gate: Đánh giá chặn Merge Gate theo chất lượng tài liệu
+ */
+
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { refreshSession } from "@/services/authService";

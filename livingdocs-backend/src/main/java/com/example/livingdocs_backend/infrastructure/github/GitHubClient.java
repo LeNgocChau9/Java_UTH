@@ -1,5 +1,8 @@
 package com.example.livingdocs_backend.infrastructure.github;
 
+/**
+ * Task tuần 7: GitHub REST Client hỗ trợ Pull Request Reviews API (/pulls/{pr}/reviews) và inline suggestions.
+ */
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;

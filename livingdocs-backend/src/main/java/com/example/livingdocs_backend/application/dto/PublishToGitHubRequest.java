@@ -1,5 +1,8 @@
 package com.example.livingdocs_backend.application.dto;
 
+/**
+ * Task tuần 7: Request body cho API xuất bản tài liệu lên GitHub.
+ */
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 

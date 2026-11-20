@@ -1,5 +1,8 @@
 package com.example.livingdocs_backend.application.service;
 
+/**
+ * Task tuần 7: Tự động phát hiện sai lệch tài liệu & Đăng GitHub PR Inline Review Bot (```suggestion Patches).
+ */
 import com.example.livingdocs_backend.application.dto.ai.AiDriftAnalyzeRequestDto;
 import com.example.livingdocs_backend.application.dto.ai.AiDriftAnalyzeResponseDto;
 import com.example.livingdocs_backend.application.dto.ai.AstDiffRequestDto;

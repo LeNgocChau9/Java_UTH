@@ -1,5 +1,8 @@
 package com.example.livingdocs_backend.application.service;
 
+/**
+ * Task tuần 7: Quản lý tài liệu và lịch sử phiên bản tài liệu đồng bộ trôi dạt.
+ */
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;

@@ -1,5 +1,13 @@
 "use client";
 
+/**
+ * Task tuần 7: GitHub PR Inline Code-Review Bot (```suggestion Patches) & Sửa Triệt Để Trang Cảnh Báo Sai Lệch
+ * - Sửa lỗi hiển thị diff lặp oldCode === newCode bằng thuật toán Side-by-Side Diff LCS
+ * - Sửa nút Chỉnh sửa truyền đúng documentId thay vì alertItem.id
+ * - Xóa bỏ logic nuốt lỗi tự giả lập RESOLVED (v2.1)
+ * - Tích hợp đầy đủ 4 API CodeDiffController & PrMergeBlockingController
+ */
+
 import { useState, useMemo, useRef, useEffect, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";

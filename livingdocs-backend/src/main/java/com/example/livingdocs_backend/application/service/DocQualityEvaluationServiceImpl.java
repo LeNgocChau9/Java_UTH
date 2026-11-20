@@ -1,5 +1,8 @@
 package com.example.livingdocs_backend.application.service;
 
+/**
+ * Task tuần 7: Đánh giá chất lượng tài liệu và kiểm tra điều kiện chặn PR merge gate.
+ */
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
