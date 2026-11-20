@@ -741,114 +741,141 @@ public class AiDocumentationService implements AiDocumentationServicePort {
         }
 
         if (SCOPE_REPOSITORY.equals(scope)) {
-            sb.append("# Tài liệu Kiến trúc & README Hệ thống: ").append(ctx.primaryName).append("\n\n");
-            sb.append("> **Phạm vi sinh tài liệu:** `REPOSITORY` (Toàn bộ kho lưu trữ)  \n");
-            sb.append("> **Kho lưu trữ:** `").append(ctx.targetSourcePath).append("`  \n");
-            sb.append("> **Mẫu tài liệu:** `").append(ctx.templateType).append("`  \n");
-            sb.append("> **Tổng số file phân tích:** ").append(ctx.scannedFiles.size()).append(" files  \n");
-            sb.append("> **Tổng số thực thể mã nguồn (AST):** ").append(ctx.aiEntities.size()).append(" entities\n\n");
+            // Nhận diện hệ sinh thái công nghệ thực tế từ các file trong kho
+            boolean hasPom = ctx.scannedFiles.stream().anyMatch(f -> f.endsWith("pom.xml"));
+            boolean hasGradle = ctx.scannedFiles.stream().anyMatch(f -> f.endsWith("build.gradle") || f.endsWith("build.gradle.kts"));
+            boolean hasJava = hasPom || hasGradle || ctx.scannedFiles.stream().anyMatch(f -> f.endsWith(".java"));
+            boolean hasPackageJson = ctx.scannedFiles.stream().anyMatch(f -> f.endsWith("package.json"));
+            boolean hasTsOrJs = hasPackageJson || ctx.scannedFiles.stream().anyMatch(f -> f.endsWith(".ts") || f.endsWith(".tsx") || f.endsWith(".js"));
+            boolean hasPython = ctx.scannedFiles.stream().anyMatch(f -> f.endsWith("requirements.txt") || f.endsWith("pyproject.toml") || f.endsWith(".py"));
+            boolean hasGo = ctx.scannedFiles.stream().anyMatch(f -> f.endsWith("go.mod") || f.endsWith(".go"));
+            boolean hasRust = ctx.scannedFiles.stream().anyMatch(f -> f.endsWith("Cargo.toml") || f.endsWith(".rs"));
 
-            sb.append("## 1. Giới thiệu & Kiến trúc Tổng thể\n");
-            sb.append("Hệ thống **").append(ctx.primaryName).append("** được thiết kế theo kiến trúc phân tầng hiện đại, ")
-                    .append("tích hợp quản lý vòng đời tài liệu sống (Living Documentation), phân tích AST và phát hiện sai lệch tự động.\n\n");
+            String techStack = "Đa nền tảng / Mã nguồn mở";
+            if (hasJava) {
+                techStack = hasPom ? "Java / Spring Boot (Maven)" : (hasGradle ? "Java / Gradle" : "Java");
+            } else if (hasTsOrJs) {
+                boolean hasNext = ctx.scannedFiles.stream().anyMatch(f -> f.contains("next.config"));
+                techStack = hasNext ? "Next.js / React / TypeScript" : "Node.js / TypeScript / JavaScript";
+            } else if (hasPython) {
+                techStack = "Python";
+            } else if (hasGo) {
+                techStack = "Golang";
+            } else if (hasRust) {
+                techStack = "Rust";
+            }
 
-            sb.append("## 2. Sơ đồ Kiến trúc Toàn Hệ Thống (Mermaid)\n\n");
-            sb.append("### 2.1. Kiến trúc phân tầng 4 tầng (Flowchart)\n");
-            sb.append("```mermaid\n");
-            sb.append("flowchart TD\n");
-            sb.append("    subgraph Presentation[\"Tầng Trình Diễn (Presentation Layer)\"]\n");
-            sb.append("        FE[\"Next.js Frontend (React + TypeScript)\"]\n");
-            sb.append("        Controllers[\"Spring Boot REST Controllers\"]\n");
-            sb.append("    end\n\n");
-            sb.append("    subgraph Application[\"Tầng Ứng Dụng & Nghiệp Vụ (Application & Domain)\"]\n");
-            sb.append("        DocSvc[\"AiDocumentationService\"]\n");
-            sb.append("        IndexSvc[\"CodeIndexService\"]\n");
-            sb.append("        DiffSvc[\"CodeDiffAnalysisService\"]\n");
-            sb.append("    end\n\n");
-            sb.append("    subgraph AI_Engine[\"Tầng Trí Tuệ Nhân Tạo (AI Engine)\"]\n");
-            sb.append("        FastAPI[\"FastAPI AST Engine (Tree-sitter)\"]\n");
-            sb.append("        GeminiOllama[\"LLM Provider (Gemini / Ollama)\"]\n");
-            sb.append("    end\n\n");
-            sb.append("    subgraph Infrastructure[\"Tầng Dữ Liệu & Hạ Tầng (Infrastructure)\"]\n");
-            sb.append("        Postgres[(\"PostgreSQL Database\")]\n");
-            sb.append("        JobWorker[\"Distributed Job Queue & Worker\"]\n");
-            sb.append("    end\n\n");
-            sb.append("    FE --> Controllers\n");
-            sb.append("    Controllers --> DocSvc\n");
-            sb.append("    Controllers --> IndexSvc\n");
-            sb.append("    DocSvc --> FastAPI\n");
-            sb.append("    DocSvc --> GeminiOllama\n");
-            sb.append("    DocSvc --> Postgres\n");
-            sb.append("    IndexSvc --> FastAPI\n");
-            sb.append("    IndexSvc --> Postgres\n");
-            sb.append("    DocSvc --> JobWorker\n");
-            sb.append("```\n\n");
-
-            sb.append("### 2.2. Quy trình xử lý tài liệu sống (Sequence Diagram)\n");
-            sb.append("```mermaid\n");
-            sb.append("sequenceDiagram\n");
-            sb.append("    autonumber\n");
-            sb.append("    actor Dev as Developer / Git Webhook\n");
-            sb.append("    participant FE as Frontend Dashboard\n");
-            sb.append("    participant BE as Spring Boot Core\n");
-            sb.append("    participant AI as AI Engine (Tree-sitter)\n");
-            sb.append("    participant DB as PostgreSQL DB\n\n");
-            sb.append("    Dev->>FE: Kích hoạt sinh tài liệu / Quét kho\n");
-            sb.append("    FE->>BE: POST /api/v1/ai/docs/generate\n");
-            sb.append("    BE->>AI: POST /v1/ast/extract & /v1/docs/generate\n");
-            sb.append("    AI->>AI: Phân tích AST & Tạo sơ đồ Mermaid\n");
-            sb.append("    AI-->>BE: Trả về Markdown hoàn chỉnh\n");
-            sb.append("    BE->>DB: Lưu trữ Documents, Versions & Code Links\n");
-            sb.append("    BE-->>FE: Trả về kết quả hiển thị\n");
-            sb.append("    FE-->>Dev: Hiển thị giao diện & Render SVG trực quan\n");
-            sb.append("```\n\n");
-
-            sb.append("### 2.3. Sơ đồ quan hệ thực thể cơ sở dữ liệu (ER Diagram)\n");
-            sb.append("```mermaid\n");
-            sb.append("erDiagram\n");
-            sb.append("    REPOSITORIES ||--o{ DOCUMENTS : \"chứa\"\n");
-            sb.append("    REPOSITORIES ||--o{ CODE_ENTITIES : \"được bóc tách thành\"\n");
-            sb.append("    DOCUMENTS ||--|{ DOCUMENT_VERSIONS : \"lưu lịch sử\"\n");
-            sb.append("    DOCUMENT_VERSIONS ||--o{ DOC_CODE_LINKS : \"tham chiếu\"\n");
-            sb.append("    CODE_ENTITIES ||--o{ DOC_CODE_LINKS : \"liên kết với\"\n");
-            sb.append("    DOC_COLLECTIONS ||--o{ DOCUMENTS : \"phân loại\"\n\n");
-            sb.append("    REPOSITORIES {\n");
-            sb.append("        bigint repository_id PK\n");
-            sb.append("        string repo_name\n");
-            sb.append("        string repo_full_name\n");
-            sb.append("        string default_branch\n");
-            sb.append("    }\n");
-            sb.append("    DOCUMENTS {\n");
-            sb.append("        bigint document_id PK\n");
-            sb.append("        bigint repository_id FK\n");
-            sb.append("        string title\n");
-            sb.append("        string status\n");
-            sb.append("    }\n");
-            sb.append("    DOCUMENT_VERSIONS {\n");
-            sb.append("        bigint version_id PK\n");
-            sb.append("        bigint document_id FK\n");
-            sb.append("        text content\n");
-            sb.append("        string commit_hash\n");
-            sb.append("    }\n");
-            sb.append("    CODE_ENTITIES {\n");
-            sb.append("        bigint entity_id PK\n");
-            sb.append("        bigint repository_id FK\n");
-            sb.append("        string file_path\n");
-            sb.append("        string entity_type\n");
-            sb.append("        string class_name\n");
-            sb.append("        string method_name\n");
-            sb.append("        text imports\n");
-            sb.append("        text call_targets\n");
-            sb.append("    }\n");
-            sb.append("```\n\n");
-
-            sb.append("## 3. Cấu trúc Thư mục & Thành phần Chính\n\n");
             Map<String, List<String>> groupedByDir = ctx.scannedFiles.stream()
                     .collect(Collectors.groupingBy(fp -> {
                         int idx = fp.lastIndexOf('/');
                         return idx > 0 ? fp.substring(0, idx) : "(Root)";
                     }, LinkedHashMap::new, Collectors.toList()));
 
+            List<String> topDirs = groupedByDir.keySet().stream()
+                    .filter(d -> !"(Root)".equals(d))
+                    .limit(5)
+                    .toList();
+
+            sb.append("# Tài liệu Kiến trúc & README Hệ thống: ").append(ctx.primaryName).append("\n\n");
+            sb.append("> **Phạm vi sinh tài liệu:** `REPOSITORY` (Toàn bộ kho lưu trữ)  \n");
+            sb.append("> **Kho lưu trữ:** `").append(ctx.targetSourcePath).append("`  \n");
+            sb.append("> **Hệ sinh thái công nghệ:** `").append(techStack).append("`  \n");
+            sb.append("> **Mẫu tài liệu:** `").append(ctx.templateType).append("`  \n");
+            sb.append("> **Tổng số file phân tích:** ").append(ctx.scannedFiles.size()).append(" files  \n");
+            sb.append("> **Tổng số thực thể mã nguồn (AST):** ").append(ctx.aiEntities.size()).append(" entities\n\n");
+
+            sb.append("## 1. Giới thiệu & Kiến trúc Tổng thể\n");
+            sb.append("Dự án **").append(ctx.primaryName).append("** được xây dựng trên nền tảng công nghệ **").append(techStack).append("**");
+            if (!topDirs.isEmpty()) {
+                sb.append(", tổ chức thành các mô-đun thư mục trọng tâm bao gồm: ")
+                        .append(topDirs.stream().map(d -> "`" + d + "`").collect(Collectors.joining(", ")));
+            }
+            sb.append(".\n\n");
+            sb.append("Hệ thống phân chia ranh giới rõ ràng giữa các thành phần giao tiếp (Client / API / Controller), ")
+                    .append("logic xử lý cốt lõi (Core Business Services) và tầng dữ liệu / tích hợp hạ tầng, đảm bảo tính mô-đun hóa cao và thuận tiện khi mở rộng.\n\n");
+
+            sb.append("## 2. Sơ đồ Kiến trúc Hệ Thống (Mermaid)\n\n");
+            sb.append("### 2.1. Phân tầng kiến trúc tổng quan (Flowchart)\n");
+            sb.append("```mermaid\n");
+            sb.append("flowchart TD\n");
+            sb.append("    subgraph ClientLayer[\"Tầng Giao Diện & Điểm Vào (Presentation / Entrypoint)\"]\n");
+            sb.append("        UserClient[\"Người dùng / Ứng dụng ngoài\"]\n");
+            sb.append("        Entrypoint[\"Điểm tiếp nhận yêu cầu (API / Controllers / UI)\"]\n");
+            sb.append("    end\n\n");
+            sb.append("    subgraph BusinessLayer[\"Tầng Xử Lý Nghiệp Vụ (Application & Services)\"]\n");
+            sb.append("        CoreModule[\"Bộ xử lý cốt lõi: ").append(ctx.primaryName).append("\"]\n");
+            sb.append("        ServiceLogic[\"Điều phối quy tắc nghiệp vụ (Business Rules)\"]\n");
+            sb.append("    end\n\n");
+            sb.append("    subgraph InfraLayer[\"Tầng Lưu Trữ & Hạ Tầng (Storage & Integrations)\"]\n");
+            sb.append("        DataStore[(\"Cơ sở dữ liệu / Bộ nhớ lưu trữ\")]\n");
+            sb.append("        ExtServices[\"Dịch vụ tích hợp & Thư viện phụ thuộc\"]\n");
+            sb.append("    end\n\n");
+            sb.append("    UserClient --> Entrypoint\n");
+            sb.append("    Entrypoint --> CoreModule\n");
+            sb.append("    CoreModule --> ServiceLogic\n");
+            sb.append("    ServiceLogic --> DataStore\n");
+            sb.append("    ServiceLogic --> ExtServices\n");
+            sb.append("```\n\n");
+
+            sb.append("### 2.2. Quy trình xử lý yêu cầu tiêu biểu (Sequence Diagram)\n");
+            sb.append("```mermaid\n");
+            sb.append("sequenceDiagram\n");
+            sb.append("    autonumber\n");
+            sb.append("    actor User as Người dùng / Client\n");
+            sb.append("    participant UI as Entrypoint / Giao tiếp\n");
+            sb.append("    participant Core as ").append(ctx.primaryName).append(" Core Logic\n");
+            sb.append("    participant Storage as Tầng Dữ liệu / Lưu trữ\n\n");
+            sb.append("    User->>UI: Gửi yêu cầu tác vụ nghiệp vụ\n");
+            sb.append("    UI->>Core: Chuyển tiếp tham số & kiểm tra hợp lệ\n");
+            sb.append("    Core->>Storage: Truy vấn hoặc lưu trữ dữ liệu\n");
+            sb.append("    Storage-->>Core: Phản hồi kết quả trạng thái\n");
+            sb.append("    Core-->>UI: Đóng gói kết quả đầu ra\n");
+            sb.append("    UI-->>User: Phản hồi kết quả thành công\n");
+            sb.append("```\n\n");
+
+            sb.append("### 2.3. Sơ đồ Cấu trúc Thành phần (Class / Component Diagram)\n");
+            sb.append("```mermaid\n");
+            sb.append("classDiagram\n");
+            if (ctx.aiEntities != null && !ctx.aiEntities.isEmpty()) {
+                List<String> distinctClasses = ctx.aiEntities.stream()
+                        .map(AiDocGenerateRequestDto.CodeEntityItemDto::class_name)
+                        .filter(StringUtils::hasText)
+                        .distinct()
+                        .limit(4)
+                        .toList();
+
+                if (!distinctClasses.isEmpty()) {
+                    for (String cls : distinctClasses) {
+                        String cleanCls = cls.replaceAll("[^a-zA-Z0-9_]", "");
+                        if (!cleanCls.isEmpty()) {
+                            sb.append("    class ").append(cleanCls).append(" {\n");
+                            sb.append("        +execute()\n");
+                            sb.append("        +getStatus()\n");
+                            sb.append("    }\n");
+                        }
+                    }
+                    if (distinctClasses.size() > 1) {
+                        String c1 = distinctClasses.get(0).replaceAll("[^a-zA-Z0-9_]", "");
+                        String c2 = distinctClasses.get(1).replaceAll("[^a-zA-Z0-9_]", "");
+                        if (!c1.isEmpty() && !c2.isEmpty()) {
+                            sb.append("    ").append(c1).append(" --> ").append(c2).append(" : relies on\n");
+                        }
+                    }
+                } else {
+                    sb.append("    class ").append(ctx.primaryName.replaceAll("[^a-zA-Z0-9_]", "")).append("Core {\n");
+                    sb.append("        +initialize()\n");
+                    sb.append("        +handleExecution()\n");
+                    sb.append("    }\n");
+                }
+            } else {
+                sb.append("    class ").append(ctx.primaryName.replaceAll("[^a-zA-Z0-9_]", "")).append("Core {\n");
+                sb.append("        +initialize()\n");
+                sb.append("        +handleExecution()\n");
+                sb.append("    }\n");
+            }
+            sb.append("```\n\n");
+
+            sb.append("## 3. Cấu trúc Thư mục & Thành phần Chính\n\n");
             for (Map.Entry<String, List<String>> entry : groupedByDir.entrySet()) {
                 sb.append("- **").append(entry.getKey()).append("** (").append(entry.getValue().size()).append(" files)\n");
             }
@@ -870,9 +897,34 @@ public class AiDocumentationService implements AiDocumentationServicePort {
             sb.append("\n## 5. Hướng dẫn Cài đặt & Vận hành Nhanh\n");
             sb.append("```bash\n");
             sb.append("# 1. Clone kho lưu trữ\n");
-            sb.append("git clone https://github.com/").append(ctx.targetSourcePath).append(".git\n\n");
-            sb.append("# 2. Khởi chạy hệ thống\n");
-            sb.append("./mvnw spring-boot:run\n");
+            sb.append("git clone https://github.com/").append(ctx.targetSourcePath).append(".git\n");
+            sb.append("cd ").append(ctx.primaryName).append("\n\n");
+            if (hasJava) {
+                sb.append("# 2. Khởi chạy hệ thống\n");
+                if (hasPom) {
+                    sb.append("./mvnw spring-boot:run\n");
+                } else {
+                    sb.append("./gradlew bootRun\n");
+                }
+            } else if (hasTsOrJs) {
+                sb.append("# 2. Cài đặt các gói phụ thuộc\n");
+                sb.append("npm install\n\n");
+                sb.append("# 3. Khởi chạy ứng dụng\n");
+                sb.append("npm run dev\n");
+            } else if (hasPython) {
+                sb.append("# 2. Cài đặt các gói phụ thuộc\n");
+                sb.append("pip install -r requirements.txt\n\n");
+                sb.append("# 3. Khởi chạy ứng dụng\n");
+                sb.append("python main.py\n");
+            } else if (hasGo) {
+                sb.append("# 2. Khởi chạy ứng dụng\n");
+                sb.append("go run .\n");
+            } else if (hasRust) {
+                sb.append("# 2. Biên dịch và khởi chạy\n");
+                sb.append("cargo run\n");
+            } else {
+                sb.append("# 2. Khởi chạy dự án theo cấu hình mã nguồn\n");
+            }
             sb.append("```\n");
             return sb.toString();
         }
