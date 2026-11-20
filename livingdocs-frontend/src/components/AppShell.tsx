@@ -10,6 +10,21 @@ function formatDob(dateStr?: string | null): string {
   return trimmed;
 }
 
+function cleanAvatarUrl(raw?: string | null): string {
+  if (!raw) return "";
+  const trimmed = raw.trim();
+  try {
+    if (trimmed.includes("google.com/imgres") || trimmed.includes("imgurl=")) {
+      const urlObj = new URL(trimmed);
+      const imgurl = urlObj.searchParams.get("imgurl");
+      if (imgurl) {
+        return decodeURIComponent(imgurl);
+      }
+    }
+  } catch {}
+  return trimmed;
+}
+
 
 import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
@@ -550,7 +565,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       }
       await updateCurrentUserProfile({
         fullName: profileFullName.trim() || undefined,
-        avatarUrl: profileAvatarUrl.trim() || undefined,
+        avatarUrl: cleanAvatarUrl(profileAvatarUrl) || undefined,
         dateOfBirth: profileDob || undefined,
         bio: profileBio || undefined,
         oldPassword: profileOldPassword || undefined,
@@ -1931,15 +1946,48 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 4 }}>
                   URL Ảnh đại diện (Avatar)
                 </label>
-                <input
-                  type="url"
-                  value={profileAvatarUrl}
-                  onChange={(e) => setProfileAvatarUrl(e.target.value)}
-                  placeholder="https://example.com/avatar.png"
-                  className="ld-input w-full"
-                />
-                <span style={{ fontSize: 11, color: "#94a3b8", marginTop: 2, display: "block" }}>
-                  Dán đường dẫn ảnh trực tiếp (PNG, JPG, WebP)
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div
+                    style={{
+                      width: 42,
+                      height: 42,
+                      borderRadius: "50%",
+                      backgroundColor: "#f1f5f9",
+                      border: "1.5px solid #cbd5e1",
+                      overflow: "hidden",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {profileAvatarUrl ? (
+                      <img
+                        src={profileAvatarUrl}
+                        alt="Preview"
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = "none";
+                        }}
+                      />
+                    ) : (
+                      <span style={{ fontSize: 16, fontWeight: 700, color: "#94a3b8" }}>
+                        {(profileFullName || "U").charAt(0).toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <input
+                      type="url"
+                      value={profileAvatarUrl}
+                      onChange={(e) => setProfileAvatarUrl(cleanAvatarUrl(e.target.value))}
+                      placeholder="https://example.com/avatar.png"
+                      className="ld-input w-full"
+                    />
+                  </div>
+                </div>
+                <span style={{ fontSize: 11, color: "#64748b", marginTop: 4, display: "block" }}>
+                  💡 Dán link ảnh trực tiếp (.png, .jpg, .webp). Tự động trích xuất nếu bạn dán link Google Hình ảnh.
                 </span>
               </div>
 
