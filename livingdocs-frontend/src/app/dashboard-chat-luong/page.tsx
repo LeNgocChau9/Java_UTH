@@ -13,6 +13,8 @@ import {
 } from "@/services/healthReportService";
 import { repoService, RepoItem } from "@/services/repoService";
 import { printHealthReport } from "@/lib/healthReportPrint";
+import { dashboardService, DashboardTrendItem } from "@/services/dashboardService";
+import { WeeklyTrendChart } from "@/components/dashboard/WeeklyTrendChart";
 import {
   FileText,
   Sparkles,
@@ -421,6 +423,7 @@ export default function QualityDashboardPage() {
   const [viewMode, setViewMode] = useState<"tree" | "table">("tree");
   const [showPrintPreview, setShowPrintPreview] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [trend, setTrend] = useState<DashboardTrendItem[]>([]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -444,13 +447,15 @@ export default function QualityDashboardPage() {
     setLoading(true);
     const repoId = selectedRepoId !== "all" ? Number(selectedRepoId) : undefined;
     try {
-      const [reportRes, gapsRes] = await Promise.all([
+      const [reportRes, gapsRes, trendRes] = await Promise.all([
         healthReportService.getHealthReport(repoId).catch(() => null),
         healthReportService.getCoverageGaps(repoId).catch(() => null),
+        dashboardService.getTrend(repoId, 8).catch(() => [] as DashboardTrendItem[]),
       ]);
 
       setHealthReport(reportRes);
       setCoverageGaps(gapsRes);
+      setTrend(Array.isArray(trendRes) ? trendRes : []);
 
       // Mặc định mở rộng 3 package đầu tiên
       if (gapsRes?.packages) {
@@ -876,6 +881,14 @@ export default function QualityDashboardPage() {
               </p>
             </div>
           </div>
+
+          <section className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm print:hidden">
+            <h2 className="text-sm font-bold text-slate-900">Xu hướng theo tuần</h2>
+            <p className="mt-1 mb-4 text-xs text-slate-500">
+              Tài liệu tạo, tài liệu đã duyệt, cảnh báo sai lệch và tỷ lệ bao phủ AST theo tuần.
+            </p>
+            <WeeklyTrendChart items={trend} />
+          </section>
 
           {/* TAB SWITCHER */}
           <div className="flex items-center gap-2 border-b border-slate-200 print:hidden">

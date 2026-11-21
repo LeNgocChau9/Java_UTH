@@ -6,7 +6,8 @@ import { AppShell } from "@/components/AppShell";
 import { useSession } from "@/hooks/useSession";
 import { documentService } from "@/services/documentService";
 import { repoService, RepoItem } from "@/services/repoService";
-import { dashboardService, DashboardStats } from "@/services/dashboardService";
+import { dashboardService, DashboardStats, DashboardTrendItem } from "@/services/dashboardService";
+import { WeeklyTrendChart } from "@/components/dashboard/WeeklyTrendChart";
 import { reviewService, ReviewQueueItem, ReviewHistoryItem } from "@/services/reviewService";
 import { apiClient } from "@/services/apiClient";
 import type { DocumentItem } from "@/types/document";
@@ -67,6 +68,7 @@ export default function DashboardPage() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [driftAlerts, setDriftAlerts] = useState<DriftAlertSummary[]>([]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [trend, setTrend] = useState<DashboardTrendItem[]>([]);
   const [staffQueue, setStaffQueue] = useState<ReviewQueueItem[]>([]);
   const [reviewHistory, setReviewHistory] = useState<ReviewHistoryItem[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -75,11 +77,12 @@ export default function DashboardPage() {
   const loadRealData = useCallback(async () => {
     setLoading(true);
     try {
-      const [reposRes, docsRes, driftRes, statsRes, staffQueueRes, historyRes] = await Promise.all([
+      const [reposRes, docsRes, driftRes, statsRes, trendRes, staffQueueRes, historyRes] = await Promise.all([
         repoService.getRepositories().catch(() => [] as RepoItem[]),
         documentService.getDocuments().catch(() => [] as DocumentItem[]),
         apiClient.get<DriftAlertSummary[]>("/api/drift-alerts").then((r) => (Array.isArray(r.data) ? r.data : [])).catch(() => [] as DriftAlertSummary[]),
         dashboardService.getStats().catch(() => null),
+        dashboardService.getTrend(undefined, 8).catch(() => [] as DashboardTrendItem[]),
         reviewService.getStaffQueue().catch(() => [] as ReviewQueueItem[]),
         reviewService.getReviewHistory().catch(() => [] as ReviewHistoryItem[]),
       ]);
@@ -88,6 +91,7 @@ export default function DashboardPage() {
       setDocuments(Array.isArray(docsRes) ? docsRes : []);
       setDriftAlerts(Array.isArray(driftRes) ? driftRes : []);
       setStats(statsRes);
+      setTrend(Array.isArray(trendRes) ? trendRes : []);
       setStaffQueue(Array.isArray(staffQueueRes) ? staffQueueRes : []);
       setReviewHistory(Array.isArray(historyRes) ? historyRes : []);
 
@@ -157,6 +161,14 @@ export default function DashboardPage() {
             Làm mới
           </button>
         </div>
+
+        <section className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+          <h2 className="text-sm font-bold text-slate-900">Xu hướng theo tuần</h2>
+          <p className="mt-1 mb-4 text-xs text-slate-500">
+            Số tài liệu tạo, tài liệu đã duyệt, cảnh báo sai lệch và tỷ lệ bao phủ AST tính từ PostgreSQL.
+          </p>
+          <WeeklyTrendChart items={trend} />
+        </section>
 
         {/* 2. 4 THẺ CHỈ SỐ CỐT LÕI (DỮ LIỆU THẬT - THIẾT KẾ RIÊNG CHO STAFF HOẶC CHUNG) */}
         {isStaff ? (

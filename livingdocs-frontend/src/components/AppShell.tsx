@@ -1,7 +1,7 @@
 "use client";
 
 function formatDob(dateStr?: string | null): string {
-  if (!dateStr) return "17/08/2006";
+  if (!dateStr || dateStr === "2006-08-17") return "Chưa cập nhật";
   const trimmed = dateStr.trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
     const [y, m, d] = trimmed.split("-");
@@ -543,7 +543,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setProfileAvatarUrl(user?.avatarUrl || "");
     const savedDob = typeof window !== "undefined" ? localStorage.getItem("ld_user_dob_" + (user?.userId || "me")) : "";
     const savedBio = typeof window !== "undefined" ? localStorage.getItem("ld_user_bio_" + (user?.userId || "me")) : "";
-    setProfileDob(user?.dateOfBirth || savedDob || "2006-08-17");
+    const storedDob = savedDob === "2006-08-17" ? "" : savedDob;
+    setProfileDob(user?.dateOfBirth || storedDob || "");
     setProfileBio(user?.bio || savedBio || "");
     setProfileOldPassword("");
     setProfileNewPassword("");
@@ -1760,7 +1761,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       Tham gia hệ thống
                     </span>
                     <span style={{ fontSize: 13, color: "#0f172a", fontWeight: 600 }}>
-                      10/10/2026
+                      {user?.createdAt
+                        ? new Date(user.createdAt).toLocaleDateString("vi-VN")
+                        : "Chưa có"}
                     </span>
                   </div>
                 </div>

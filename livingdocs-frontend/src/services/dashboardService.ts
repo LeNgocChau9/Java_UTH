@@ -31,6 +31,8 @@ export interface DashboardStats {
 export interface DashboardTrendItem {
   label: string;
   period: string;
+  createdDocs: number;
+  approvedDocs: number;
   updatedDocs: number;
   driftAlerts: number;
   coverageRate: number;
@@ -62,6 +64,8 @@ interface BackendTrendPoint {
   createdDocuments: number;
   updates: number;
   alerts: number;
+  approvedDocuments?: number;
+  coveragePercent?: number;
 }
 
 interface BackendDashboardTrendResponse {
@@ -194,14 +198,19 @@ export const dashboardService = {
         const lastPoints = data.points.slice(-weeks);
         return lastPoints.map((pt, index) => {
           const isLast = index === lastPoints.length - 1;
-          const updatedDocs = Number(pt.createdDocuments ?? 0) + Number(pt.updates ?? 0);
+          const createdDocs = Number(pt.createdDocuments ?? 0);
+          const approvedDocs = Number(pt.approvedDocuments ?? 0);
+          const updatedDocs = createdDocs + Number(pt.updates ?? 0);
           const driftAlerts = Number(pt.alerts ?? 0);
+          const coverageRate = Number(pt.coveragePercent ?? 0);
           return {
             label: isLast ? `Tuần ${index + 1} (Hiện tại)` : `Tuần ${index + 1}`,
             period: formatWeekPeriod(pt.weekStart),
+            createdDocs,
+            approvedDocs,
             updatedDocs,
             driftAlerts,
-            coverageRate: 100.0,
+            coverageRate: Number.isFinite(coverageRate) ? Number(coverageRate.toFixed(1)) : 0,
           };
         });
       }

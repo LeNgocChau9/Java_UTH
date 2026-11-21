@@ -1,8 +1,10 @@
 package com.example.livingdocs_backend.application.service;
 
+import com.example.livingdocs_backend.application.dto.WeeklyTrendBucket;
 import com.example.livingdocs_backend.application.dto.dashboard.DashboardStatsDto;
 import com.example.livingdocs_backend.application.dto.dashboard.DashboardTrendItemDto;
 import com.example.livingdocs_backend.application.port.DashboardServicePort;
+import com.example.livingdocs_backend.application.port.DashboardStatsQueryPort;
 import com.example.livingdocs_backend.domain.model.DocumentStatus;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.*;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.*;
@@ -12,6 +14,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 
@@ -26,6 +30,7 @@ public class DashboardServiceImpl implements DashboardServicePort {
     private final SpringDataRepositoryRepository repositoryRepository;
     private final SpringDataPullRequestRepository pullRequestRepository;
     private final JpaDriftAlertRepository driftAlertRepository;
+    private final DashboardStatsQueryPort dashboardStatsQueryPort;
 
     @Override
     @Transactional(readOnly = true)
@@ -142,37 +147,22 @@ public class DashboardServiceImpl implements DashboardServicePort {
     @Override
     @Transactional(readOnly = true)
     public List<DashboardTrendItemDto> getUpdateTrend() {
-        // Dữ liệu thống kê xu hướng cập nhật tài liệu qua các đợt Pull Request và các tuần dự án
-        return List.of(
-                DashboardTrendItemDto.builder()
-                        .label("Tuần 1")
-                        .period("05/10 - 11/10")
-                        .updatedDocs(6)
-                        .driftAlerts(1)
-                        .coverageRate(45.0)
-                        .build(),
-                DashboardTrendItemDto.builder()
-                        .label("Tuần 2")
-                        .period("12/10 - 18/10")
-                        .updatedDocs(14)
-                        .driftAlerts(3)
-                        .coverageRate(62.5)
-                        .build(),
-                DashboardTrendItemDto.builder()
-                        .label("Tuần 3")
-                        .period("19/10 - 25/10")
-                        .updatedDocs(22)
-                        .driftAlerts(5)
-                        .coverageRate(76.0)
-                        .build(),
-                DashboardTrendItemDto.builder()
-                        .label("Tuần 4 (Hiện tại)")
-                        .period("26/10 - 01/11")
-                        .updatedDocs(31)
-                        .driftAlerts(4)
-                        .coverageRate(84.6)
-                        .build()
-        );
+        List<WeeklyTrendBucket> buckets = dashboardStatsQueryPort.findWeeklyTrend(null, 4);
+        DateTimeFormatter day = DateTimeFormatter.ofPattern("dd/MM");
+        List<DashboardTrendItemDto> items = new ArrayList<>();
+        for (int i = 0; i < buckets.size(); i++) {
+            WeeklyTrendBucket bucket = buckets.get(i);
+            LocalDate start = bucket.weekStart();
+            boolean current = i == buckets.size() - 1;
+            items.add(DashboardTrendItemDto.builder()
+                    .label(current ? "Tuần " + (i + 1) + " (Hiện tại)" : "Tuần " + (i + 1))
+                    .period(day.format(start) + " - " + day.format(start.plusDays(6)))
+                    .updatedDocs((int) (bucket.createdDocuments() + bucket.updates()))
+                    .driftAlerts((int) bucket.alerts())
+                    .coverageRate(bucket.coveragePercent())
+                    .build());
+        }
+        return items;
     }
 }
 

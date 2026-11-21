@@ -276,7 +276,9 @@ public class DashboardStatsQueryAdapter implements DashboardStatsQueryPort {
                     LocalDate.parse(row[0].toString()),
                     toLong(row[1]),
                     toLong(row[2]),
-                    toLong(row[3])
+                    toLong(row[3]),
+                    toLong(row[4]),
+                    toDouble(row[5])
             ));
         }
         return points;
@@ -289,6 +291,10 @@ public class DashboardStatsQueryAdapter implements DashboardStatsQueryPort {
     private static String trendSql(boolean byRepository) {
         String documentFilter = byRepository ? " AND d.repo_id = :repositoryId" : "";
         String alertFilter = byRepository ? " AND a.repository_id = :repositoryId" : "";
+        String entityFilter = byRepository ? " AND e.repository_id = :repositoryId" : "";
+        String linkFilter = byRepository
+                ? " AND EXISTS (SELECT 1 FROM documents d WHERE d.doc_id = l.document_id AND d.repo_id = :repositoryId)"
+                : "";
         return """
                 WITH bounds AS (
                     SELECT date_trunc('week', timezone('UTC', now())) AS this_week
@@ -324,17 +330,55 @@ public class DashboardStatsQueryAdapter implements DashboardStatsQueryPort {
                     WHERE a.created_at >= ((SELECT this_week FROM bounds) - (:weekSpan * INTERVAL '1 week')) AT TIME ZONE 'UTC'
                       %s
                     GROUP BY 1
+                ),
+                approved AS (
+                    SELECT date_trunc('week', d.updated_at AT TIME ZONE 'UTC') AS week_start, COUNT(*) AS cnt
+                    FROM documents d
+                    WHERE d.status IN ('APPROVED', 'PUBLISHED')
+                      AND d.updated_at IS NOT NULL
+                      AND d.updated_at >= ((SELECT this_week FROM bounds) - (:weekSpan * INTERVAL '1 week')) AT TIME ZONE 'UTC'
+                      %s
+                    GROUP BY 1
+                ),
+                coverage AS (
+                    SELECT w.week_start,
+                           CASE
+                               WHEN COALESCE(ent.total, 0) = 0 THEN 0
+                               ELSE ROUND(LEAST(COALESCE(cov.covered, 0), ent.total)::numeric * 100.0 / ent.total, 2)
+                           END AS rate
+                    FROM weeks w
+                    LEFT JOIN LATERAL (
+                        SELECT COUNT(*) AS total
+                        FROM code_entities e
+                        WHERE COALESCE(e.created_at, TIMESTAMP '1970-01-01') < w.week_start + INTERVAL '1 week'
+                          %s
+                    ) ent ON TRUE
+                    LEFT JOIN LATERAL (
+                        SELECT COUNT(DISTINCT l.entity_id) AS covered
+                        FROM doc_code_links l
+                        WHERE l.entity_id IS NOT NULL
+                          AND COALESCE(l.created_at, TIMESTAMP '1970-01-01') < w.week_start + INTERVAL '1 week'
+                          %s
+                    ) cov ON TRUE
                 )
                 SELECT to_char(w.week_start, 'YYYY-MM-DD'),
                        COALESCE(c.cnt, 0),
                        COALESCE(u.cnt, 0),
-                       COALESCE(al.cnt, 0)
+                       COALESCE(al.cnt, 0),
+                       COALESCE(ap.cnt, 0),
+                       COALESCE(cv.rate, 0)
                 FROM weeks w
                 LEFT JOIN created c ON c.week_start = w.week_start
                 LEFT JOIN updates u ON u.week_start = w.week_start
                 LEFT JOIN alerts al ON al.week_start = w.week_start
+                LEFT JOIN approved ap ON ap.week_start = w.week_start
+                LEFT JOIN coverage cv ON cv.week_start = w.week_start
                 ORDER BY w.week_start
-                """.formatted(documentFilter, documentFilter, alertFilter);
+                """.formatted(documentFilter, documentFilter, alertFilter, documentFilter, entityFilter, linkFilter);
+    }
+
+    private static double toDouble(Object value) {
+        return value instanceof Number number ? number.doubleValue() : 0.0;
     }
 
     private static long toLong(Object value) {

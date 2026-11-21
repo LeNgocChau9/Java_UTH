@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useRef, useCallback, Suspense } from "rea
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
+import { useSession } from "@/hooks/useSession";
 import { MarkdownViewer } from "@/components/shared/MarkdownViewer";
 import { documentService, downloadMarkdownFile, saveBlob } from "@/services/documentService";
 import type {
@@ -109,7 +110,21 @@ function triggerLabel(triggerType: string | null | undefined): string {
   return TRIGGER_LABELS[triggerType] || triggerType;
 }
 
+function sessionActorRole(roles: string[]): "DEV" | "STAFF" | "MANAGER" {
+  if (roles.includes("MANAGER") || roles.includes("ADMIN")) return "MANAGER";
+  if (roles.includes("STAFF")) return "STAFF";
+  return "DEV";
+}
+
+function visualizeWhitespace(text: string, enabled: boolean): string {
+  if (!enabled) return text || " ";
+  const marked = text.replace(/ /g, "·").replace(/\t/g, "→");
+  return marked.length > 0 ? marked : "·";
+}
+
 function VersionHistoryDiffContent() {
+  const { roles } = useSession();
+  const actorRole = sessionActorRole(roles);
   const router = useRouter();
   const searchParams = useSearchParams();
   const docIdParam = searchParams.get("docId");
@@ -143,7 +158,6 @@ function VersionHistoryDiffContent() {
   // Modal rollback & integrity check
   const [rollbackTarget, setRollbackTarget] = useState<DocumentVersionItem | null>(null);
   const [rollbackReason, setRollbackReason] = useState("");
-  const [rollbackRole, setRollbackRole] = useState("DEV");
   const [submittingRollback, setSubmittingRollback] = useState(false);
   const [integrityResult, setIntegrityResult] = useState<IntegrityCheckResult | null>(null);
   const [verifyingIntegrity, setVerifyingIntegrity] = useState(false);
@@ -312,7 +326,7 @@ function VersionHistoryDiffContent() {
       const res = await documentService.rollbackToVersion(docId, {
         targetVersion: rollbackTarget.versionNum,
         reason: rollbackReason.trim() || undefined,
-        actorRole: rollbackRole,
+        actorRole,
       });
 
       showToast(
@@ -940,18 +954,15 @@ function VersionHistoryDiffContent() {
                       {/* Dòng 2: Loại kích hoạt */}
                       <div style={{ fontSize: 11, color: "#64748b", marginBottom: 6, display: "flex", flexDirection: "column", gap: 3 }}>
                         <span style={{ fontWeight: 500 }}>{triggerText}</span>
-                        {ver.commitHash && (
+                        {docDetail?.status === "PUBLISHED" && ver.commitUrl ? (
+                          <a href={ver.commitUrl} target="_blank" rel="noreferrer" style={{ color: "#0f766e", fontWeight: 600 }}>
+                            Mở commit {ver.commitHash ? ver.commitHash.slice(0, 7) : "GitHub"}
+                          </a>
+                        ) : ver.commitHash ? (
                           <span>
-                            Commit:{" "}
-                            {ver.commitUrl ? (
-                              <a href={ver.commitUrl} target="_blank" rel="noreferrer" style={{ color: "#0f766e" }}>
-                                {ver.commitHash.slice(0, 7)}
-                              </a>
-                            ) : (
-                              <code>{ver.commitHash.slice(0, 7)}</code>
-                            )}
+                            Commit: <code>{ver.commitHash.slice(0, 7)}</code>
                           </span>
-                        )}
+                        ) : null}
                       </div>
 
                       {/* Trạng thái xác thực toàn vẹn chuỗi băm của từng mắt xích phiên bản */}
@@ -1403,7 +1414,7 @@ function VersionHistoryDiffContent() {
                   }}
                   title="Bật/tắt hiển thị ký hiệu khoảng trắng"
                 >
-                  {showWhitespace ? "✓ Hiện khoảng trắng" : "Khoảng trắng"}
+                  {showWhitespace ? "✓ Khoảng trắng · →" : "Khoảng trắng"}
                 </button>
               </div>
             </div>
@@ -1658,11 +1669,11 @@ function VersionHistoryDiffContent() {
                                     fontWeight: token.type === "removed" ? 600 : 400,
                                   }}
                                 >
-                                  {token.text}
+                                  {visualizeWhitespace(token.text, showWhitespace)}
                                 </span>
                               ))
                             ) : (
-                              cell.content || " "
+                              visualizeWhitespace(cell.content || "", showWhitespace)
                             )}
                           </div>
                         </div>
@@ -1791,11 +1802,11 @@ function VersionHistoryDiffContent() {
                                     fontWeight: token.type === "added" ? 600 : 400,
                                   }}
                                 >
-                                  {token.text}
+                                  {visualizeWhitespace(token.text, showWhitespace)}
                                 </span>
                               ))
                             ) : (
-                              cell.content || " "
+                              visualizeWhitespace(cell.content || "", showWhitespace)
                             )}
                           </div>
                         </div>
@@ -2035,21 +2046,9 @@ function VersionHistoryDiffContent() {
                   />
                 </div>
 
-                <div>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
-                    Vai trò thực hiện
-                  </label>
-                  <select
-                    value={rollbackRole}
-                    onChange={(e) => setRollbackRole(e.target.value)}
-                    className="ld-select"
-                    style={{ width: "100%", fontSize: 13 }}
-                  >
-                    <option value="DEV">Lập trình viên (Developer)</option>
-                    <option value="STAFF">Chuyên viên kiểm duyệt (Staff Reviewer)</option>
-                    <option value="MANAGER">Quản trị viên (Manager)</option>
-                  </select>
-                </div>
+                <p style={{ margin: 0, fontSize: 12, color: "#475569" }}>
+                  Vai trò khôi phục lấy từ phiên đăng nhập: <strong>{actorRole}</strong>
+                </p>
               </div>
 
               {/* Nút hành động modal */}

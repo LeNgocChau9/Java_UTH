@@ -72,6 +72,8 @@ public class DashboardStatsService {
                         .createdDocuments(bucket.createdDocuments())
                         .updates(bucket.updates())
                         .alerts(bucket.alerts())
+                        .approvedDocuments(bucket.approvedDocuments())
+                        .coveragePercent(bucket.coveragePercent())
                         .build())
                 .toList();
         return DashboardTrendResponse.builder()

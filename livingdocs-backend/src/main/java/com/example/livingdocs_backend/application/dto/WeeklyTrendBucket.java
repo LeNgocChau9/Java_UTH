@@ -9,6 +9,8 @@ public record WeeklyTrendBucket(
         LocalDate weekStart,
         long createdDocuments,
         long updates,
-        long alerts
+        long alerts,
+        long approvedDocuments,
+        double coveragePercent
 ) {
 }

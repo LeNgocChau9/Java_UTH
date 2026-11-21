@@ -26,4 +26,10 @@ public class DashboardTrendPoint {
 
     @Schema(description = "Số cảnh báo drift phát sinh trong tuần", example = "1")
     private long alerts;
+
+    @Schema(description = "Số tài liệu được duyệt hoặc xuất bản trong tuần", example = "2")
+    private long approvedDocuments;
+
+    @Schema(description = "Tỷ lệ thực thể mã nguồn đã có liên kết tài liệu tính đến cuối tuần", example = "40.0")
+    private double coveragePercent;
 }
