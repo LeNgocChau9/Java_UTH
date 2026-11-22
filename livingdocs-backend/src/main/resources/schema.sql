@@ -237,6 +237,9 @@ CREATE TABLE IF NOT EXISTS public.document_versions
     hash character varying(256) COLLATE pg_catalog."default",
     prev_hash character varying(256) COLLATE pg_catalog."default",
     created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    commit_hash character varying(256) COLLATE pg_catalog."default",
+    commit_url character varying(1024) COLLATE pg_catalog."default",
+    published_at timestamp without time zone,
     CONSTRAINT document_versions_pkey PRIMARY KEY (version_id)
 );
 
@@ -269,6 +272,23 @@ CREATE TABLE IF NOT EXISTS public.review_comments
 );
 
 -- 6. Alerts & Policies
+CREATE TABLE IF NOT EXISTS public.ci_tokens
+(
+    token_id bigserial NOT NULL,
+    token_name character varying(100) NOT NULL,
+    token_hash character varying(255) NOT NULL UNIQUE,
+    token_prefix character varying(16) NOT NULL,
+    created_by_user_id bigint,
+    repository_id bigint,
+    description text,
+    is_revoked boolean NOT NULL DEFAULT false,
+    expires_at timestamp with time zone,
+    last_used_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT ci_tokens_pkey PRIMARY KEY (token_id)
+);
+
 CREATE TABLE IF NOT EXISTS public.document_change_alerts
 (
     alert_id bigserial NOT NULL,
@@ -285,6 +305,58 @@ CREATE TABLE IF NOT EXISTS public.document_change_alerts
     resolved_at timestamp with time zone,
     CONSTRAINT document_change_alerts_pkey PRIMARY KEY (alert_id)
 );
+
+CREATE TABLE IF NOT EXISTS public.drift_alerts
+(
+    alert_id bigserial NOT NULL,
+    repo_id bigint NOT NULL,
+    pr_number integer,
+    file_path character varying(500) NOT NULL,
+    severity character varying(50) NOT NULL DEFAULT 'MEDIUM',
+    diff_snippet text,
+    status character varying(50) NOT NULL DEFAULT 'OPEN',
+    document_id bigint,
+    method_name character varying(255),
+    change_type character varying(100),
+    draft_version_id bigint,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    resolved_at timestamp with time zone,
+    CONSTRAINT drift_alerts_pkey PRIMARY KEY (alert_id)
+);
+
+-- View hợp nhất giữa 2 bảng drift_alerts (CI CLI) và document_change_alerts (Webhook/UI)
+CREATE OR REPLACE VIEW public.v_unified_drift_alerts AS
+SELECT
+    'CI_CLI'::character varying(20) AS source_origin,
+    da.alert_id AS alert_id,
+    da.document_id AS document_id,
+    da.repo_id AS repository_id,
+    COALESCE(da.change_type, 'SIGNATURE')::character varying(30) AS classification,
+    da.severity::character varying(20) AS severity,
+    da.status::character varying(30) AS status,
+    NULL::character varying(64) AS source_commit,
+    da.pr_number::bigint AS source_pr_id,
+    da.diff_snippet AS details,
+    da.draft_version_id AS draft_version_id,
+    da.created_at AS created_at,
+    da.resolved_at AS resolved_at
+FROM public.drift_alerts da
+UNION ALL
+SELECT
+    'WEBHOOK_UI'::character varying(20) AS source_origin,
+    dca.alert_id AS alert_id,
+    dca.document_id AS document_id,
+    dca.repository_id AS repository_id,
+    dca.classification AS classification,
+    dca.severity AS severity,
+    dca.status AS status,
+    dca.source_commit AS source_commit,
+    dca.source_pr_id AS source_pr_id,
+    dca.details AS details,
+    dca.draft_version_id AS draft_version_id,
+    dca.created_at AS created_at,
+    dca.resolved_at AS resolved_at
+FROM public.document_change_alerts dca;
 
 CREATE TABLE IF NOT EXISTS public.document_change_policies
 (

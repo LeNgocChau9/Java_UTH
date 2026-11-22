@@ -30,6 +30,7 @@ import {
   X,
   Clock,
   ShieldCheck,
+  Play,
 } from "lucide-react";
 import { apiClient } from "@/services/apiClient";
 import {
@@ -42,6 +43,12 @@ import {
   type CiTokenItem,
   type CreatedCiTokenItem,
 } from "@/services/ciTokenService";
+import {
+  policyService,
+  type DocumentUpdatePolicy,
+  type DocumentChangePolicy,
+  type PolicyEvaluationResponse,
+} from "@/services/policyService";
 import { repoService, type RepoItem } from "@/services/repoService";
 import { useSession } from "@/hooks/useSession";
 
@@ -102,7 +109,7 @@ export default function CaiDatPage() {
     roles.includes("ADMIN") || roles.includes("TECH_LEAD") || roles.includes("DEVELOPER");
 
   const [activeTab, setActiveTab] = useState<
-    "cloud" | "local" | "pr_blocking" | "notifications" | "integrations" | "ci_tokens"
+    "cloud" | "local" | "pr_blocking" | "notifications" | "integrations" | "ci_tokens" | "policies"
   >("cloud");
 
   // State cấu hình AI
@@ -273,9 +280,111 @@ export default function CaiDatPage() {
     }
   };
 
+  // ===== State cho Task 7: Policy Engine (document_change_policies & document_update_policies) =====
+  const [updatePolicies, setUpdatePolicies] = useState<DocumentUpdatePolicy[]>([]);
+  const [changePolicies, setChangePolicies] = useState<DocumentChangePolicy[]>([]);
+  const [loadingPolicies, setLoadingPolicies] = useState(false);
+  const [savingPolicyKey, setSavingPolicyKey] = useState<string | null>(null);
+  const [policyFeedback, setPolicyFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Form thêm quy tắc module mới
+  const [isAddChangePolicyOpen, setIsAddChangePolicyOpen] = useState(false);
+  const [newPattern, setNewPattern] = useState("src/controllers/**");
+  const [newDocType, setNewDocType] = useState("API_SPEC");
+  const [newThreshold, setNewThreshold] = useState(1);
+  const [newAutoUpdate, setNewAutoUpdate] = useState(true);
+
+  // Policy Simulator
+  const [simDocType, setSimDocType] = useState("API_SPEC");
+  const [simEventType, setSimEventType] = useState<"commit" | "push" | "pull_request" | "merge">("pull_request");
+  const [simChangedFiles, setSimChangedFiles] = useState(2);
+  const [simulating, setSimulating] = useState(false);
+  const [simResult, setSimResult] = useState<PolicyEvaluationResponse | null>(null);
+
+  const loadPoliciesData = async () => {
+    try {
+      setLoadingPolicies(true);
+      const [uPolicies, cPolicies] = await Promise.all([
+        policyService.getUpdatePolicies(),
+        policyService.getChangePolicies(),
+      ]);
+      setUpdatePolicies(uPolicies);
+      setChangePolicies(cPolicies);
+    } catch (err: any) {
+      console.error("Không thể tải danh sách chính sách:", err);
+    } finally {
+      setLoadingPolicies(false);
+    }
+  };
+
+  const handleSaveUpdatePolicyItem = async (item: DocumentUpdatePolicy) => {
+    setSavingPolicyKey(`update-${item.documentType}`);
+    setPolicyFeedback(null);
+    try {
+      await policyService.saveUpdatePolicy(item);
+      setPolicyFeedback({ type: "success", text: `Đã lưu chính sách cho ${item.documentType} thành công!` });
+      await loadPoliciesData();
+    } catch (err: any) {
+      setPolicyFeedback({ type: "error", text: err.response?.data?.message || err.message || "Lỗi khi lưu chính sách" });
+    } finally {
+      setSavingPolicyKey(null);
+    }
+  };
+
+  const handleCreateChangePolicy = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingPolicyKey("create-change");
+    try {
+      await policyService.saveChangePolicy({
+        modulePattern: newPattern.trim(),
+        documentType: newDocType,
+        threshold: newThreshold,
+        autoUpdateEnabled: newAutoUpdate,
+      });
+      setIsAddChangePolicyOpen(false);
+      setPolicyFeedback({ type: "success", text: "Đã thêm quy tắc thay đổi module mới thành công!" });
+      await loadPoliciesData();
+    } catch (err: any) {
+      alert("Lỗi khi thêm quy tắc: " + (err.response?.data?.message || err.message));
+    } finally {
+      setSavingPolicyKey(null);
+    }
+  };
+
+  const handleDeleteChangePolicy = async (policyId?: number) => {
+    if (!policyId) return;
+    if (!confirm("Bạn có chắc chắn muốn xóa quy tắc chính sách này?")) return;
+    try {
+      await policyService.deleteChangePolicy(policyId);
+      setPolicyFeedback({ type: "success", text: "Đã xóa quy tắc thành công!" });
+      await loadPoliciesData();
+    } catch (err: any) {
+      alert("Lỗi khi xóa quy tắc: " + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const handleRunSimulation = async () => {
+    setSimulating(true);
+    setSimResult(null);
+    try {
+      const res = await policyService.evaluatePolicy({
+        documentType: simDocType,
+        eventType: simEventType,
+        changedFilesCount: simChangedFiles,
+      });
+      setSimResult(res);
+    } catch (err: any) {
+      alert("Lỗi khi mô phỏng: " + (err.response?.data?.message || err.message));
+    } finally {
+      setSimulating(false);
+    }
+  };
+
   useEffect(() => {
     if (activeTab === "ci_tokens") {
       loadCiTokensData();
+    } else if (activeTab === "policies") {
+      loadPoliciesData();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
@@ -620,7 +729,7 @@ jobs:
 
   return (
     <AppShell>
-      <div style={{ maxWidth: activeTab === "ci_tokens" ? 980 : 760, margin: "0 auto", padding: "24px 16px" }}>
+      <div style={{ maxWidth: activeTab === "ci_tokens" || activeTab === "policies" ? 980 : 760, margin: "0 auto", padding: "24px 16px" }}>
         {/* Header */}
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
@@ -772,6 +881,28 @@ jobs:
           >
             <Key size={16} />
             CI/CD Tokens & GitHub Actions
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("policies")}
+            style={{
+              padding: "8px 20px",
+              borderRadius: 6,
+              border: "none",
+              background: activeTab === "policies" ? "#ffffff" : "transparent",
+              color: activeTab === "policies" ? "#0f766e" : "#64748b",
+              fontWeight: activeTab === "policies" ? 700 : 500,
+              fontSize: 13.5,
+              boxShadow: activeTab === "policies" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              transition: "all 150ms ease",
+            }}
+          >
+            <ShieldAlert size={16} />
+            Chính sách Cập nhật (Policy Engine)
           </button>
         </div>
 
@@ -1629,7 +1760,7 @@ jobs:
                   })
               )}
             </div>
-          ) : (
+          ) : activeTab === "ci_tokens" ? (
             /* TIỆN ÍCH 6: CI/CD TOKENS & GITHUB ACTIONS GENERATOR */
             <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 24 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -1941,7 +2072,389 @@ jobs:
                 </pre>
               </div>
             </div>
-          )}
+          ) : activeTab === "policies" ? (
+            /* TIỆN ÍCH 7: POLICY ENGINE (document_change_policies & document_update_policies) */
+            <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 28 }}>
+              {/* Header Tab */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 10, background: "#ecfdf5", display: "flex", alignItems: "center", justifyContent: "center", color: "#0f766e" }}>
+                    <ShieldCheck size={22} />
+                  </div>
+                  <div>
+                    <h2 style={{ fontSize: 16, fontWeight: 700, color: "#0f172a", margin: 0 }}>
+                      Engine Chính Sách Cập Nhật & Ngưỡng Drift (Policy Engine)
+                    </h2>
+                    <p style={{ fontSize: 12, color: "#64748b", margin: "2px 0 0 0" }}>
+                      Kích hoạt 2 bảng chính sách trong DB (<code>document_update_policies</code> & <code>document_change_policies</code>) để Webhook và Drift Pipeline tự động xử lý.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={loadPoliciesData}
+                  className="ld-btn ld-btn-secondary"
+                  style={{ gap: 6, fontSize: 12.5 }}
+                  disabled={loadingPolicies}
+                >
+                  <RefreshCw size={14} className={loadingPolicies ? "animate-spin" : ""} />
+                  {loadingPolicies ? "Đang tải..." : "Làm mới chính sách"}
+                </button>
+              </div>
+
+              {/* Feedback Alert */}
+              {policyFeedback && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "10px 14px",
+                    borderRadius: 8,
+                    fontSize: 13,
+                    background: policyFeedback.type === "success" ? "#f0fdf4" : "#fef2f2",
+                    border: `1px solid ${policyFeedback.type === "success" ? "#bbf7d0" : "#fecaca"}`,
+                    color: policyFeedback.type === "success" ? "#166534" : "#b91c1c",
+                  }}
+                >
+                  {policyFeedback.type === "success" ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+                  <span>{policyFeedback.text}</span>
+                </div>
+              )}
+
+              {/* PHẦN 1: BẢNG document_update_policies */}
+              <div className="ld-card" style={{ padding: 20 }}>
+                <div style={{ marginBottom: 16 }}>
+                  <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", margin: 0, display: "flex", alignItems: "center", gap: 6 }}>
+                    <GitBranch size={16} className="text-emerald-600" />
+                    1. Quy Tắc Kích Hoạt Theo Sự Kiện (document_update_policies)
+                  </h3>
+                  <p style={{ fontSize: 12, color: "#64748b", margin: "4px 0 0" }}>
+                    Xác định loại sự kiện (Commit, Pull Request, Merge) kích hoạt tài liệu và hành động tương ứng: <strong>AUTO_UPDATE</strong> (tự động cập nhật tài liệu qua AI) hoặc <strong>REVIEW</strong> (tạo cảnh báo Drift chờ con người phê duyệt).
+                  </p>
+                </div>
+
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", textAlign: "left" }}>
+                        <th style={{ padding: "10px 12px", fontWeight: 600, color: "#475569" }}>Loại tài liệu</th>
+                        <th style={{ padding: "10px 12px", fontWeight: 600, color: "#475569", textAlign: "center" }}>Commit (Push)</th>
+                        <th style={{ padding: "10px 12px", fontWeight: 600, color: "#475569", textAlign: "center" }}>Pull Request</th>
+                        <th style={{ padding: "10px 12px", fontWeight: 600, color: "#475569", textAlign: "center" }}>PR Merged</th>
+                        <th style={{ padding: "10px 12px", fontWeight: 600, color: "#475569" }}>Hành động thực thi</th>
+                        <th style={{ padding: "10px 12px", fontWeight: 600, color: "#475569", textAlign: "right" }}>Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {updatePolicies.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} style={{ padding: 24, textAlign: "center", color: "#94a3b8" }}>
+                            {loadingPolicies ? "Đang tải dữ liệu chính sách..." : "Chưa có quy tắc nào. Vui lòng bấm 'Làm mới chính sách' để nạp mặc định."}
+                          </td>
+                        </tr>
+                      ) : (
+                        updatePolicies.map((pol, idx) => (
+                          <tr key={pol.documentType || idx} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                            <td style={{ padding: "12px 12px" }}>
+                              <span style={{ fontWeight: 600, color: "#0f172a" }}>{pol.documentType}</span>
+                              <div style={{ fontSize: 11, color: "#94a3b8" }}>
+                                {pol.documentType === "API_SPEC"
+                                  ? "Đặc tả API & Endpoints"
+                                  : pol.documentType === "TECHNICAL_DOC"
+                                  ? "Tài liệu kỹ thuật module"
+                                  : pol.documentType === "ARCHITECTURE"
+                                  ? "Kiến trúc tổng quan hệ thống"
+                                  : "Tài liệu hướng dẫn"}
+                              </div>
+                            </td>
+                            <td style={{ padding: "12px 12px", textAlign: "center" }}>
+                              <input
+                                type="checkbox"
+                                checked={pol.triggerCommit}
+                                onChange={(e) => {
+                                  const updated = [...updatePolicies];
+                                  updated[idx] = { ...pol, triggerCommit: e.target.checked };
+                                  setUpdatePolicies(updated);
+                                }}
+                                style={{ width: 16, height: 16, cursor: "pointer", accentColor: "#0f766e" }}
+                              />
+                            </td>
+                            <td style={{ padding: "12px 12px", textAlign: "center" }}>
+                              <input
+                                type="checkbox"
+                                checked={pol.triggerPullRequest}
+                                onChange={(e) => {
+                                  const updated = [...updatePolicies];
+                                  updated[idx] = { ...pol, triggerPullRequest: e.target.checked };
+                                  setUpdatePolicies(updated);
+                                }}
+                                style={{ width: 16, height: 16, cursor: "pointer", accentColor: "#0f766e" }}
+                              />
+                            </td>
+                            <td style={{ padding: "12px 12px", textAlign: "center" }}>
+                              <input
+                                type="checkbox"
+                                checked={pol.triggerMerge}
+                                onChange={(e) => {
+                                  const updated = [...updatePolicies];
+                                  updated[idx] = { ...pol, triggerMerge: e.target.checked };
+                                  setUpdatePolicies(updated);
+                                }}
+                                style={{ width: 16, height: 16, cursor: "pointer", accentColor: "#0f766e" }}
+                              />
+                            </td>
+                            <td style={{ padding: "12px 12px" }}>
+                              <select
+                                className="ld-select"
+                                style={{ height: 34, fontSize: 12.5 }}
+                                value={pol.action}
+                                onChange={(e) => {
+                                  const updated = [...updatePolicies];
+                                  updated[idx] = { ...pol, action: e.target.value as "AUTO_UPDATE" | "REVIEW" };
+                                  setUpdatePolicies(updated);
+                                }}
+                              >
+                                <option value="AUTO_UPDATE">AUTO_UPDATE (Tự động cập nhật)</option>
+                                <option value="REVIEW">REVIEW (Tạo cảnh báo chờ duyệt)</option>
+                              </select>
+                            </td>
+                            <td style={{ padding: "12px 12px", textAlign: "right" }}>
+                              <button
+                                type="button"
+                                onClick={() => handleSaveUpdatePolicyItem(pol)}
+                                className="ld-btn ld-btn-primary"
+                                disabled={savingPolicyKey === `update-${pol.documentType}`}
+                                style={{ height: 32, padding: "0 12px", fontSize: 12, background: "#0f766e", color: "#ffffff", gap: 5 }}
+                              >
+                                {savingPolicyKey === `update-${pol.documentType}` ? (
+                                  <RefreshCw size={12} className="animate-spin" />
+                                ) : (
+                                  <Save size={12} />
+                                )}
+                                Lưu
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* PHẦN 2: BẢNG document_change_policies */}
+              <div className="ld-card" style={{ padding: 20 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+                  <div>
+                    <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", margin: 0, display: "flex", alignItems: "center", gap: 6 }}>
+                      <Terminal size={16} className="text-emerald-600" />
+                      2. Quy Tắc Module & Ngưỡng Lệch (document_change_policies)
+                    </h3>
+                    <p style={{ fontSize: 12, color: "#64748b", margin: "4px 0 0" }}>
+                      Cấu hình mẫu đường dẫn module (<code>module_pattern</code>), loại doc, và ngưỡng số file thay đổi (<code>threshold</code>) để quyết định tự động cập nhật.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsAddChangePolicyOpen(true)}
+                    className="ld-btn ld-btn-primary"
+                    style={{ background: "#0f766e", color: "#ffffff", gap: 6, fontSize: 12.5 }}
+                  >
+                    <Plus size={14} />
+                    Thêm Quy Tắc Module
+                  </button>
+                </div>
+
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", textAlign: "left" }}>
+                        <th style={{ padding: "10px 12px", fontWeight: 600, color: "#475569" }}>Mẫu Module Pattern</th>
+                        <th style={{ padding: "10px 12px", fontWeight: 600, color: "#475569" }}>Loại tài liệu</th>
+                        <th style={{ padding: "10px 12px", fontWeight: 600, color: "#475569", textAlign: "center" }}>Ngưỡng (Threshold)</th>
+                        <th style={{ padding: "10px 12px", fontWeight: 600, color: "#475569", textAlign: "center" }}>Tự động cập nhật</th>
+                        <th style={{ padding: "10px 12px", fontWeight: 600, color: "#475569", textAlign: "right" }}>Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {changePolicies.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} style={{ padding: 24, textAlign: "center", color: "#94a3b8" }}>
+                            Chưa có quy tắc module nào được cấu hình. Bấm "+ Thêm Quy Tắc Module" để tạo mới.
+                          </td>
+                        </tr>
+                      ) : (
+                        changePolicies.map((cPol, idx) => (
+                          <tr key={cPol.policyId || idx} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                            <td style={{ padding: "12px 12px" }}>
+                              <code style={{ background: "#f1f5f9", padding: "3px 8px", borderRadius: 4, color: "#0f766e", fontWeight: 600 }}>
+                                {cPol.modulePattern}
+                              </code>
+                            </td>
+                            <td style={{ padding: "12px 12px", fontWeight: 600, color: "#334155" }}>
+                              {cPol.documentType}
+                            </td>
+                            <td style={{ padding: "12px 12px", textAlign: "center" }}>
+                              <span style={{ background: "#e0f2fe", color: "#0369a1", padding: "2px 8px", borderRadius: 12, fontSize: 12, fontWeight: 600 }}>
+                                ≥ {cPol.threshold} files
+                              </span>
+                            </td>
+                            <td style={{ padding: "12px 12px", textAlign: "center" }}>
+                              <span
+                                style={{
+                                  padding: "2px 8px",
+                                  borderRadius: 12,
+                                  fontSize: 11.5,
+                                  fontWeight: 600,
+                                  background: cPol.autoUpdateEnabled ? "#ecfdf5" : "#fef2f2",
+                                  color: cPol.autoUpdateEnabled ? "#15803d" : "#b91c1c",
+                                }}
+                              >
+                                {cPol.autoUpdateEnabled ? "Bật (Enabled)" : "Tắt (Disabled)"}
+                              </span>
+                            </td>
+                            <td style={{ padding: "12px 12px", textAlign: "right" }}>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteChangePolicy(cPol.policyId)}
+                                className="ld-btn ld-btn-secondary"
+                                style={{ height: 30, padding: "0 8px", color: "#dc2626", borderColor: "#fecaca" }}
+                                title="Xóa quy tắc này"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* PHẦN 3: POLICY EVALUATION SIMULATOR */}
+              <div className="ld-card" style={{ padding: 20, background: "#fcfdfe", border: "1px solid #e0e7ff" }}>
+                <div style={{ marginBottom: 14 }}>
+                  <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1e1b4b", margin: 0, display: "flex", alignItems: "center", gap: 6 }}>
+                    <ClipboardCheck size={16} className="text-indigo-600" />
+                    3. Mô Phỏng Đánh Giá Chính Sách (Policy Evaluation Simulator)
+                  </h3>
+                  <p style={{ fontSize: 12, color: "#64748b", margin: "4px 0 0" }}>
+                    Chạy thử bộ luật trên dữ liệu mẫu để kiểm tra xem Webhook/Drift Pipeline sẽ đưa ra quyết định <code>AUTO_UPDATE</code> hay <code>REVIEW</code>.
+                  </p>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14, alignItems: "flex-end" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 4 }}>
+                      Loại tài liệu
+                    </label>
+                    <select
+                      className="ld-select"
+                      value={simDocType}
+                      onChange={(e) => setSimDocType(e.target.value)}
+                    >
+                      <option value="API_SPEC">API_SPEC</option>
+                      <option value="TECHNICAL_DOC">TECHNICAL_DOC</option>
+                      <option value="ARCHITECTURE">ARCHITECTURE</option>
+                      <option value="USER_GUIDE">USER_GUIDE</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 4 }}>
+                      Loại sự kiện (Event)
+                    </label>
+                    <select
+                      className="ld-select"
+                      value={simEventType}
+                      onChange={(e) => setSimEventType(e.target.value as any)}
+                    >
+                      <option value="pull_request">Pull Request</option>
+                      <option value="push">Push / Commit</option>
+                      <option value="merge">Merge</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 4 }}>
+                      Số file thay đổi
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      className="ld-input"
+                      value={simChangedFiles}
+                      onChange={(e) => setSimChangedFiles(Number(e.target.value) || 1)}
+                    />
+                  </div>
+
+                  <div>
+                    <button
+                      type="button"
+                      onClick={handleRunSimulation}
+                      className="ld-btn ld-btn-primary"
+                      disabled={simulating}
+                      style={{ width: "100%", height: 38, background: "#4f46e5", color: "#ffffff", gap: 6, fontWeight: 600 }}
+                    >
+                      {simulating ? <RefreshCw size={14} className="animate-spin" /> : <Play size={14} />}
+                      {simulating ? "Đang đánh giá..." : "Chạy Thử Luật"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Kết quả Simulator */}
+                {simResult && (
+                  <div
+                    style={{
+                      marginTop: 18,
+                      padding: 16,
+                      borderRadius: 8,
+                      background: "#ffffff",
+                      border: "1px solid #cbd5e1",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 12.5, fontWeight: 700, color: "#334155" }}>Quyết định của Engine:</span>
+                        <span
+                          style={{
+                            padding: "3px 10px",
+                            borderRadius: 6,
+                            fontSize: 12,
+                            fontWeight: 700,
+                            background:
+                              simResult.effectiveAction === "AUTO_UPDATE"
+                                ? "#dcfce7"
+                                : simResult.effectiveAction === "REVIEW"
+                                ? "#fef3c7"
+                                : "#f1f5f9",
+                            color:
+                              simResult.effectiveAction === "AUTO_UPDATE"
+                                ? "#15803d"
+                                : simResult.effectiveAction === "REVIEW"
+                                ? "#b45309"
+                                : "#64748b",
+                          }}
+                        >
+                          {simResult.effectiveAction}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, color: "#64748b" }}>
+                        Kích hoạt: <strong>{simResult.effectiveAction !== "SKIP" ? "CÓ (Triggered)" : "KHÔNG (Skipped)"}</strong> | Ngưỡng threshold: <strong>≥ {simResult.threshold} files</strong> (Thay đổi: <strong>{simResult.changedFilesCount}</strong>)
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 12.5, color: "#1e293b", background: "#f8fafc", padding: "10px 12px", borderRadius: 6, border: "1px solid #e2e8f0" }}>
+                      <strong>Lý do giải thích:</strong> {simResult.reason}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -2195,6 +2708,130 @@ jobs:
                 Tôi đã lưu token, đóng lại
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL THÊM QUY TẮC MODULE MỚI */}
+      {isAddChangePolicyOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15, 23, 42, 0.45)",
+            backdropFilter: "blur(2px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: 16,
+          }}
+        >
+          <div className="ld-card" style={{ width: "100%", maxWidth: 480, padding: 24, position: "relative" }}>
+            <button
+              type="button"
+              onClick={() => setIsAddChangePolicyOpen(false)}
+              style={{
+                position: "absolute",
+                top: 16,
+                right: 16,
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: "#64748b",
+              }}
+            >
+              <X size={18} />
+            </button>
+
+            <h3 style={{ fontSize: 17, fontWeight: 700, color: "#0f172a", margin: "0 0 4px" }}>
+              Thêm Quy Tắc Module Mới
+            </h3>
+            <p style={{ fontSize: 12, color: "#64748b", margin: "0 0 16px" }}>
+              Cấu hình đường dẫn module code cần theo dõi và ngưỡng số file thay đổi để tự động kích hoạt.
+            </p>
+
+            <form onSubmit={handleCreateChangePolicy} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 4 }}>
+                  Mẫu Module (Module Pattern) <span style={{ color: "#ef4444" }}>*</span>
+                </label>
+                <input
+                  className="ld-input"
+                  placeholder="Ví dụ: src/controllers/** hoặc src/api/**"
+                  value={newPattern}
+                  onChange={(e) => setNewPattern(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 4 }}>
+                  Loại tài liệu áp dụng
+                </label>
+                <select
+                  className="ld-select"
+                  value={newDocType}
+                  onChange={(e) => setNewDocType(e.target.value)}
+                >
+                  <option value="API_SPEC">API_SPEC (Đặc tả API)</option>
+                  <option value="TECHNICAL_DOC">TECHNICAL_DOC (Tài liệu kỹ thuật)</option>
+                  <option value="ARCHITECTURE">ARCHITECTURE (Kiến trúc hệ thống)</option>
+                  <option value="USER_GUIDE">USER_GUIDE (Hướng dẫn người dùng)</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 4 }}>
+                  Ngưỡng số file thay đổi (Threshold)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  className="ld-input"
+                  value={newThreshold}
+                  onChange={(e) => setNewThreshold(Number(e.target.value) || 1)}
+                  required
+                />
+                <span style={{ fontSize: 11, color: "#94a3b8" }}>
+                  Nếu số file thay đổi trong PR/Commit đạt hoặc vượt ngưỡng này, chính sách sẽ kích hoạt.
+                </span>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+                <input
+                  type="checkbox"
+                  id="cb-auto-update"
+                  checked={newAutoUpdate}
+                  onChange={(e) => setNewAutoUpdate(e.target.checked)}
+                  style={{ width: 16, height: 16, cursor: "pointer", accentColor: "#0f766e" }}
+                />
+                <label htmlFor="cb-auto-update" style={{ fontSize: 12.5, fontWeight: 600, color: "#334155", cursor: "pointer" }}>
+                  Bật tự động cập nhật (auto_update_enabled)
+                </label>
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
+                <button
+                  type="button"
+                  onClick={() => setIsAddChangePolicyOpen(false)}
+                  className="ld-btn ld-btn-secondary"
+                  disabled={savingPolicyKey === "create-change"}
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="ld-btn ld-btn-primary"
+                  disabled={savingPolicyKey === "create-change"}
+                  style={{ background: "#0f766e", color: "#ffffff", gap: 6 }}
+                >
+                  {savingPolicyKey === "create-change" && <RefreshCw size={13} className="animate-spin" />}
+                  {savingPolicyKey === "create-change" ? "Đang lưu..." : "Lưu Quy Tắc"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

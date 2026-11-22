@@ -35,6 +35,9 @@ public class DriftAlertService {
     private final SpringDataDocumentRepository documentRepository;
     private final AuditServicePort auditServicePort;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.persistence.repository.JpaDriftAlertRepository jpaDriftAlertRepository;
+
     @Transactional(readOnly = true)
     public List<DocumentChangeAlertEntity> findAll(Long repositoryId, String status) {
         if (repositoryId != null && status != null && !status.isBlank()) {
@@ -141,6 +144,19 @@ public class DriftAlertService {
         };
 
         DocumentChangeAlertEntity saved = alertRepository.save(alert);
+        if (jpaDriftAlertRepository != null && saved.getRepositoryId() != null) {
+            try {
+                List<com.example.livingdocs_backend.infrastructure.persistence.entity.DriftAlertEntity> driftList =
+                        jpaDriftAlertRepository.findByRepoId(saved.getRepositoryId());
+                for (var da : driftList) {
+                    if (saved.getDocumentId() != null && saved.getDocumentId().equals(da.getDocumentId())) {
+                        da.setStatus(saved.getStatus());
+                        da.setResolvedAt(saved.getResolvedAt());
+                        jpaDriftAlertRepository.save(da);
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
         auditServicePort.recordSecurityAction(
                 actor.getUserId(),
                 auditAction,

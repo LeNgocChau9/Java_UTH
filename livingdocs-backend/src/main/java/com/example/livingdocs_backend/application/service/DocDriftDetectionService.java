@@ -76,6 +76,9 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
     @Autowired(required = false)
     private com.example.livingdocs_backend.infrastructure.notification.ExternalIntegrationWebhookDispatcher webhookDispatcher;
 
+    @Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.persistence.repository.JpaDriftAlertRepository jpaDriftAlertRepository;
+
     public static final String BOT_MARKER = "<!-- livingdocs-drift-alert -->";
 
     @Autowired
@@ -361,6 +364,30 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
         if (!savedAlerts.isEmpty()) {
             alertRepository.saveAll(savedAlerts);
             log.info("[DocDrift] Đã lưu {} bản ghi vào bảng document_change_alerts", savedAlerts.size());
+
+            // Đồng bộ sang bảng drift_alerts (CI CLI) để hợp nhất 2 bảng
+            if (jpaDriftAlertRepository != null) {
+                try {
+                    List<com.example.livingdocs_backend.infrastructure.persistence.entity.DriftAlertEntity> driftList = new ArrayList<>();
+                    for (var dca : savedAlerts) {
+                        driftList.add(com.example.livingdocs_backend.infrastructure.persistence.entity.DriftAlertEntity.builder()
+                                .repoId(repositoryId)
+                                .prNumber(prNumber)
+                                .documentId(dca.getDocumentId())
+                                .filePath("src/main/java")
+                                .severity(dca.getSeverity() != null ? dca.getSeverity() : "MEDIUM")
+                                .status(dca.getStatus() != null ? dca.getStatus() : "OPEN")
+                                .diffSnippet(dca.getDetails())
+                                .changeType(dca.getClassification())
+                                .createdAt(now)
+                                .build());
+                    }
+                    jpaDriftAlertRepository.saveAll(driftList);
+                    log.info("[DocDrift] Đã đồng bộ {} bản ghi sang bảng drift_alerts (Hợp nhất dữ liệu CI & Webhook)", driftList.size());
+                } catch (Exception ex) {
+                    log.warn("[DocDrift] Bỏ qua đồng bộ sang drift_alerts: {}", ex.getMessage());
+                }
+            }
             if (webhookDispatcher != null) {
                 for (DocumentChangeAlertEntity alert : savedAlerts) {
                     webhookDispatcher.dispatchDriftAlert(

@@ -8,7 +8,9 @@ import com.example.livingdocs_backend.application.port.DriftAlertRepositoryPort;
 import com.example.livingdocs_backend.domain.model.CiToken;
 import com.example.livingdocs_backend.domain.model.DriftAlert;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocCodeLinkEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentChangeAlertEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocCodeLinkRepository;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentChangeAlertRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -26,6 +28,26 @@ public class CiDriftScanServiceImpl implements CiDriftScanServicePort {
 
     private final DriftAlertRepositoryPort driftAlertRepository;
     private final SpringDataDocCodeLinkRepository docCodeLinkRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private SpringDataDocumentChangeAlertRepository documentChangeAlertRepository;
+
+    public CiDriftScanServiceImpl(
+            DriftAlertRepositoryPort driftAlertRepository,
+            SpringDataDocCodeLinkRepository docCodeLinkRepository,
+            SpringDataDocumentChangeAlertRepository documentChangeAlertRepository) {
+        this.driftAlertRepository = driftAlertRepository;
+        this.docCodeLinkRepository = docCodeLinkRepository;
+        this.documentChangeAlertRepository = documentChangeAlertRepository;
+    }
+
+    public CiDriftScanServiceImpl(
+            DriftAlertRepositoryPort driftAlertRepository,
+            SpringDataDocCodeLinkRepository docCodeLinkRepository) {
+        this.driftAlertRepository = driftAlertRepository;
+        this.docCodeLinkRepository = docCodeLinkRepository;
+        this.documentChangeAlertRepository = null;
+    }
 
     @Override
     @Transactional
@@ -48,6 +70,7 @@ public class CiDriftScanServiceImpl implements CiDriftScanServicePort {
 
         Instant now = Instant.now();
         List<DriftAlert> alertsToSave = new ArrayList<>();
+        List<DocumentChangeAlertEntity> unifiedAlertsToSave = new ArrayList<>();
 
         for (DriftScanItemDto item : items) {
             Long docId = item.getDocumentId();
@@ -61,11 +84,13 @@ public class CiDriftScanServiceImpl implements CiDriftScanServicePort {
                 }
             }
 
+            String severity = item.getSeverity() != null && !item.getSeverity().isBlank() ? item.getSeverity().toUpperCase() : "MEDIUM";
+
             DriftAlert alert = DriftAlert.builder()
                     .repoId(request.getRepoId())
                     .prNumber(request.getPrNumber())
                     .filePath(item.getFilePath())
-                    .severity(item.getSeverity() != null && !item.getSeverity().isBlank() ? item.getSeverity().toUpperCase() : "MEDIUM")
+                    .severity(severity)
                     .diffSnippet(item.getDiffSnippet())
                     .status("OPEN")
                     .documentId(docId)
@@ -75,12 +100,30 @@ public class CiDriftScanServiceImpl implements CiDriftScanServicePort {
                     .build();
 
             alertsToSave.add(alert);
+
+            // Đồng bộ sang bảng document_change_alerts để hợp nhất toàn bộ luồng cảnh báo trên Webhook/UI
+            DocumentChangeAlertEntity unifiedAlert = DocumentChangeAlertEntity.builder()
+                    .repositoryId(request.getRepoId())
+                    .documentId(docId)
+                    .sourcePrId(request.getPrNumber() != null ? request.getPrNumber().longValue() : null)
+                    .classification(item.getChangeType() != null && !item.getChangeType().isBlank() ? item.getChangeType().toUpperCase() : "SIGNATURE")
+                    .severity(severity)
+                    .status("OPEN")
+                    .details((item.getMethodName() != null ? "Phương thức: " + item.getMethodName() + "\n" : "")
+                            + (item.getFilePath() != null ? "File: " + item.getFilePath() + "\n" : "")
+                            + (item.getDiffSnippet() != null ? item.getDiffSnippet() : ""))
+                    .createdAt(now)
+                    .build();
+            unifiedAlertsToSave.add(unifiedAlert);
         }
 
         List<DriftAlert> saved = driftAlertRepository.saveAll(alertsToSave);
+        if (!unifiedAlertsToSave.isEmpty() && documentChangeAlertRepository != null) {
+            documentChangeAlertRepository.saveAll(unifiedAlertsToSave);
+        }
         List<Long> savedIds = saved.stream().map(DriftAlert::getAlertId).toList();
 
-        log.info("[CI Drift Scan] Đã lưu thành công {} cảnh báo vào bảng drift_alerts", savedIds.size());
+        log.info("[CI Drift Scan] Đã lưu thành công {} cảnh báo vào bảng drift_alerts và đồng bộ sang document_change_alerts", savedIds.size());
 
         return CiDriftScanResponse.builder()
                 .status("SUCCESS")

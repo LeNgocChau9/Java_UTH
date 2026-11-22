@@ -58,6 +58,9 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
     @Autowired(required = false)
     private com.example.livingdocs_backend.infrastructure.notification.ExternalIntegrationWebhookDispatcher webhookDispatcher;
 
+    @Autowired(required = false)
+    private DocumentPolicyService documentPolicyService;
+
     public static final String JOB_TYPE_PR_DRIFT_SCAN = "PR_DRIFT_SCAN";
     public static final String JOB_TYPE_AUTO_DOC_UPDATE = "AUTO_DOC_UPDATE";
     private static final Set<String> DRIFT_TRIGGER_ACTIONS = Set.of("opened", "synchronize", "reopened");
@@ -260,6 +263,18 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
         // Kích hoạt pipeline tự động cập nhật tài liệu khi mã nguồn có commit mới (hỗ trợ tổng quát mọi định dạng code)
         String autoUpdateMsg = "";
         try {
+            if (documentPolicyService != null) {
+                var policyEval = documentPolicyService.evaluatePolicy(
+                        com.example.livingdocs_backend.application.dto.policy.PolicyEvaluationRequestDto.builder()
+                                .repositoryId(repo.getRepositoryId())
+                                .eventType("push")
+                                .changedFilesCount(changedFiles.size())
+                                .build()
+                );
+                log.info("[Webhook - Push] Kết quả đánh giá Policy Engine: action={}, reason={}",
+                        policyEval.getEffectiveAction(), policyEval.getReason());
+            }
+
             List<String> targetFiles = new ArrayList<>();
             for (String f : changedFiles) {
                 if (f != null && isTextOrSourceFile(f)) {
@@ -428,6 +443,19 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
         String jobStatusMsg = "";
         if (DRIFT_TRIGGER_ACTIONS.contains(action.toLowerCase())) {
             try {
+                if (documentPolicyService != null) {
+                    int changedCount = root.path("pull_request").path("changed_files").asInt(1);
+                    var policyEval = documentPolicyService.evaluatePolicy(
+                            com.example.livingdocs_backend.application.dto.policy.PolicyEvaluationRequestDto.builder()
+                                    .repositoryId(repo.getRepositoryId())
+                                    .eventType(merged ? "merge" : "pull_request")
+                                    .changedFilesCount(changedCount)
+                                    .build()
+                    );
+                    log.info("[Webhook - PR] Đánh giá Policy Engine: effectiveAction={}, reason={}",
+                            policyEval.getEffectiveAction(), policyEval.getReason());
+                }
+
                 PrDriftScanJobPayload jobPayload = PrDriftScanJobPayload.builder()
                         .repositoryId(repo.getRepositoryId())
                         .repoFullName(repo.getRepoFullName())

@@ -38,7 +38,8 @@ public class CiTokenServiceImpl implements CiTokenServicePort {
     private final SpringDataRepositoryRepository springDataRepositoryRepository;
     private final AuditServicePort auditServicePort;
 
-    private static final String TOKEN_PREFIX = "lvd_ci_";
+    public static final String TOKEN_PREFIX = "ld_ci_";
+    public static final String LEGACY_TOKEN_PREFIX = "lvd_ci_";
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     @Override
@@ -134,7 +135,7 @@ public class CiTokenServiceImpl implements CiTokenServicePort {
     @Override
     @Transactional
     public Optional<CiToken> validateAndTouchToken(String rawToken) {
-        if (rawToken == null || !rawToken.startsWith(TOKEN_PREFIX)) {
+        if (rawToken == null || (!rawToken.startsWith(TOKEN_PREFIX) && !rawToken.startsWith(LEGACY_TOKEN_PREFIX))) {
             return Optional.empty();
         }
 
