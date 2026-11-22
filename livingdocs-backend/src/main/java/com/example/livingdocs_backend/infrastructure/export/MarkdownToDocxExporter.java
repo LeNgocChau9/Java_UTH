@@ -120,19 +120,22 @@ public class MarkdownToDocxExporter {
             }
 
             // Kiểm tra Bảng biểu Markdown (| Col 1 | Col 2 |)
-            if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
+            if (trimmed.length() >= 2 && trimmed.startsWith("|") && trimmed.endsWith("|")) {
                 if (trimmed.matches("^\\|[\\s\\-:]+\\|.*")) {
                     // Dòng ngăn cách header |---|---| -> bỏ qua
                     continue;
                 }
-                String[] cells = trimmed.substring(1, trimmed.length() - 1).split("\\|");
+                String inner = trimmed.substring(1, trimmed.length() - 1);
+                String[] cells = inner.split("\\|", -1);
                 for (int c = 0; c < cells.length; c++) {
                     cells[c] = cells[c].trim();
                 }
-                tableRows.add(cells);
+                if (cells.length > 0) {
+                    tableRows.add(cells);
+                }
 
                 // Nếu dòng tiếp theo không phải là bảng -> kết xuất bảng
-                boolean nextIsTable = (i + 1 < lines.length) && lines[i + 1].trim().startsWith("|");
+                boolean nextIsTable = (i + 1 < lines.length) && lines[i + 1].trim().startsWith("|") && lines[i + 1].trim().endsWith("|");
                 if (!nextIsTable) {
                     renderTable(sb, tableRows);
                     tableRows.clear();
@@ -211,6 +214,7 @@ public class MarkdownToDocxExporter {
     }
 
     private static void renderFormattedRuns(StringBuilder sb, String text) {
+        if (text == null || text.isEmpty()) return;
         // Tách chuỗi theo dấu ** (đậm) hoặc ` (code)
         // Đơn giản hóa chuyển đổi các span
         String[] parts = text.split("(?=\\*\\*)|(?<=\\*\\*)|(?=`)|(?<=`)");
@@ -287,7 +291,9 @@ public class MarkdownToDocxExporter {
 
     private static String escapeXml(String s) {
         if (s == null) return "";
-        return s.replace("&", "&amp;")
+        // Loại bỏ các ký tự điều khiển bất hợp pháp trong chuẩn XML 1.0 (ngoại trừ tab, lf, cr)
+        String sanitized = s.replaceAll("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]", "");
+        return sanitized.replace("&", "&amp;")
                 .replace("<", "&lt;")
                 .replace(">", "&gt;")
                 .replace("\"", "&quot;")

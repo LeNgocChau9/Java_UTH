@@ -14,6 +14,18 @@ function cleanAvatarUrl(raw?: string | null): string {
   if (!raw) return "";
   const trimmed = raw.trim();
   try {
+    // 1. Regex bóc tách imgurl từ Google Images / Google Search
+    const imgurlMatch = trimmed.match(/[?&]imgurl=([^&]+)/i);
+    if (imgurlMatch && imgurlMatch[1]) {
+      return decodeURIComponent(imgurlMatch[1]);
+    }
+    // 2. Google redirect (url=)
+    if (trimmed.includes("google.") && trimmed.includes("url=")) {
+      const urlMatch = trimmed.match(/[?&]url=([^&]+)/i);
+      if (urlMatch && urlMatch[1]) {
+        return decodeURIComponent(urlMatch[1]);
+      }
+    }
     if (trimmed.includes("google.com/imgres") || trimmed.includes("imgurl=")) {
       const urlObj = new URL(trimmed);
       const imgurl = urlObj.searchParams.get("imgurl");
@@ -775,6 +787,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <img
                 src={user.avatarUrl}
                 alt="Avatar"
+                referrerPolicy="no-referrer"
                 style={{
                   width: 32,
                   height: 32,
@@ -1242,6 +1255,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       <img
                         src={user.avatarUrl}
                         alt="Avatar"
+                        referrerPolicy="no-referrer"
                         style={{
                           width: 28,
                           height: 28,
@@ -1522,6 +1536,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <img
                       src={user.avatarUrl}
                       alt={user.fullName || "Avatar"}
+                      referrerPolicy="no-referrer"
                       style={{ width: "100%", height: "100%", objectFit: "cover" }}
                     />
                   ) : (
@@ -1968,7 +1983,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       <img
                         src={profileAvatarUrl}
                         alt="Preview"
+                        referrerPolicy="no-referrer"
                         style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                        onLoad={(e) => {
+                          (e.target as HTMLImageElement).style.display = "block";
+                        }}
                         onError={(e) => {
                           (e.target as HTMLImageElement).style.display = "none";
                         }}
@@ -2465,6 +2484,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                             <img
                               src={entry.user.avatarUrl}
                               alt={entry.user.fullName || "Avatar"}
+                              referrerPolicy="no-referrer"
                               style={{ width: 36, height: 36, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }}
                             />
                           ) : (

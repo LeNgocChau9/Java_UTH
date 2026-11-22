@@ -246,25 +246,31 @@ export default function LivingDocsYouMindLandingPage() {
   useEffect(() => {
     const ctx = gsap.context(() => {
       // Hero staggered kinetic reveal
-      gsap.from(".hero-kinetic", {
-        y: 34,
-        opacity: 0,
-        duration: 0.75,
-        stagger: 0.09,
-        ease: "power3.out",
-        clearProps: "transform",
-      });
+      const heroKinetic = pageRef.current?.querySelectorAll(".hero-kinetic");
+      if (heroKinetic && heroKinetic.length > 0) {
+        gsap.from(heroKinetic, {
+          y: 34,
+          opacity: 0,
+          duration: 0.75,
+          stagger: 0.09,
+          ease: "power3.out",
+          clearProps: "transform",
+        });
+      }
 
       // Hero right PresenceCards float-in
-      gsap.from(".hero-stage-card", {
-        y: 42,
-        scale: 0.96,
-        opacity: 0,
-        duration: 0.9,
-        delay: 0.18,
-        ease: "power3.out",
-        clearProps: "transform",
-      });
+      const heroStage = pageRef.current?.querySelectorAll(".hero-stage-card");
+      if (heroStage && heroStage.length > 0) {
+        gsap.from(heroStage, {
+          y: 42,
+          scale: 0.96,
+          opacity: 0,
+          duration: 0.9,
+          delay: 0.18,
+          ease: "power3.out",
+          clearProps: "transform",
+        });
+      }
 
       // Scroll-triggered section reveals
       gsap.utils.toArray<HTMLElement>(".motion-section").forEach((section) => {
@@ -281,23 +287,6 @@ export default function LivingDocsYouMindLandingPage() {
           },
         });
       });
-
-      // Staggered bento cards (chỉ chạy hiệu ứng khi phần tử tồn tại trên DOM)
-      if (pageRef.current?.querySelector(".bento-motion-card") && pageRef.current?.querySelector(".bento-motion-grid")) {
-        gsap.from(".bento-motion-card", {
-          y: 28,
-          opacity: 0,
-          duration: 0.6,
-          stagger: 0.08,
-          ease: "power2.out",
-          clearProps: "transform",
-          scrollTrigger: {
-            trigger: ".bento-motion-grid",
-            start: "top 82%",
-            once: true,
-          },
-        });
-      }
     }, pageRef);
 
     return () => ctx.revert();

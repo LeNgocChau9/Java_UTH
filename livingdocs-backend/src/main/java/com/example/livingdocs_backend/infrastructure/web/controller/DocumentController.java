@@ -220,7 +220,7 @@ public class DocumentController {
         DocumentDetailResponse doc = documentServicePort.getDocumentById(docId);
         String markdown = (doc != null && doc.getLatestVersion() != null && doc.getLatestVersion().getContent() != null)
                 ? doc.getLatestVersion().getContent() : "";
-        String title = (doc != null && doc.getTitle() != null) ? doc.getTitle() : "Document-" + docId;
+        String title = (doc != null && doc.getTitle() != null && !doc.getTitle().isBlank()) ? doc.getTitle() : "Document-" + docId;
         byte[] docxBytes = MarkdownToDocxExporter.exportMarkdownToDocx(markdown, title);
 
         return ResponseEntity.ok()
@@ -238,7 +238,7 @@ public class DocumentController {
     @Operation(summary = "Xuất nội dung Markdown sang file Word (.docx)", description = "Nhận nội dung Markdown và trả về file Word (.docx).")
     public ResponseEntity<byte[]> exportRawMarkdownToDocx(@RequestBody ExportDocxRequest request) {
         String markdown = request != null && request.markdown() != null ? request.markdown() : "";
-        String title = request != null && request.title() != null ? request.title() : "LivingDocs";
+        String title = request != null && request.title() != null && !request.title().isBlank() ? request.title() : "LivingDocs";
         byte[] docxBytes = MarkdownToDocxExporter.exportMarkdownToDocx(markdown, title);
 
         return ResponseEntity.ok()
@@ -248,7 +248,9 @@ public class DocumentController {
     }
 
     private String sanitizeFilename(String name) {
-        return name.replaceAll("[^a-zA-Z0-9_.-]", "_");
+        if (name == null || name.isBlank()) return "document";
+        String cleaned = name.replaceAll("[^a-zA-Z0-9_.-]", "_");
+        return cleaned.isBlank() ? "document" : cleaned;
     }
 
 
