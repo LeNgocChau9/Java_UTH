@@ -169,11 +169,11 @@ function FloatingChatBotInner() {
               height: 54,
               padding: 0,
               borderRadius: "50%",
-              background: "#000000",
-              color: "#ffffff",
-              border: "2.5px solid #000000",
+              background: "#ffffff",
+              color: "#0f172a",
+              border: "2px solid #0f2942",
               cursor: "pointer",
-              boxShadow: "0 10px 25px -3px rgba(0, 0, 0, 0.55), 0 4px 8px -2px rgba(0, 0, 0, 0.3)",
+              boxShadow: "0 10px 25px -3px rgba(15, 41, 66, 0.28), 0 4px 8px -2px rgba(15, 41, 66, 0.16)",
               transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
               transform: "scale(1)",
               display: "flex",
@@ -183,11 +183,11 @@ function FloatingChatBotInner() {
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = "scale(1.08)";
-              e.currentTarget.style.boxShadow = "0 14px 28px -3px rgba(0, 0, 0, 0.7)";
+              e.currentTarget.style.boxShadow = "0 14px 28px -3px rgba(15, 41, 66, 0.38)";
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = "scale(1)";
-              e.currentTarget.style.boxShadow = "0 10px 25px -3px rgba(0, 0, 0, 0.55)";
+              e.currentTarget.style.boxShadow = "0 10px 25px -3px rgba(15, 41, 66, 0.28), 0 4px 8px -2px rgba(15, 41, 66, 0.16)";
             }}
             title="Mở ZAZA AI"
           >
@@ -197,14 +197,18 @@ function FloatingChatBotInner() {
                 height: "100%",
                 borderRadius: "50%",
                 overflow: "hidden",
-                backgroundColor: "#000000",
+                backgroundColor: "#ffffff",
+                padding: 5,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/logo-ai.png"
+                src="/images/zaza-ai-avatar.png"
                 alt="ZAZA AI"
-                style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
               />
             </div>
             <span
@@ -275,8 +279,9 @@ function FloatingChatBotInner() {
                     height: 34,
                     borderRadius: "50%",
                     overflow: "hidden",
-                    border: "1.5px solid #000000",
-                    backgroundColor: "#000000",
+                    border: "1.5px solid rgba(255, 255, 255, 0.7)",
+                    backgroundColor: "#ffffff",
+                    padding: 3,
                     display: "grid",
                     placeItems: "center",
                     flexShrink: 0,
@@ -284,9 +289,9 @@ function FloatingChatBotInner() {
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src="/logo-ai.png"
+                    src="/images/zaza-ai-avatar.png"
                     alt="ZAZA AI"
-                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    style={{ width: "100%", height: "100%", objectFit: "contain" }}
                   />
                 </div>
                 <div style={{ minWidth: 0 }}>
@@ -461,15 +466,16 @@ function FloatingChatBotInner() {
                       borderRadius: "50%",
                       overflow: "hidden",
                       border: "1px solid #cbd5e1",
-                      backgroundColor: "#0b0f19",
+                      backgroundColor: "#ffffff",
+                      padding: 2,
                       flexShrink: 0,
                     }}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src="/logo-ai.png"
+                      src="/images/zaza-ai-avatar.png"
                       alt="ZAZA AI"
-                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      style={{ width: "100%", height: "100%", objectFit: "contain" }}
                     />
                   </div>
                   <span style={{ fontSize: 11, color: "#64748b", fontStyle: "italic" }}>

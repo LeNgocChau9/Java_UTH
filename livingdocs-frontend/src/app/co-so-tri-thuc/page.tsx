@@ -792,9 +792,9 @@ export default function CoSoTriThucPage() {
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ width: 30, height: 30, borderRadius: "50%", background: "#000000", display: "grid", placeItems: "center" }}>
+                <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#ffffff", padding: 3, display: "grid", placeItems: "center", border: "1.5px solid rgba(255, 255, 255, 0.7)" }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src="/logo-ai.png" alt="ZAZA" style={{ width: 22, height: 22, objectFit: "contain" }} />
+                  <img src="/images/zaza-ai-avatar.png" alt="ZAZA AI" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
                 </div>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 700 }}>ZAZA AI — Semantic Q&A Hub</div>
