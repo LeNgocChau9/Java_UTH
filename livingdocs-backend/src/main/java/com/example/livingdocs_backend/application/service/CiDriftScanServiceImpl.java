@@ -23,7 +23,6 @@ import java.util.List;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class CiDriftScanServiceImpl implements CiDriftScanServicePort {
 
     private final DriftAlertRepositoryPort driftAlertRepository;
