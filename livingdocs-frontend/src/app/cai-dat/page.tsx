@@ -2282,7 +2282,7 @@ jobs:
                       {changePolicies.length === 0 ? (
                         <tr>
                           <td colSpan={5} style={{ padding: 24, textAlign: "center", color: "#94a3b8" }}>
-                            Chưa có quy tắc module nào được cấu hình. Bấm "+ Thêm Quy Tắc Module" để tạo mới.
+                            Chưa có quy tắc module nào được cấu hình. Bấm &quot;+ Thêm Quy Tắc Module&quot; để tạo mới.
                           </td>
                         </tr>
                       ) : (
