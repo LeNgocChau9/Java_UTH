@@ -23,6 +23,7 @@ import java.util.List;
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class CiDriftScanServiceImpl implements CiDriftScanServicePort {
 
     private final DriftAlertRepositoryPort driftAlertRepository;
@@ -30,23 +31,6 @@ public class CiDriftScanServiceImpl implements CiDriftScanServicePort {
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private SpringDataDocumentChangeAlertRepository documentChangeAlertRepository;
-
-    public CiDriftScanServiceImpl(
-            DriftAlertRepositoryPort driftAlertRepository,
-            SpringDataDocCodeLinkRepository docCodeLinkRepository,
-            SpringDataDocumentChangeAlertRepository documentChangeAlertRepository) {
-        this.driftAlertRepository = driftAlertRepository;
-        this.docCodeLinkRepository = docCodeLinkRepository;
-        this.documentChangeAlertRepository = documentChangeAlertRepository;
-    }
-
-    public CiDriftScanServiceImpl(
-            DriftAlertRepositoryPort driftAlertRepository,
-            SpringDataDocCodeLinkRepository docCodeLinkRepository) {
-        this.driftAlertRepository = driftAlertRepository;
-        this.docCodeLinkRepository = docCodeLinkRepository;
-        this.documentChangeAlertRepository = null;
-    }
 
     @Override
     @Transactional
