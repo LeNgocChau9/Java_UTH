@@ -113,7 +113,7 @@ export function LanguageSwitcher({
             <div className="flex items-center gap-1.5 text-xs font-bold tracking-wide">
               <Globe size={14} className="text-emerald-500" />
               <span style={{ color: isLanding && isDark ? "#F4F4F5" : "#0F172A" }}>
-                {t("lang.select", "Chọn ngôn ngữ")}
+                {t("lang.select", "Select Language")}
               </span>
             </div>
             <span
@@ -123,7 +123,7 @@ export function LanguageSwitcher({
                 color: isLanding && isDark ? "#A1A1AA" : "#64748B",
               }}
             >
-              7 Ngôn ngữ
+              {t("lang.count", "7 Languages")}
             </span>
           </div>
 
@@ -150,7 +150,7 @@ export function LanguageSwitcher({
                   <div className="flex items-center gap-3 min-w-0">
                     <CircularFlag code={item.code} size={22} />
                     <div className="min-w-0 leading-tight">
-                      <div className="text-xs truncate">{item.name}</div>
+                      <div className="text-xs truncate font-semibold">{item.name}</div>
                       <div
                         className="text-[10px] opacity-75 font-normal truncate mt-0.5"
                         style={{
@@ -170,23 +170,6 @@ export function LanguageSwitcher({
                 </button>
               );
             })}
-          </div>
-
-          {/* Footer Badge: Tự hào sáng tạo bởi lập trình viên Việt Nam */}
-          <div
-            className="mt-1 pt-2 pb-1 px-3 border-t text-center rounded-b-xl"
-            style={{
-              borderColor: isLanding && isDark ? "rgba(255, 255, 255, 0.1)" : "#F1F5F9",
-              background: isLanding && isDark ? "rgba(218, 37, 29, 0.12)" : "#FFF5F5",
-            }}
-          >
-            <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-red-700">
-              <CircularFlag code="vi" size={14} />
-              <span>LivingDocs • Make in Vietnam 🇻🇳</span>
-            </div>
-            <div className="text-[10px] text-slate-500 dark:text-zinc-400 mt-0.5">
-              {t("app.madeInVietnamTooltip", "Phát triển bởi đội ngũ lập trình viên Việt Nam")}
-            </div>
           </div>
         </div>
       )}

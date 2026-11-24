@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import gsap from "gsap";
@@ -25,65 +25,73 @@ import CodeDocSyncStage from "@/components/library/CodeDocSyncStage";
 import LampDocSpotlight from "@/components/library/LampDocSpotlight";
 import { aiChatService, type ChatMessage } from "@/services/aiChatService";
 import { LanguageSwitcher } from "@/components/shared/LanguageSwitcher";
-import { VietnamPrideBadge } from "@/components/shared/VietnamPrideBadge";
+import { CircularFlag } from "@/components/shared/CircularFlag";
 import { useLanguage } from "@/context/LanguageContext";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const HERO_PHRASES = [
-  "sống cùng từng dòng mã nguồn",
-  "chặn lệch pha ngay trên mọi PR",
-  "truy xuất tri thức chỉ trong tích tắc",
-  "bảo chứng lịch sử duyệt minh bạch",
-];
-
-const FILEBOX_FOLDERS: {
-  position: number;
-  color: FileBoxColor;
-  dot: string;
-  label: string;
-  desc: string;
-}[] = [
-  {
-    position: 1,
-    color: "green",
-    dot: "#22A862",
-    label: "Tài liệu API tự đồng bộ",
-    desc: "Cập nhật tham số, kiểu trả về và hành vi hàm ngay khi mã nguồn thay đổi.",
-  },
-  {
-    position: 2,
-    color: "orange",
-    dot: "#F8B02A",
-    label: "Cảnh báo lệch pha Pull Request",
-    desc: "Phát hiện ngay các điểm sai khác giữa mã mới và tài liệu hiện có trước khi gộp nhánh.",
-  },
-  {
-    position: 3,
-    color: "pink",
-    dot: "#E28CE6",
-    label: "Hồ sơ kiểm duyệt hai cấp",
-    desc: "Lưu trọn lịch sử thẩm định, phê duyệt và ủy quyền minh bạch cho toàn bộ đội ngũ.",
-  },
-  {
-    position: 4,
-    color: "beige",
-    dot: "#D9B37C",
-    label: "Đồ thị liên kết mã nguồn",
-    desc: "Trực quan hóa luồng phụ thuộc giữa các lớp, hàm và phân hệ trong một góc nhìn.",
-  },
-  {
-    position: 5,
-    color: "green",
-    dot: "#167F46",
-    label: "Kho tri thức tra cứu tức thì",
-    desc: "Hỏi đáp trực tiếp trên toàn bộ tài liệu đã xuất bản với trích dẫn nguồn chính xác.",
-  },
-];
-
 export default function LivingDocsYouMindLandingPage() {
   const { t } = useLanguage();
   const pageRef = useRef<HTMLDivElement>(null);
+
+  // Dynamic Translations for Hero Phrases
+  const heroPhrases = useMemo(
+    () => [
+      t("hero.phrase0", "sống cùng từng dòng mã nguồn"),
+      t("hero.phrase1", "chặn lệch pha ngay trên mọi PR"),
+      t("hero.phrase2", "truy xuất tri thức chỉ trong tích tắc"),
+      t("hero.phrase3", "bảo chứng lịch sử duyệt minh bạch"),
+    ],
+    [t]
+  );
+
+  // Dynamic Translations for FileBox Folders
+  const fileboxFolders = useMemo<{
+    position: number;
+    color: FileBoxColor;
+    dot: string;
+    label: string;
+    desc: string;
+  }[]>(
+    () => [
+      {
+        position: 1,
+        color: "green",
+        dot: "#22A862",
+        label: t("filebox.folder1.label", "Tài liệu API tự đồng bộ"),
+        desc: t("filebox.folder1.desc", "Cập nhật tham số, kiểu trả về và hành vi hàm ngay khi mã nguồn thay đổi."),
+      },
+      {
+        position: 2,
+        color: "orange",
+        dot: "#F8B02A",
+        label: t("filebox.folder2.label", "Cảnh báo lệch pha Pull Request"),
+        desc: t("filebox.folder2.desc", "Phát hiện ngay các điểm sai khác giữa mã mới và tài liệu hiện có trước khi gộp nhánh."),
+      },
+      {
+        position: 3,
+        color: "pink",
+        dot: "#E28CE6",
+        label: t("filebox.folder3.label", "Hồ sơ kiểm duyệt hai cấp"),
+        desc: t("filebox.folder3.desc", "Lưu trọn lịch sử thẩm định, phê duyệt và ủy quyền minh bạch cho toàn bộ đội ngũ."),
+      },
+      {
+        position: 4,
+        color: "beige",
+        dot: "#D9B37C",
+        label: t("filebox.folder4.label", "Đồ thị liên kết mã nguồn"),
+        desc: t("filebox.folder4.desc", "Trực quan hóa luồng phụ thuộc giữa các lớp, hàm và phân hệ trong một góc nhìn."),
+      },
+      {
+        position: 5,
+        color: "green",
+        dot: "#167F46",
+        label: t("filebox.folder5.label", "Kho tri thức tra cứu tức thì"),
+        desc: t("filebox.folder5.desc", "Hỏi đáp trực tiếp trên toàn bộ tài liệu đã xuất bản với trích dẫn nguồn chính xác."),
+      },
+    ],
+    [t]
+  );
 
   // Global Landing Page Light / Dark Theme (syncs entire page, PresenceCards & ReaderCard)
   const [pageTheme, setPageTheme] = useState<"light" | "dark">("light");
@@ -92,11 +100,11 @@ export default function LivingDocsYouMindLandingPage() {
   // Kinetic Hero Rotating Phrase
   const [phraseIdx, setPhraseIdx] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => {
-      setPhraseIdx((p) => (p + 1) % HERO_PHRASES.length);
+    const timer = setInterval(() => {
+      setPhraseIdx((p) => (p + 1) % heroPhrases.length);
     }, 3000);
-    return () => clearInterval(t);
-  }, []);
+    return () => clearInterval(timer);
+  }, [heroPhrases]);
 
   // Copy CLI Command (with fallback for non-HTTPS contexts)
   const [copiedCmd, setCopiedCmd] = useState(false);
@@ -154,20 +162,20 @@ export default function LivingDocsYouMindLandingPage() {
   }>({ color: "green", position: 1 });
 
   const activeFolderInfo =
-    FILEBOX_FOLDERS.find((f) => f.position === pulledFolder.position) ??
-    FILEBOX_FOLDERS[0];
+    fileboxFolders.find((f) => f.position === pulledFolder.position) ??
+    fileboxFolders[0];
 
   // Rotate FileBox banner continuously every 1.25s right from initial load
   useEffect(() => {
-    const t = setInterval(() => {
+    const timer = setInterval(() => {
       setPulledFolder((prev) => {
-        const nextIdx = prev.position % FILEBOX_FOLDERS.length;
-        const next = FILEBOX_FOLDERS[nextIdx];
+        const nextIdx = prev.position % fileboxFolders.length;
+        const next = fileboxFolders[nextIdx];
         return { color: next.color, position: next.position };
       });
     }, 1250);
-    return () => clearInterval(t);
-  }, []);
+    return () => clearInterval(timer);
+  }, [fileboxFolders]);
 
   // Floating ZAZA AI Assistant Drawer
   const [isAskAiOpen, setIsAskAiOpen] = useState(false);
@@ -527,8 +535,7 @@ export default function LivingDocsYouMindLandingPage() {
             {/* PinUI Droplet Flood Theme Switch */}
             <ThemeSwitch theme={pageTheme} onChange={setPageTheme} />
 
-            {/* Vietnam Pride Badge & Language Switcher */}
-            <VietnamPrideBadge variant="pill" isDark={isDark} />
+            {/* Language Switcher */}
             <LanguageSwitcher variant="landing" isDark={isDark} />
 
             {/* Subtle Divider */}
@@ -592,8 +599,10 @@ export default function LivingDocsYouMindLandingPage() {
               }`}
               style={isDark ? undefined : { color: "var(--ld-ink)" }}
             >
-              Tài liệu kỹ thuật luôn mới
-              <span className="mt-2 block">cùng nhịp thay đổi của code.</span>
+              {t("hero.title1", "Tài liệu kỹ thuật luôn mới")}
+              <span className="mt-2 block">
+                {t("hero.title2", "cùng nhịp thay đổi của code.")}
+              </span>
             </h1>
 
             {/* Dynamic Morphing Kinetic Text Ribbon */}
@@ -601,7 +610,7 @@ export default function LivingDocsYouMindLandingPage() {
               className="hero-kinetic mt-5 flex flex-wrap items-center gap-2.5 text-base font-bold sm:text-lg"
               style={{ color: "var(--ld-muted)" }}
             >
-              <span>Hệ thống tự động</span>
+              <span>{t("hero.ribbonPrefix", "Hệ thống tự động")}</span>
               <span
                 key={phraseIdx}
                 className="inline-flex items-center rounded-full border-2 border-[#211D16] bg-[#FEF08A] px-3.5 py-0.5 text-[#211D16] shadow-[2px_2px_0_#211D16]"
@@ -609,7 +618,7 @@ export default function LivingDocsYouMindLandingPage() {
                   animation: "ld-phrase-in 450ms cubic-bezier(0.22,1,0.36,1)",
                 }}
               >
-                <span>{HERO_PHRASES[phraseIdx]}</span>
+                <span>{heroPhrases[phraseIdx % heroPhrases.length]}</span>
               </span>
             </div>
 
@@ -619,7 +628,7 @@ export default function LivingDocsYouMindLandingPage() {
                 href="/login"
                 className="ym-btn-primary inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-full px-7 py-3.5 text-sm font-extrabold"
               >
-                <span>Bắt đầu ngay</span>
+                <span>{t("hero.getStarted", "Bắt đầu ngay")}</span>
               </Link>
 
               {/* Copyable Git Clone Command Pill */}
@@ -627,7 +636,7 @@ export default function LivingDocsYouMindLandingPage() {
                 type="button"
                 onClick={handleCopyCommand}
                 className="ym-btn-secondary inline-flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-full px-4 py-3 font-mono text-[11.5px] font-bold"
-                title="Sao chép lệnh git clone"
+                title={t("hero.copyCommand", "Sao chép lệnh git clone")}
               >
                 <Terminal size={13} className="flex-shrink-0 text-[#E8523B]" />
                 <span>git clone https://github.com/LeNgocChau9/Java_UTH</span>
@@ -721,7 +730,7 @@ export default function LivingDocsYouMindLandingPage() {
 
             {/* Minimalist 5-Folder Color Selector Bars */}
             <div className="mt-7 flex items-center gap-2">
-              {FILEBOX_FOLDERS.map((folder) => {
+              {fileboxFolders.map((folder) => {
                 const isSelected = folder.position === pulledFolder.position;
                 return (
                   <button
@@ -768,9 +777,9 @@ export default function LivingDocsYouMindLandingPage() {
               className="text-3xl font-black leading-[1.12] tracking-tight sm:text-5xl"
               style={{ color: "var(--ld-ink)" }}
             >
-              Viết code trên máy bạn
+              {t("studio.title1", "Viết code trên máy bạn")}
               <span className="mt-1.5 block">
-                tài liệu tự cập nhật bên cạnh.
+                {t("studio.title2", "tài liệu tự cập nhật bên cạnh.")}
               </span>
             </h2>
           </div>
@@ -821,9 +830,9 @@ export default function LivingDocsYouMindLandingPage() {
             className="text-3xl font-black leading-[1.12] tracking-tight sm:text-5xl"
             style={{ color: "var(--ld-ink)" }}
           >
-            Mã nguồn vừa thay đổi
+            {t("sync.title1", "Mã nguồn vừa thay đổi")}
             <span className="mt-1.5 block">
-              tài liệu nhận ra và tự đồng bộ.
+              {t("sync.title2", "tài liệu nhận ra và tự đồng bộ.")}
             </span>
           </h2>
         </div>
@@ -875,7 +884,7 @@ export default function LivingDocsYouMindLandingPage() {
               >
                 LivingDocs
                 <span className="mt-1.5 block">
-                  Giải pháp cho tài liệu luôn mới.
+                  {t("cta.title", "Giải pháp cho tài liệu luôn mới.")}
                 </span>
               </h2>
 
@@ -883,9 +892,10 @@ export default function LivingDocsYouMindLandingPage() {
                 className="mt-4 max-w-lg text-sm font-semibold leading-relaxed sm:text-base"
                 style={{ color: "var(--ld-muted)" }}
               >
-                Tự động phát hiện sai lệch, đồng bộ nội dung và quản trị tri
-                thức dự án trong một không gian thống nhất cho đội ngũ phát
-                triển phần mềm.
+                {t(
+                  "cta.desc",
+                  "Tự động phát hiện sai lệch, đồng bộ nội dung và quản trị tri thức dự án trong một không gian thống nhất cho đội ngũ phát triển phần mềm."
+                )}
               </p>
 
               <div className="mt-8 flex flex-wrap items-center gap-3.5">
@@ -893,7 +903,7 @@ export default function LivingDocsYouMindLandingPage() {
                   href="/login"
                   className="ym-btn-primary inline-flex items-center rounded-full px-8 py-4 text-sm font-extrabold"
                 >
-                  <span>Đăng nhập ngay</span>
+                  <span>{t("cta.loginNow", "Đăng nhập ngay")}</span>
                 </Link>
               </div>
             </div>
@@ -934,8 +944,10 @@ export default function LivingDocsYouMindLandingPage() {
               </div>
             </Link>
             <p className="leading-relaxed">
-              Nền tảng quản trị, tự động sinh và đồng bộ tài liệu kỹ thuật theo
-              mã nguồn bằng AI.
+              {t(
+                "footer.brandDesc",
+                "Nền tảng quản trị, tự động sinh và đồng bộ tài liệu kỹ thuật theo mã nguồn bằng AI."
+              )}
             </p>
           </div>
 
@@ -944,7 +956,7 @@ export default function LivingDocsYouMindLandingPage() {
               className="font-extrabold uppercase tracking-wider"
               style={{ color: "var(--ld-ink)" }}
             >
-              Phân hệ chính
+              {t("footer.colModules", "Phân hệ chính")}
             </div>
             <ul className="space-y-2 font-semibold">
               <li>
@@ -975,7 +987,7 @@ export default function LivingDocsYouMindLandingPage() {
               className="font-extrabold uppercase tracking-wider"
               style={{ color: "var(--ld-ink)" }}
             >
-              Quy trình duyệt
+              {t("footer.colReviews", "Quy trình duyệt")}
             </div>
             <ul className="space-y-2 font-semibold">
               <li>
@@ -1006,7 +1018,7 @@ export default function LivingDocsYouMindLandingPage() {
               className="font-extrabold uppercase tracking-wider"
               style={{ color: "var(--ld-ink)" }}
             >
-              Mã nguồn mở
+              {t("footer.colOpenSource", "Mã nguồn mở")}
             </div>
             <ul className="space-y-2 font-semibold">
               <li>
@@ -1037,7 +1049,7 @@ export default function LivingDocsYouMindLandingPage() {
               className="font-extrabold uppercase tracking-wider"
               style={{ color: "var(--ld-ink)" }}
             >
-              Tiêu chuẩn
+              {t("footer.colStandards", "Tiêu chuẩn")}
             </div>
             <ul className="space-y-2 font-semibold">
               <li>MIT License</li>
@@ -1046,16 +1058,24 @@ export default function LivingDocsYouMindLandingPage() {
             </ul>
           </div>
 
-          {/* Bottom Bar: Vietnam Pride & Copyright */}
+          {/* Bottom Bar: Circular Vietnam Flag Pride & Copyright */}
           <div
             className="col-span-full mt-6 flex flex-col items-center justify-between gap-4 border-t pt-6 text-xs font-medium sm:flex-row"
             style={{
               borderColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(33,29,22,0.12)",
             }}
           >
-            <VietnamPrideBadge variant="footer" isDark={isDark} />
+            <div className="flex items-center gap-2">
+              <CircularFlag code="vi" size={17} />
+              <span>
+                {t(
+                  "footer.proudlyCrafted",
+                  "Thiết kế & phát triển với niềm tự hào tại Việt Nam 🇻🇳"
+                )}
+              </span>
+            </div>
             <div className="text-center opacity-70 sm:text-right">
-              © 2026 LivingDocs AI • {t("footer.proudlyCrafted", "Thiết kế & phát triển với niềm tự hào tại Việt Nam 🇻🇳")}
+              © 2026 LivingDocs AI • {t("footer.byEngineers", "Phát triển bởi kỹ sư Việt Nam 🇻🇳")}
             </div>
           </div>
         </div>
