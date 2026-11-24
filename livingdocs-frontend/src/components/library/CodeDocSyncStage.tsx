@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import {
   CheckCircle2,
   FileCode2,
@@ -8,6 +8,7 @@ import {
   GitCommitHorizontal,
   Radar,
 } from "lucide-react";
+import { useLanguage } from "@/context/LanguageContext";
 
 export interface CodeDocSyncStageProps {
   theme?: "light" | "dark";
@@ -25,106 +26,131 @@ interface SyncScenario {
   docUpdateLine: string;
 }
 
-const SCENARIOS: SyncScenario[] = [
-  {
-    id: "sample-1",
-    file: "Tệp mã 01",
-    docFile: "tài liệu",
-    beforeCode: [
-      "class DemoModule {",
-      "  // Hàm xử lý mẫu",
-    ],
-    removedLine: "  handle(input) {",
-    addedLine: "  handle(input, options) {",
-    afterCode: [
-      "    return runTask(input, options);",
-      "  }",
-      "}",
-    ],
-    detectedChange: "Phát hiện thêm tham số mới trong hàm handle()",
-    docUpdateLine: "Đã tự động cập nhật mô tả tham số mới vào tài liệu.",
-  },
-  {
-    id: "sample-2",
-    file: "Tệp mã 02",
-    docFile: "tài liệu",
-    beforeCode: [
-      "function buildResult(",
-      "  data,",
-    ],
-    removedLine: "  format",
-    addedLine: "  format, limit = 20",
-    afterCode: [
-      ") {",
-      "  return createOutput(data, format, limit);",
-      "}",
-    ],
-    detectedChange: "Phát hiện bổ sung giá trị mặc định trong buildResult()",
-    docUpdateLine: "Đã tự động cập nhật bảng tham số và ví dụ vào tài liệu.",
-  },
-  {
-    id: "sample-3",
-    file: "Tệp mã 03",
-    docFile: "tài liệu",
-    beforeCode: [
-      "def sync_item(item_id, mode='auto'):",
-      "    # Luồng xử lý mẫu",
-    ],
-    removedLine: "    return save_draft(item_id)",
-    addedLine: "    return save_draft(item_id, mode=mode)",
-    afterCode: [
-      "",
-      "def notify_change(item_id):",
-      "    return emit_update(item_id)",
-    ],
-    detectedChange: "Phát hiện thay đổi tham số gọi hàm trong sync_item()",
-    docUpdateLine: "Đã tự động đồng bộ nội dung thay đổi vào tài liệu.",
-  },
-];
-
-const SYNC_STEPS = [
-  {
-    icon: GitCommitHorizontal,
-    accent: "#2563EB",
-    softLight: "#EFF6FF",
-    softDark: "rgba(37,99,235,0.18)",
-    title: "Bắt nhịp thay đổi mã nguồn",
-    desc: "Nhận diện ngay dòng code vừa thêm, đổi tham số hoặc thay đổi hành vi trong mỗi lần cập nhật.",
-  },
-  {
-    icon: Radar,
-    accent: "#D97706",
-    softLight: "#FEF3C7",
-    softDark: "rgba(217,119,6,0.2)",
-    title: "Quét đối chiếu với tài liệu hiện tại",
-    desc: "Tự động quét và khoanh vùng chính xác đoạn nội dung tài liệu đang bị lệch so với mã nguồn mới.",
-  },
-  {
-    icon: FileText,
-    accent: "#059669",
-    softLight: "#ECFDF5",
-    softDark: "rgba(5,150,105,0.2)",
-    title: "Cập nhật chuẩn xác từng đoạn tài liệu",
-    desc: "Chỉ viết lại đúng phần bị ảnh hưởng và giữ nguyên toàn bộ các mục đã phê duyệt trước đó.",
-  },
-];
-
 export default function CodeDocSyncStage({
   theme = "light",
 }: CodeDocSyncStageProps) {
+  const { t } = useLanguage();
   const isDark = theme === "dark";
   const [scenarioIdx, setScenarioIdx] = useState(0);
   // 0 = code changed, 1 = laser scanning, 2 = doc synced
   const [phase, setPhase] = useState<0 | 1 | 2>(0);
 
-  const scenario = SCENARIOS[scenarioIdx];
+  const scenarios: SyncScenario[] = useMemo(
+    () => [
+      {
+        id: "sample-1",
+        file: t("sync.file1", "Tệp mã 01"),
+        docFile: "docs",
+        beforeCode: [
+          "class DemoModule {",
+          "  // Handler function",
+        ],
+        removedLine: "  handle(input) {",
+        addedLine: "  handle(input, options) {",
+        afterCode: [
+          "    return runTask(input, options);",
+          "  }",
+          "}",
+        ],
+        detectedChange: "Detected new parameter in handle()",
+        docUpdateLine: t(
+          "sync.docUpdate1",
+          "Đã tự động cập nhật mô tả tham số mới vào tài liệu."
+        ),
+      },
+      {
+        id: "sample-2",
+        file: t("sync.file2", "Tệp mã 02"),
+        docFile: "docs",
+        beforeCode: [
+          "function buildResult(",
+          "  data,",
+        ],
+        removedLine: "  format",
+        addedLine: "  format, limit = 20",
+        afterCode: [
+          ") {",
+          "  return createOutput(data, format, limit);",
+          "}",
+        ],
+        detectedChange: "Detected default parameter in buildResult()",
+        docUpdateLine: t(
+          "sync.docUpdate2",
+          "Đã tự động cập nhật bảng tham số và ví dụ vào tài liệu."
+        ),
+      },
+      {
+        id: "sample-3",
+        file: t("sync.file3", "Tệp mã 03"),
+        docFile: "docs",
+        beforeCode: [
+          "def sync_item(item_id, mode='auto'):",
+          "    # Workflow handler",
+        ],
+        removedLine: "    return save_draft(item_id)",
+        addedLine: "    return save_draft(item_id, mode=mode)",
+        afterCode: [
+          "",
+          "def notify_change(item_id):",
+          "    return emit_update(item_id)",
+        ],
+        detectedChange: "Detected caller argument mutation in sync_item()",
+        docUpdateLine: t(
+          "sync.docUpdate3",
+          "Đã tự động đồng bộ nội dung thay đổi vào tài liệu."
+        ),
+      },
+    ],
+    [t]
+  );
+
+  const syncSteps = useMemo(
+    () => [
+      {
+        icon: GitCommitHorizontal,
+        accent: "#2563EB",
+        softLight: "#EFF6FF",
+        softDark: "rgba(37,99,235,0.18)",
+        title: t("sync.step1.title", "Bắt nhịp thay đổi mã nguồn"),
+        desc: t(
+          "sync.step1.desc",
+          "Nhận diện ngay dòng code vừa thêm, đổi tham số hoặc thay đổi hành vi trong mỗi lần cập nhật."
+        ),
+      },
+      {
+        icon: Radar,
+        accent: "#D97706",
+        softLight: "#FEF3C7",
+        softDark: "rgba(217,119,6,0.2)",
+        title: t("sync.step2.title", "Quét đối chiếu với tài liệu hiện tại"),
+        desc: t(
+          "sync.step2.desc",
+          "Tự động quét và khoanh vùng chính xác đoạn nội dung tài liệu đang bị lệch so với mã nguồn mới."
+        ),
+      },
+      {
+        icon: FileText,
+        accent: "#059669",
+        softLight: "#ECFDF5",
+        softDark: "rgba(5,150,105,0.2)",
+        title: t("sync.step3.title", "Cập nhật chuẩn xác từng đoạn tài liệu"),
+        desc: t(
+          "sync.step3.desc",
+          "Chỉ viết lại đúng phần bị ảnh hưởng và giữ nguyên toàn bộ các mục đã phê duyệt trước đó."
+        ),
+      },
+    ],
+    [t]
+  );
+
+  const scenario = scenarios[scenarioIdx % scenarios.length];
 
   useEffect(() => {
     setPhase(0);
     const t1 = setTimeout(() => setPhase(1), 1300);
     const t2 = setTimeout(() => setPhase(2), 2900);
     const t3 = setTimeout(
-      () => setScenarioIdx((prev) => (prev + 1) % SCENARIOS.length),
+      () => setScenarioIdx((prev) => (prev + 1) % scenarios.length),
       5000
     );
     return () => {
@@ -132,7 +158,7 @@ export default function CodeDocSyncStage({
       clearTimeout(t2);
       clearTimeout(t3);
     };
-  }, [scenarioIdx]);
+  }, [scenarioIdx, scenarios.length]);
 
   return (
     <div className="grid grid-cols-1 items-center gap-8 lg:grid-cols-12">
@@ -189,7 +215,7 @@ export default function CodeDocSyncStage({
             }}
           >
             <div className="flex flex-wrap items-center gap-1.5">
-              {SCENARIOS.map((item, idx) => {
+              {scenarios.map((item, idx) => {
                 const active = idx === scenarioIdx;
                 return (
                   <button
@@ -272,10 +298,10 @@ export default function CodeDocSyncStage({
               />
               <span>
                 {phase === 0
-                  ? "Code thay đổi"
+                  ? t("sync.badge.phase0", "Code thay đổi")
                   : phase === 1
-                  ? "Đang quét lệch pha..."
-                  : `Đã đồng bộ ${scenario.docFile}`}
+                  ? t("sync.badge.phase1", "Đang quét lệch pha...")
+                  : t("sync.badge.phase2", "Đã đồng bộ tài liệu")}
               </span>
             </span>
           </div>
@@ -417,7 +443,7 @@ export default function CodeDocSyncStage({
 
       {/* Right 5 Columns: 3 Live Step Cards Synced with Code -> Scan -> Doc */}
       <div className="space-y-4 lg:col-span-5">
-        {SYNC_STEPS.map((step, idx) => {
+        {syncSteps.map((step, idx) => {
           const Icon = step.icon;
           const isActive = idx === phase;
           return (

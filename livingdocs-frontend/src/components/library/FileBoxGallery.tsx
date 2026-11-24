@@ -4,6 +4,7 @@ import React, { useEffect, useRef } from "react";
 import Link from "next/link";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { useLanguage } from "@/context/LanguageContext";
 import "./file-box-gallery.css";
 import {
   ArrowUpRight,
@@ -39,7 +40,8 @@ type VisualType =
 
 interface FeatureCardItem {
   id: string;
-  title: string;
+  titleKey: string;
+  defaultTitle: string;
   href: string;
   visualType: VisualType;
 }
@@ -48,37 +50,43 @@ const ALL_CARDS: FeatureCardItem[] = [
   // ─── TRANG 1 (6 thẻ) ───
   {
     id: "ast-extractor",
-    title: "Bóc tách cây cú pháp AST",
+    titleKey: "card.ast",
+    defaultTitle: "Bóc tách cây cú pháp AST",
     href: "/cay-ma-nguon",
     visualType: "ast",
   },
   {
     id: "drift-gate",
-    title: "Phát hiện lệch tài liệu Drift",
+    titleKey: "card.drift",
+    defaultTitle: "Phát hiện lệch tài liệu Drift",
     href: "/canh-bao-sai-lech",
     visualType: "drift",
   },
   {
     id: "pgvector-rag",
-    title: "Hỏi đáp tri thức ZAZA AI",
+    titleKey: "card.rag",
+    defaultTitle: "Hỏi đáp tri thức ZAZA AI",
     href: "/co-so-tri-thuc",
     visualType: "rag",
   },
   {
     id: "two-tier-review",
-    title: "Quy trình kiểm duyệt hai cấp",
+    titleKey: "card.approval",
+    defaultTitle: "Quy trình kiểm duyệt hai cấp",
     href: "/hang-doi-xem-xet",
     visualType: "approval",
   },
   {
     id: "workspace-studio",
-    title: "Trình soạn thảo Workspace Studio",
+    titleKey: "card.workspace",
+    defaultTitle: "Trình soạn thảo Workspace Studio",
     href: "/tai-lieu-cua-toi/editor",
     visualType: "workspace",
   },
   {
     id: "hash-chain",
-    title: "Bảo chứng chuỗi băm SHA-256",
+    titleKey: "card.hash",
+    defaultTitle: "Bảo chứng chuỗi băm SHA-256",
     href: "/dashboard-chat-luong",
     visualType: "hash",
   },
@@ -86,37 +94,43 @@ const ALL_CARDS: FeatureCardItem[] = [
   // ─── TRANG 2 (6 thẻ mới, hoàn toàn không dùng màu đen) ───
   {
     id: "localized-regen",
-    title: "Tái sinh tài liệu cục bộ",
+    titleKey: "card.regen",
+    defaultTitle: "Tái sinh tài liệu cục bộ",
     href: "/cay-ma-nguon",
     visualType: "regen",
   },
   {
     id: "template-library",
-    title: "Kho mẫu tài liệu chuẩn",
+    titleKey: "card.template",
+    defaultTitle: "Kho mẫu tài liệu chuẩn",
     href: "/quan-ly-template",
     visualType: "template",
   },
   {
     id: "dependency-graph",
-    title: "Đồ thị liên kết mã nguồn",
+    titleKey: "card.graph",
+    defaultTitle: "Đồ thị liên kết mã nguồn",
     href: "/do-thi-lien-ket",
     visualType: "graph",
   },
   {
     id: "coverage-gaps",
-    title: "Phân tích khoảng trống tài liệu",
+    titleKey: "card.gaps",
+    defaultTitle: "Phân tích khoảng trống tài liệu",
     href: "/khoang-trong-tai-lieu",
     visualType: "gaps",
   },
   {
     id: "approval-delegation",
-    title: "Ủy quyền phê duyệt linh hoạt",
+    titleKey: "card.delegation",
+    defaultTitle: "Ủy quyền phê duyệt linh hoạt",
     href: "/uy-quyen-phe-duyet",
     visualType: "delegation",
   },
   {
     id: "ai-failover",
-    title: "Định tuyến AI Cloud và Ollama",
+    titleKey: "card.failover",
+    defaultTitle: "Định tuyến AI Cloud và Ollama",
     href: "/cai-dat",
     visualType: "failover",
   },
@@ -574,6 +588,7 @@ function CardAnimatedVisual({ type }: { type: VisualType }) {
 }
 
 export default function FileBoxGallery() {
+  const { t } = useLanguage();
   const sectionRef = useRef<HTMLElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
 
@@ -625,7 +640,7 @@ export default function FileBoxGallery() {
           className="text-3xl font-black tracking-tight sm:text-5xl"
           style={{ color: "var(--ld-ink)" }}
         >
-          Khám Phá LivingDocs
+          {t("gallery.title", "Khám Phá LivingDocs")}
         </h2>
       </div>
 
@@ -649,7 +664,7 @@ export default function FileBoxGallery() {
                 className="text-[17px] font-black leading-snug tracking-tight transition-colors group-hover:text-[#E8523B]"
                 style={{ color: "var(--ld-ink)" }}
               >
-                {item.title}
+                {t(item.titleKey, item.defaultTitle)}
               </h3>
               <ArrowUpRight
                 size={16}

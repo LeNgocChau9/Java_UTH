@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, FileText, PenLine } from "lucide-react";
+import { useLanguage } from "@/context/LanguageContext";
 
 export interface ReaderCardProps {
   theme?: "dark" | "light";
@@ -56,12 +57,61 @@ export default function ReaderCard({
   theme = "dark",
   className = "",
 }: ReaderCardProps) {
+  const { t } = useLanguage();
   const isDark = theme === "dark";
   const [docIndex, setDocIndex] = useState(0);
   const [visibleWords, setVisibleWords] = useState(0);
   const [visibleBullets, setVisibleBullets] = useState(0);
 
-  const currentDoc = LIVE_DOCS[docIndex];
+  const liveDocs: LiveDocSample[] = useMemo(
+    () => [
+      {
+        file: "ProductService.md",
+        section: t("reader.doc1.section", "TÀI LIỆU API · TỰ ĐỘNG ĐỒNG BỘ"),
+        title: t("reader.doc1.title", "Truy vấn danh sách sản phẩm"),
+        body: t(
+          "reader.doc1.body",
+          "Khi hàm danh mục bổ sung tham số phân trang mới, LivingDocs tự động cập nhật đúng đoạn tài liệu liên quan mà không làm xáo trộn các phần đã duyệt trước đó."
+        ),
+        bullets: [
+          { key: "category", value: "filter category id" },
+          { key: "pageSize", value: "page record limit" },
+          { key: "sortBy", value: "default sorting criteria" },
+        ],
+      },
+      {
+        file: "DriftCheck.md",
+        section: t("reader.doc2.section", "KIỂM TRA ĐỒNG BỘ · PULL REQUEST"),
+        title: t("reader.doc2.title", "Phát hiện tài liệu bị lệch pha"),
+        body: t(
+          "reader.doc2.body",
+          "Ngay khi mã nguồn thay đổi tên hàm hoặc giá trị trả về, hệ thống lập tức đối chiếu với bản tài liệu hiện tại và gắn cảnh báo rõ ràng trước khi gộp nhánh."
+        ),
+        bullets: [
+          { key: "Scope", value: "targeted diff detection" },
+          { key: "Alert", value: "severity classification" },
+          { key: "Update", value: "auto-generated draft" },
+        ],
+      },
+      {
+        file: "ReviewFlow.md",
+        section: t("reader.doc3.section", "PHÊ DUYỆT · LỊCH SỬ PHIÊN BẢN"),
+        title: t("reader.doc3.title", "Kiểm duyệt và xuất bản tài liệu"),
+        body: t(
+          "reader.doc3.body",
+          "Mọi bản nháp tài liệu mới đều đi qua quy trình rà soát minh bạch, lưu trọn dấu vết chỉnh sửa và đồng bộ ngược về kho dự án chỉ trong một nhịp."
+        ),
+        bullets: [
+          { key: "Draft", value: "automated trigger on code change" },
+          { key: "Audit", value: "side-by-side verification" },
+          { key: "Publish", value: "versioned with audit ledger" },
+        ],
+      },
+    ],
+    [t]
+  );
+
+  const currentDoc = liveDocs[docIndex % liveDocs.length];
   const words = useMemo(() => currentDoc.body.split(" "), [currentDoc.body]);
   const isTypingWords = visibleWords < words.length;
   const isDone =
@@ -86,12 +136,12 @@ export default function ReaderCard({
       }, 260);
     } else {
       timer = setTimeout(() => {
-        setDocIndex((i) => (i + 1) % LIVE_DOCS.length);
+        setDocIndex((i) => (i + 1) % liveDocs.length);
       }, 2400);
     }
 
     return () => clearTimeout(timer);
-  }, [visibleWords, visibleBullets, words.length, currentDoc.bullets.length]);
+  }, [visibleWords, visibleBullets, words.length, currentDoc.bullets.length, liveDocs.length]);
 
   return (
     <div
@@ -213,12 +263,12 @@ export default function ReaderCard({
               {isDone ? (
                 <>
                   <CheckCircle2 size={11} />
-                  <span>Đã đồng bộ</span>
+                  <span>{t("sync.badge.phase2", "Đã đồng bộ")}</span>
                 </>
               ) : (
                 <>
                   <PenLine size={11} className="animate-pulse" />
-                  <span>Đang viết...</span>
+                  <span>{t("reader.writing", "Đang viết...")}</span>
                 </>
               )}
             </div>
