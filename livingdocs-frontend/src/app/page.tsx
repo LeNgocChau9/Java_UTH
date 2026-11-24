@@ -25,7 +25,6 @@ import CodeDocSyncStage from "@/components/library/CodeDocSyncStage";
 import LampDocSpotlight from "@/components/library/LampDocSpotlight";
 import { aiChatService, type ChatMessage } from "@/services/aiChatService";
 import { LanguageSwitcher } from "@/components/shared/LanguageSwitcher";
-import { CircularFlag } from "@/components/shared/CircularFlag";
 import { useLanguage } from "@/context/LanguageContext";
 
 gsap.registerPlugin(ScrollTrigger);
@@ -1056,27 +1055,6 @@ export default function LivingDocsYouMindLandingPage() {
               <li>SHA-256 Hash-Chain</li>
               <li>IEEE / ISO Spec Ready</li>
             </ul>
-          </div>
-
-          {/* Bottom Bar: Circular Vietnam Flag Pride & Copyright */}
-          <div
-            className="col-span-full mt-6 flex flex-col items-center justify-between gap-4 border-t pt-6 text-xs font-medium sm:flex-row"
-            style={{
-              borderColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(33,29,22,0.12)",
-            }}
-          >
-            <div className="flex items-center gap-2">
-              <CircularFlag code="vi" size={17} />
-              <span>
-                {t(
-                  "footer.proudlyCrafted",
-                  "Thiết kế & phát triển với niềm tự hào tại Việt Nam 🇻🇳"
-                )}
-              </span>
-            </div>
-            <div className="text-center opacity-70 sm:text-right">
-              © 2026 LivingDocs AI • {t("footer.byEngineers", "Phát triển bởi kỹ sư Việt Nam 🇻🇳")}
-            </div>
           </div>
         </div>
       </footer>
