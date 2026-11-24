@@ -98,6 +98,8 @@ import {
   type SavedAccountEntry,
 } from "@/services/authService";
 import { FloatingChatBot } from "@/components/chat/FloatingChatBot";
+import { LanguageSwitcher } from "@/components/shared/LanguageSwitcher";
+import { VietnamPrideBadge } from "@/components/shared/VietnamPrideBadge";
 
 type AppRole = "DEVELOPER" | "STAFF" | "MANAGER" | "TECH_LEAD" | "ADMIN";
 
@@ -1006,6 +1008,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Moon size={18} className="text-slate-600" />
             )}
           </button>
+
+          {/* Vietnam Maker Pride Badge & Language Switcher */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <VietnamPrideBadge variant="compact" isDark={isDark} />
+            <LanguageSwitcher variant="app" isDark={isDark} />
+          </div>
 
           {/* Notifications Bell */}
           <div style={{ position: "relative" }}>

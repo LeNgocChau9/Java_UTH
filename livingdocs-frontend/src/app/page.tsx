@@ -24,6 +24,9 @@ import TechStackBanner from "@/components/library/TechStackBanner";
 import CodeDocSyncStage from "@/components/library/CodeDocSyncStage";
 import LampDocSpotlight from "@/components/library/LampDocSpotlight";
 import { aiChatService, type ChatMessage } from "@/services/aiChatService";
+import { LanguageSwitcher } from "@/components/shared/LanguageSwitcher";
+import { VietnamPrideBadge } from "@/components/shared/VietnamPrideBadge";
+import { useLanguage } from "@/context/LanguageContext";
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -79,6 +82,7 @@ const FILEBOX_FOLDERS: {
 ];
 
 export default function LivingDocsYouMindLandingPage() {
+  const { t } = useLanguage();
   const pageRef = useRef<HTMLDivElement>(null);
 
   // Global Landing Page Light / Dark Theme (syncs entire page, PresenceCards & ReaderCard)
@@ -523,6 +527,10 @@ export default function LivingDocsYouMindLandingPage() {
             {/* PinUI Droplet Flood Theme Switch */}
             <ThemeSwitch theme={pageTheme} onChange={setPageTheme} />
 
+            {/* Vietnam Pride Badge & Language Switcher */}
+            <VietnamPrideBadge variant="pill" isDark={isDark} />
+            <LanguageSwitcher variant="landing" isDark={isDark} />
+
             {/* Subtle Divider */}
             <span
               className="mx-1 hidden h-6 w-[1.5px] sm:inline-block"
@@ -538,7 +546,7 @@ export default function LivingDocsYouMindLandingPage() {
               href="/login"
               className="ym-btn-primary inline-flex items-center rounded-full px-7 py-2.5 text-sm font-extrabold"
             >
-              <span>Đăng nhập</span>
+              <span>{t("nav.login", "Đăng nhập")}</span>
             </Link>
           </div>
         </div>
@@ -1036,6 +1044,19 @@ export default function LivingDocsYouMindLandingPage() {
               <li>SHA-256 Hash-Chain</li>
               <li>IEEE / ISO Spec Ready</li>
             </ul>
+          </div>
+
+          {/* Bottom Bar: Vietnam Pride & Copyright */}
+          <div
+            className="col-span-full mt-6 flex flex-col items-center justify-between gap-4 border-t pt-6 text-xs font-medium sm:flex-row"
+            style={{
+              borderColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(33,29,22,0.12)",
+            }}
+          >
+            <VietnamPrideBadge variant="footer" isDark={isDark} />
+            <div className="text-center opacity-70 sm:text-right">
+              © 2026 LivingDocs AI • {t("footer.proudlyCrafted", "Thiết kế & phát triển với niềm tự hào tại Việt Nam 🇻🇳")}
+            </div>
           </div>
         </div>
       </footer>

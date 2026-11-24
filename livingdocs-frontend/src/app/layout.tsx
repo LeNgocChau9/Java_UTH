@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Roboto, Roboto_Mono, Instrument_Serif } from "next/font/google";
 import "./globals.css";
+import { LanguageProvider } from "@/context/LanguageContext";
 
 // Font chủ đạo toàn hệ thống: Roboto (thân thiện, dễ đọc, hỗ trợ tiếng Việt).
 // Giữ nguyên tên CSS variable để không phá vỡ các chỗ tham chiếu trong globals.css.
@@ -76,7 +77,7 @@ export default function RootLayout({
         suppressHydrationWarning
         className="min-h-dvh bg-[#f7faf8] text-slate-900"
       >
-        {children}
+        <LanguageProvider>{children}</LanguageProvider>
       </body>
     </html>
   );
