@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Optional;
 
 @Component
 @RequiredArgsConstructor
@@ -34,6 +35,12 @@ public class CodeEntityRepositoryAdapter implements CodeEntityRepositoryPort {
 
     @Override
     @Transactional(readOnly = true)
+    public Optional<CodeEntity> findById(Long entityId) {
+        return repository.findById(entityId).map(this::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<CodeEntity> findByRepositoryId(Long repositoryId) {
         return repository.findByRepositoryId(repositoryId).stream().map(this::toDomain).toList();
     }
@@ -42,6 +49,12 @@ public class CodeEntityRepositoryAdapter implements CodeEntityRepositoryPort {
     @Transactional(readOnly = true)
     public List<CodeEntity> findByRepositoryIdAndFilePath(Long repositoryId, String filePath) {
         return repository.findByRepositoryIdAndFilePath(repositoryId, filePath).stream().map(this::toDomain).toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<CodeEntity> findByWorkspaceId(Long workspaceId) {
+        return repository.findByWorkspaceId(workspaceId).stream().map(this::toDomain).toList();
     }
 
     @Override

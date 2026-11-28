@@ -25,7 +25,11 @@ public class DocumentUpdatePolicyEntity {
     @Column(name = "policy_id")
     private Long policyId;
 
-    @Column(name = "document_type", nullable = false, unique = true, length = 100)
+    @Column(name = "workspace_id", nullable = false)
+    @Builder.Default
+    private Long workspaceId = 1L;
+
+    @Column(name = "document_type", nullable = false, length = 100)
     private String documentType;
 
     @Column(name = "trigger_commit", nullable = false)

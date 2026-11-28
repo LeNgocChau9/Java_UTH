@@ -1,10 +1,14 @@
 package com.example.livingdocs_backend.infrastructure.persistence.adapter;
 
+import com.example.livingdocs_backend.application.dto.RepoCoverageDto;
 import com.example.livingdocs_backend.application.dto.WeeklyTrendBucket;
+import com.example.livingdocs_backend.application.dto.health.MissingDocEntityStatsDto;
 import com.example.livingdocs_backend.application.port.DashboardStatsQueryPort;
+import com.example.livingdocs_backend.infrastructure.security.TenantAccessService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,6 +19,7 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,93 +35,138 @@ public class DashboardStatsQueryAdapter implements DashboardStatsQueryPort {
 
     private final EntityManager entityManager;
 
+    @Autowired(required = false)
+    private TenantAccessService tenantAccessService;
+
     @Override
     public long countScannedClassesAndFunctions(Long repositoryId) {
-        return count(
+        Long wsId = resolveWorkspaceFilter(repositoryId);
+        if (isUnassigned()) return 0L;
+        return countScoped(
                 "SELECT COUNT(*) FROM code_entities WHERE UPPER(entity_type) IN " + SCANNED_TYPES,
+                "SELECT COUNT(*) FROM code_entities ce JOIN repositories r ON r.repository_id = ce.repository_id "
+                        + "WHERE r.workspace_id = :workspaceId AND UPPER(ce.entity_type) IN " + SCANNED_TYPES,
                 "SELECT COUNT(*) FROM code_entities WHERE UPPER(entity_type) IN " + SCANNED_TYPES
                         + " AND repository_id = :repositoryId",
-                repositoryId
+                repositoryId,
+                wsId
         );
     }
 
     @Override
     public long countDocumentedEntities(Long repositoryId) {
-        return count(
+        Long wsId = resolveWorkspaceFilter(repositoryId);
+        if (isUnassigned()) return 0L;
+        return countScoped(
                 "SELECT COUNT(*) FROM code_entities WHERE UPPER(entity_type) IN " + SCANNED_TYPES
                         + " AND UPPER(doc_status) IN " + DOCUMENTED_STATUSES,
+                "SELECT COUNT(*) FROM code_entities ce JOIN repositories r ON r.repository_id = ce.repository_id "
+                        + "WHERE r.workspace_id = :workspaceId AND UPPER(ce.entity_type) IN " + SCANNED_TYPES
+                        + " AND UPPER(ce.doc_status) IN " + DOCUMENTED_STATUSES,
                 "SELECT COUNT(*) FROM code_entities WHERE UPPER(entity_type) IN " + SCANNED_TYPES
                         + " AND UPPER(doc_status) IN " + DOCUMENTED_STATUSES
                         + " AND repository_id = :repositoryId",
-                repositoryId
+                repositoryId,
+                wsId
         );
     }
 
     @Override
     public long countDocuments(Long repositoryId) {
-        return count(
+        Long wsId = resolveWorkspaceFilter(repositoryId);
+        if (isUnassigned()) return 0L;
+        return countScoped(
                 "SELECT COUNT(*) FROM documents",
+                "SELECT COUNT(*) FROM documents d JOIN repositories r ON r.repository_id = d.repo_id WHERE r.workspace_id = :workspaceId",
                 "SELECT COUNT(*) FROM documents WHERE repo_id = :repositoryId",
-                repositoryId
+                repositoryId,
+                wsId
         );
     }
 
     @Override
     public long countApprovedDocuments(Long repositoryId) {
-        return count(
+        Long wsId = resolveWorkspaceFilter(repositoryId);
+        if (isUnassigned()) return 0L;
+        return countScoped(
                 "SELECT COUNT(*) FROM documents WHERE UPPER(status) = 'PUBLISHED'",
+                "SELECT COUNT(*) FROM documents d JOIN repositories r ON r.repository_id = d.repo_id WHERE r.workspace_id = :workspaceId AND UPPER(d.status) = 'PUBLISHED'",
                 "SELECT COUNT(*) FROM documents WHERE repo_id = :repositoryId AND UPPER(status) = 'PUBLISHED'",
-                repositoryId
+                repositoryId,
+                wsId
         );
     }
 
     @Override
     public long countPendingReviewDocuments(Long repositoryId) {
-        return count(
+        Long wsId = resolveWorkspaceFilter(repositoryId);
+        if (isUnassigned()) return 0L;
+        return countScoped(
                 "SELECT COUNT(*) FROM documents WHERE UPPER(status) IN ('UNDER_REVIEW_STAFF', 'UNDER_REVIEW_MANAGER')",
+                "SELECT COUNT(*) FROM documents d JOIN repositories r ON r.repository_id = d.repo_id WHERE r.workspace_id = :workspaceId AND UPPER(d.status) IN ('UNDER_REVIEW_STAFF', 'UNDER_REVIEW_MANAGER')",
                 "SELECT COUNT(*) FROM documents WHERE repo_id = :repositoryId AND UPPER(status) IN ('UNDER_REVIEW_STAFF', 'UNDER_REVIEW_MANAGER')",
-                repositoryId
+                repositoryId,
+                wsId
         );
     }
 
     @Override
     public long countDraftDocuments(Long repositoryId) {
-        return count(
+        Long wsId = resolveWorkspaceFilter(repositoryId);
+        if (isUnassigned()) return 0L;
+        return countScoped(
                 "SELECT COUNT(*) FROM documents WHERE UPPER(status) = 'DRAFT'",
+                "SELECT COUNT(*) FROM documents d JOIN repositories r ON r.repository_id = d.repo_id WHERE r.workspace_id = :workspaceId AND UPPER(d.status) = 'DRAFT'",
                 "SELECT COUNT(*) FROM documents WHERE repo_id = :repositoryId AND UPPER(status) = 'DRAFT'",
-                repositoryId
+                repositoryId,
+                wsId
         );
     }
 
     @Override
     public long countTotalPullRequests(Long repositoryId) {
-        return count(
+        Long wsId = resolveWorkspaceFilter(repositoryId);
+        if (isUnassigned()) return 0L;
+        return countScoped(
                 "SELECT COUNT(*) FROM pull_requests",
+                "SELECT COUNT(*) FROM pull_requests pr JOIN repositories r ON r.repository_id = pr.repository_id WHERE r.workspace_id = :workspaceId",
                 "SELECT COUNT(*) FROM pull_requests WHERE repository_id = :repositoryId",
-                repositoryId
+                repositoryId,
+                wsId
         );
     }
 
     @Override
     public long countTotalRepositories() {
-        Query query = entityManager.createNativeQuery("SELECT COUNT(*) FROM repositories WHERE is_active = true");
+        if (isUnassigned()) return 0L;
+        Long wsId = currentWorkspaceFilter();
+        String sql = wsId != null
+                ? "SELECT COUNT(*) FROM repositories WHERE is_active = true AND workspace_id = :workspaceId"
+                : "SELECT COUNT(*) FROM repositories WHERE is_active = true";
+        Query query = entityManager.createNativeQuery(sql);
+        if (wsId != null) {
+            query.setParameter("workspaceId", wsId);
+        }
         Object result = query.getSingleResult();
         return result instanceof Number number ? number.longValue() : 0L;
     }
 
     @Override
-    public List<com.example.livingdocs_backend.application.dto.RepoCoverageDto> findRepoCoverages() {
+    public List<RepoCoverageDto> findRepoCoverages() {
+        if (isUnassigned()) return Collections.emptyList();
+        Long wsId = currentWorkspaceFilter();
+        String workspaceClause = wsId != null ? " AND r.workspace_id = :workspaceId " : "";
         String sql = """
-            SELECT 
-                r.repository_id, 
+            SELECT
+                r.repository_id,
                 COALESCE(r.repo_full_name, r.repo_name),
                 COALESCE(ce.total_entities, 0),
                 COALESCE(ce.doc_entities, 0),
                 COALESCE(al.open_alerts, 0)
             FROM repositories r
             LEFT JOIN (
-                SELECT repository_id, 
-                       COUNT(*) AS total_entities, 
+                SELECT repository_id,
+                       COUNT(*) AS total_entities,
                        COUNT(*) FILTER (WHERE UPPER(doc_status) IN ('DOCUMENTED', 'DRIFTED')) AS doc_entities
                 FROM code_entities
                 GROUP BY repository_id
@@ -128,13 +178,17 @@ public class DashboardStatsQueryAdapter implements DashboardStatsQueryPort {
                 GROUP BY repository_id
             ) al ON r.repository_id = al.repository_id
             WHERE r.is_active = true
+            """ + workspaceClause + """
             ORDER BY r.repository_id
         """;
 
         Query query = entityManager.createNativeQuery(sql);
+        if (wsId != null) {
+            query.setParameter("workspaceId", wsId);
+        }
         @SuppressWarnings("unchecked")
         List<Object[]> rows = query.getResultList();
-        List<com.example.livingdocs_backend.application.dto.RepoCoverageDto> list = new ArrayList<>();
+        List<RepoCoverageDto> list = new ArrayList<>();
 
         for (Object[] row : rows) {
             long repoId = row[0] instanceof Number n ? n.longValue() : 0L;
@@ -144,7 +198,7 @@ public class DashboardStatsQueryAdapter implements DashboardStatsQueryPort {
             long openAlerts = row[4] instanceof Number n ? n.longValue() : 0L;
             double cov = totalEnt > 0 ? Math.round(((double) docEnt / totalEnt) * 1000.0) / 10.0 : 0.0;
 
-            list.add(com.example.livingdocs_backend.application.dto.RepoCoverageDto.builder()
+            list.add(RepoCoverageDto.builder()
                     .repoId(repoId)
                     .repoName(repoName)
                     .totalEntities(totalEnt)
@@ -159,47 +213,71 @@ public class DashboardStatsQueryAdapter implements DashboardStatsQueryPort {
 
     @Override
     public long countFreshDocuments(Long repositoryId) {
-        String freshPredicate = """
-                updated_at IS NOT NULL
-                AND (updated_at AT TIME ZONE 'UTC') >= COALESCE(
-                    (SELECT MAX(c.committed_at) FROM commits c WHERE c.repository_id = documents.repo_id),
-                    (updated_at AT TIME ZONE 'UTC')
+        Long wsId = resolveWorkspaceFilter(repositoryId);
+        if (isUnassigned()) return 0L;
+        String freshPredicateDoc = """
+                d.updated_at IS NOT NULL
+                AND (d.updated_at AT TIME ZONE 'UTC') >= COALESCE(
+                    (SELECT MAX(c.committed_at) FROM commits c WHERE c.repository_id = d.repo_id),
+                    (d.updated_at AT TIME ZONE 'UTC')
                 )
                 """;
-        return count(
-                "SELECT COUNT(*) FROM documents WHERE " + freshPredicate,
-                "SELECT COUNT(*) FROM documents WHERE repo_id = :repositoryId AND " + freshPredicate,
-                repositoryId
+        return countScoped(
+                "SELECT COUNT(*) FROM documents d WHERE " + freshPredicateDoc,
+                "SELECT COUNT(*) FROM documents d JOIN repositories r ON r.repository_id = d.repo_id WHERE r.workspace_id = :workspaceId AND " + freshPredicateDoc,
+                "SELECT COUNT(*) FROM documents d WHERE d.repo_id = :repositoryId AND " + freshPredicateDoc,
+                repositoryId,
+                wsId
         );
     }
 
     @Override
     public Optional<Instant> findLatestCommitAt(Long repositoryId) {
-        String sql = repositoryId == null
-                ? "SELECT MAX(committed_at) FROM commits"
-                : "SELECT MAX(committed_at) FROM commits WHERE repository_id = :repositoryId";
+        Long wsId = resolveWorkspaceFilter(repositoryId);
+        if (isUnassigned()) return Optional.empty();
+        String sql;
+        if (repositoryId != null) {
+            sql = "SELECT MAX(committed_at) FROM commits WHERE repository_id = :repositoryId";
+        } else if (wsId != null) {
+            sql = "SELECT MAX(c.committed_at) FROM commits c JOIN repositories r ON r.repository_id = c.repository_id WHERE r.workspace_id = :workspaceId";
+        } else {
+            sql = "SELECT MAX(committed_at) FROM commits";
+        }
         Query query = entityManager.createNativeQuery(sql);
-        bindRepository(query, repositoryId);
+        bindFilters(query, repositoryId, wsId);
         return toInstant(query.getSingleResult());
     }
 
     @Override
     public Map<String, Long> countOpenAlertsBySeverity(Long repositoryId) {
-        String sql = repositoryId == null
-                ? """
-                SELECT severity, COUNT(*)
-                FROM document_change_alerts
-                WHERE UPPER(status) = 'OPEN'
-                GROUP BY severity
-                """
-                : """
+        Long wsId = resolveWorkspaceFilter(repositoryId);
+        if (isUnassigned()) return Collections.emptyMap();
+        String sql;
+        if (repositoryId != null) {
+            sql = """
                 SELECT severity, COUNT(*)
                 FROM document_change_alerts
                 WHERE UPPER(status) = 'OPEN' AND repository_id = :repositoryId
                 GROUP BY severity
                 """;
+        } else if (wsId != null) {
+            sql = """
+                SELECT a.severity, COUNT(*)
+                FROM document_change_alerts a
+                JOIN repositories r ON r.repository_id = a.repository_id
+                WHERE UPPER(a.status) = 'OPEN' AND r.workspace_id = :workspaceId
+                GROUP BY a.severity
+                """;
+        } else {
+            sql = """
+                SELECT severity, COUNT(*)
+                FROM document_change_alerts
+                WHERE UPPER(status) = 'OPEN'
+                GROUP BY severity
+                """;
+        }
         Query query = entityManager.createNativeQuery(sql);
-        bindRepository(query, repositoryId);
+        bindFilters(query, repositoryId, wsId);
         Map<String, Long> counts = new LinkedHashMap<>();
         @SuppressWarnings("unchecked")
         List<Object[]> rows = query.getResultList();
@@ -212,16 +290,25 @@ public class DashboardStatsQueryAdapter implements DashboardStatsQueryPort {
     }
 
     @Override
-    public com.example.livingdocs_backend.application.dto.health.MissingDocEntityStatsDto countMissingEntitiesByType(Long repositoryId) {
-        String sql = repositoryId == null
-                ? """
-                SELECT UPPER(entity_type), COUNT(*)
-                FROM code_entities
-                WHERE UPPER(entity_type) IN ('CLASS', 'METHOD', 'FUNCTION')
-                  AND (doc_status IS NULL OR UPPER(doc_status) NOT IN ('DOCUMENTED', 'DRIFTED'))
-                GROUP BY UPPER(entity_type)
-                """
-                : """
+    public MissingDocEntityStatsDto countMissingEntitiesByType(Long repositoryId) {
+        Long wsId = resolveWorkspaceFilter(repositoryId);
+        Map<String, Long> byType = new LinkedHashMap<>();
+        byType.put("CLASS", 0L);
+        byType.put("METHOD", 0L);
+        byType.put("FUNCTION", 0L);
+
+        if (isUnassigned()) {
+            return MissingDocEntityStatsDto.builder()
+                    .totalMissing(0L)
+                    .missingClasses(0L)
+                    .missingMethodsAndFunctions(0L)
+                    .missingByType(byType)
+                    .build();
+        }
+
+        String sql;
+        if (repositoryId != null) {
+            sql = """
                 SELECT UPPER(entity_type), COUNT(*)
                 FROM code_entities
                 WHERE UPPER(entity_type) IN ('CLASS', 'METHOD', 'FUNCTION')
@@ -229,14 +316,28 @@ public class DashboardStatsQueryAdapter implements DashboardStatsQueryPort {
                   AND repository_id = :repositoryId
                 GROUP BY UPPER(entity_type)
                 """;
+        } else if (wsId != null) {
+            sql = """
+                SELECT UPPER(ce.entity_type), COUNT(*)
+                FROM code_entities ce
+                JOIN repositories r ON r.repository_id = ce.repository_id
+                WHERE r.workspace_id = :workspaceId
+                  AND UPPER(ce.entity_type) IN ('CLASS', 'METHOD', 'FUNCTION')
+                  AND (ce.doc_status IS NULL OR UPPER(ce.doc_status) NOT IN ('DOCUMENTED', 'DRIFTED'))
+                GROUP BY UPPER(ce.entity_type)
+                """;
+        } else {
+            sql = """
+                SELECT UPPER(entity_type), COUNT(*)
+                FROM code_entities
+                WHERE UPPER(entity_type) IN ('CLASS', 'METHOD', 'FUNCTION')
+                  AND (doc_status IS NULL OR UPPER(doc_status) NOT IN ('DOCUMENTED', 'DRIFTED'))
+                GROUP BY UPPER(entity_type)
+                """;
+        }
 
         Query query = entityManager.createNativeQuery(sql);
-        bindRepository(query, repositoryId);
-
-        Map<String, Long> byType = new LinkedHashMap<>();
-        byType.put("CLASS", 0L);
-        byType.put("METHOD", 0L);
-        byType.put("FUNCTION", 0L);
+        bindFilters(query, repositoryId, wsId);
 
         @SuppressWarnings("unchecked")
         List<Object[]> rows = query.getResultList();
@@ -256,7 +357,7 @@ public class DashboardStatsQueryAdapter implements DashboardStatsQueryPort {
             }
         }
 
-        return com.example.livingdocs_backend.application.dto.health.MissingDocEntityStatsDto.builder()
+        return MissingDocEntityStatsDto.builder()
                 .totalMissing(totalMissing)
                 .missingClasses(missingClasses)
                 .missingMethodsAndFunctions(missingMethodsAndFunctions)
@@ -266,9 +367,13 @@ public class DashboardStatsQueryAdapter implements DashboardStatsQueryPort {
 
     @Override
     public List<WeeklyTrendBucket> findWeeklyTrend(Long repositoryId, int weeks) {
-        Query query = entityManager.createNativeQuery(trendSql(repositoryId != null));
+        Long wsId = resolveWorkspaceFilter(repositoryId);
+        if (isUnassigned()) return Collections.emptyList();
+        boolean byRepo = repositoryId != null;
+        boolean byWorkspace = !byRepo && wsId != null;
+        Query query = entityManager.createNativeQuery(trendSql(byRepo, byWorkspace));
         query.setParameter("weekSpan", Math.max(weeks, 1) - 1);
-        bindRepository(query, repositoryId);
+        bindFilters(query, repositoryId, wsId);
         List<WeeklyTrendBucket> points = new ArrayList<>();
         for (Object rowObj : query.getResultList()) {
             Object[] row = (Object[]) rowObj;
@@ -288,13 +393,27 @@ public class DashboardStatsQueryAdapter implements DashboardStatsQueryPort {
      * Một round-trip: sinh dải tuần bằng generate_series, rồi GROUP BY date_trunc('week').
      * Tài liệu và phiên bản lưu timestamp không múi giờ theo UTC. Cảnh báo là timestamptz.
      */
-    private static String trendSql(boolean byRepository) {
-        String documentFilter = byRepository ? " AND d.repo_id = :repositoryId" : "";
-        String alertFilter = byRepository ? " AND a.repository_id = :repositoryId" : "";
-        String entityFilter = byRepository ? " AND e.repository_id = :repositoryId" : "";
-        String linkFilter = byRepository
-                ? " AND EXISTS (SELECT 1 FROM documents d WHERE d.doc_id = l.document_id AND d.repo_id = :repositoryId)"
-                : "";
+    private static String trendSql(boolean byRepository, boolean byWorkspace) {
+        String documentFilter;
+        String alertFilter;
+        String entityFilter;
+        String linkFilter;
+        if (byRepository) {
+            documentFilter = " AND d.repo_id = :repositoryId";
+            alertFilter = " AND a.repository_id = :repositoryId";
+            entityFilter = " AND e.repository_id = :repositoryId";
+            linkFilter = " AND EXISTS (SELECT 1 FROM documents d WHERE d.doc_id = l.document_id AND d.repo_id = :repositoryId)";
+        } else if (byWorkspace) {
+            documentFilter = " AND EXISTS (SELECT 1 FROM repositories r WHERE r.repository_id = d.repo_id AND r.workspace_id = :workspaceId)";
+            alertFilter = " AND EXISTS (SELECT 1 FROM repositories r WHERE r.repository_id = a.repository_id AND r.workspace_id = :workspaceId)";
+            entityFilter = " AND EXISTS (SELECT 1 FROM repositories r WHERE r.repository_id = e.repository_id AND r.workspace_id = :workspaceId)";
+            linkFilter = " AND EXISTS (SELECT 1 FROM documents d JOIN repositories r ON r.repository_id = d.repo_id WHERE d.doc_id = l.document_id AND r.workspace_id = :workspaceId)";
+        } else {
+            documentFilter = "";
+            alertFilter = "";
+            entityFilter = "";
+            linkFilter = "";
+        }
         return """
                 WITH bounds AS (
                     SELECT date_trunc('week', timezone('UTC', now())) AS this_week
@@ -377,25 +496,60 @@ public class DashboardStatsQueryAdapter implements DashboardStatsQueryPort {
                 """.formatted(documentFilter, documentFilter, alertFilter, documentFilter, entityFilter, linkFilter);
     }
 
+    private boolean isUnassigned() {
+        return tenantAccessService != null && tenantAccessService.currentScope().unassigned();
+    }
+
+    private Long currentWorkspaceFilter() {
+        if (tenantAccessService == null) {
+            return null;
+        }
+        var scope = tenantAccessService.currentScope();
+        return scope.hasTenantFilter() ? scope.workspaceId() : null;
+    }
+
+    private Long resolveWorkspaceFilter(Long repositoryId) {
+        if (tenantAccessService == null) {
+            return null;
+        }
+        if (repositoryId != null) {
+            tenantAccessService.requireRepositoryAccess(repositoryId);
+            return null;
+        }
+        var scope = tenantAccessService.currentScope();
+        return scope.hasTenantFilter() ? scope.workspaceId() : null;
+    }
+
+    private long countScoped(String sqlAll, String sqlByWorkspace, String sqlByRepository,
+                             Long repositoryId, Long workspaceId) {
+        String sql;
+        if (repositoryId != null) {
+            sql = sqlByRepository;
+        } else if (workspaceId != null) {
+            sql = sqlByWorkspace;
+        } else {
+            sql = sqlAll;
+        }
+        Query query = entityManager.createNativeQuery(sql);
+        bindFilters(query, repositoryId, workspaceId);
+        Object result = query.getSingleResult();
+        return result instanceof Number number ? number.longValue() : 0L;
+    }
+
+    private static void bindFilters(Query query, Long repositoryId, Long workspaceId) {
+        if (repositoryId != null) {
+            query.setParameter("repositoryId", repositoryId);
+        } else if (workspaceId != null) {
+            query.setParameter("workspaceId", workspaceId);
+        }
+    }
+
     private static double toDouble(Object value) {
         return value instanceof Number number ? number.doubleValue() : 0.0;
     }
 
     private static long toLong(Object value) {
         return value instanceof Number number ? number.longValue() : 0L;
-    }
-
-    private long count(String sqlAll, String sqlByRepository, Long repositoryId) {
-        Query query = entityManager.createNativeQuery(repositoryId == null ? sqlAll : sqlByRepository);
-        bindRepository(query, repositoryId);
-        Object result = query.getSingleResult();
-        return result instanceof Number number ? number.longValue() : 0L;
-    }
-
-    private static void bindRepository(Query query, Long repositoryId) {
-        if (repositoryId != null) {
-            query.setParameter("repositoryId", repositoryId);
-        }
     }
 
     private static Optional<Instant> toInstant(Object value) {

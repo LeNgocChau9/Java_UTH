@@ -13,6 +13,7 @@ import java.util.Optional;
 @Repository
 public interface JpaCiTokenRepository extends JpaRepository<CiTokenEntity, Long> {
     Optional<CiTokenEntity> findByTokenHash(String tokenHash);
+    List<CiTokenEntity> findByWorkspaceIdOrderByCreatedAtDesc(Long workspaceId);
     List<CiTokenEntity> findByRepositoryIdOrderByCreatedAtDesc(Long repositoryId);
     List<CiTokenEntity> findAllByOrderByCreatedAtDesc();
 

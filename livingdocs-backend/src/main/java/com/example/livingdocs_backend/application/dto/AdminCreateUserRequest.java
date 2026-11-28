@@ -1,5 +1,6 @@
 package com.example.livingdocs_backend.application.dto;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -34,4 +35,8 @@ public class AdminCreateUserRequest {
 
     @Schema(example = "https://api.dicebear.com/7.x/avataaars/svg?seed=user")
     private String avatarUrl;
+
+    @JsonAlias("workspaceId")
+    @Schema(example = "1", description = "ID doanh nghiệp (tùy chọn; để trống nếu chưa phân doanh nghiệp)")
+    private Long enterpriseId;
 }

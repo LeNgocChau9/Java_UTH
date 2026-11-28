@@ -334,9 +334,10 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
                     alertRepository.save(driftAlert);
                     log.info("[Webhook - Push] Đã ghi nhận cảnh báo sai lệch (Drift Alert PENDING) cho commit {}", finalHeadSha);
                     if (sseNotificationService != null) {
-                        sseNotificationService.broadcastDriftAlert(java.util.Map.of(
+                        sseNotificationService.broadcastDriftAlert(repo.getWorkspaceId(), java.util.Map.of(
                                 "type", "DRIFT_ALERT_CREATED",
                                 "source", "PUSH",
+                                "workspaceId", repo.getWorkspaceId() != null ? repo.getWorkspaceId() : 1L,
                                 "repositoryId", repo.getRepositoryId(),
                                 "sourceCommit", finalHeadSha != null ? finalHeadSha : "",
                                 "details", driftAlert.getDetails() != null ? driftAlert.getDetails() : ""
@@ -511,9 +512,10 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
                             );
                         }
                         if (sseNotificationService != null) {
-                            sseNotificationService.broadcastDriftAlert(java.util.Map.of(
+                            sseNotificationService.broadcastDriftAlert(repo.getWorkspaceId(), java.util.Map.of(
                                     "type", "DRIFT_ALERT_CREATED",
                                     "source", "PULL_REQUEST",
+                                    "workspaceId", repo.getWorkspaceId() != null ? repo.getWorkspaceId() : 1L,
                                     "repositoryId", repo.getRepositoryId(),
                                     "sourcePrId", prNumber,
                                     "details", prAlert.getDetails() != null ? prAlert.getDetails() : ""
@@ -585,23 +587,11 @@ public class GitHubWebhookServiceImpl implements GitHubWebhookServicePort {
 
         if (StringUtils.hasText(repoFullName)) {
             Optional<RepositoryEntity> byName = allRepos.stream()
-                    .filter(r -> repoFullName.equalsIgnoreCase(r.getRepoFullName())
-                            || (r.getRepoName() != null
-                                    && repoFullName.toLowerCase().endsWith("/" + r.getRepoName().toLowerCase()))
-                            || (r.getRepoFullName() != null
-                                    && r.getRepoFullName().toLowerCase().endsWith("/" + repoFullName.toLowerCase())))
+                    .filter(r -> repoFullName.equalsIgnoreCase(r.getRepoFullName()))
                     .findFirst();
             if (byName.isPresent()) {
                 return byName.get();
             }
-        }
-
-        // Dự phòng cho môi trường dev/local test khi trong DB chỉ có duy nhất 1
-        // repository
-        if (allRepos.size() == 1) {
-            log.info("[Webhook] Sử dụng repository duy nhất [{}] làm fallback cho testing",
-                    allRepos.get(0).getRepoFullName());
-            return allRepos.get(0);
         }
 
         return null;

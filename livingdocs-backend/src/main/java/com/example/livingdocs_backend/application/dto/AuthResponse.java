@@ -13,5 +13,7 @@ public class AuthResponse {
     private String token;
     private String tokenType;
     private Long expiresIn;
+    private Boolean pendingApproval;
+    private String message;
     private UserProfileResponse user;
 }

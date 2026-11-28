@@ -9,16 +9,29 @@ import com.example.livingdocs_backend.domain.model.AuditAction;
 import com.example.livingdocs_backend.domain.model.RoleType;
 import com.example.livingdocs_backend.domain.model.User;
 import com.example.livingdocs_backend.domain.repository.UserRepositoryPort;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.PasswordResetRequestEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.WorkspaceEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataPasswordResetRequestRepository;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataWorkspaceRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -30,10 +43,34 @@ public class AdminUserServiceImpl implements AdminUserServicePort {
     private final PasswordEncoder passwordEncoder;
     private final SpringDataPasswordResetRequestRepository passwordResetRequestRepository;
 
+    @Autowired(required = false)
+    private SpringDataWorkspaceRepository workspaceRepository;
+
+    @Autowired(required = false)
+    private SpringDataGitHubConnectionRepository gitHubConnectionRepository;
+
     @Override
     public List<AdminUserResponse> listUsers() {
+        return listUsers(null, null, null);
+    }
+
+    @Override
+    public List<AdminUserResponse> listUsers(String status, Long enterpriseId, Boolean unassigned) {
+        Map<Long, String> githubMap = loadGitHubUsernameFallbackMap();
+        // ponytail: in-memory filter over user list; switch to SQL Specification if user count exceeds a few thousand
         return userRepositoryPort.findAll().stream()
-                .map(this::toResponse)
+                .filter(u -> !StringUtils.hasText(status)
+                        || status.trim().equalsIgnoreCase(u.getStatus()))
+                .filter(u -> {
+                    if (Boolean.TRUE.equals(unassigned)) {
+                        return u.getWorkspaceId() == null;
+                    }
+                    if (enterpriseId != null) {
+                        return enterpriseId.equals(u.getWorkspaceId());
+                    }
+                    return true;
+                })
+                .map(u -> toResponse(u, githubMap))
                 .toList();
     }
 
@@ -44,6 +81,9 @@ public class AdminUserServiceImpl implements AdminUserServicePort {
         if (userRepositoryPort.existsByEmail(email)) {
             throw new EmailAlreadyExistsException("Email '" + email + "' đã tồn tại trong hệ thống");
         }
+
+        Long enterpriseId = request.getEnterpriseId();
+        WorkspaceEntity targetEnterprise = validateEnterpriseIfPresent(enterpriseId);
 
         RoleType targetRole = RoleType.ROLE_DEVELOPER;
         if (request.getRole() != null && !request.getRole().isBlank()) {
@@ -58,24 +98,156 @@ public class AdminUserServiceImpl implements AdminUserServicePort {
                         ? request.getAvatarUrl().trim()
                         : "https://api.dicebear.com/7.x/avataaars/svg?seed=" + email)
                 .status("ACTIVE")
+                .workspaceId(enterpriseId)
+                .approvedBy(actorId)
+                .approvedAt(Instant.now())
                 .build();
 
         User savedUser = userRepositoryPort.save(newUser);
-
-        // Gán vai trò vào workspace
         userRepositoryPort.changeRole(savedUser.getUserId(), targetRole.getRawName());
+        if (enterpriseId != null) {
+            userRepositoryPort.assignEnterprise(savedUser.getUserId(), enterpriseId);
+        }
 
         if (auditServicePort != null) {
+            String enterpriseInfo = targetEnterprise != null
+                    ? " tại doanh nghiệp '" + targetEnterprise.getName() + "'"
+                    : " (chưa phân doanh nghiệp)";
             auditServicePort.recordSecurityAction(
                     actorId,
                     AuditAction.USER_CREATED,
                     "USER",
                     String.valueOf(savedUser.getUserId()),
-                    "Admin (" + actorEmail + ") tạo tài khoản mới: " + email + " với vai trò " + targetRole.getRawName()
+                    "Admin (" + actorEmail + ") tạo tài khoản mới: " + email
+                            + " với vai trò " + targetRole.getRawName() + enterpriseInfo
             );
         }
 
-        return toResponse(userRepositoryPort.findById(savedUser.getUserId()).orElse(savedUser));
+        return toResponse(userRepositoryPort.findById(savedUser.getUserId()).orElse(savedUser), null);
+    }
+
+    @Override
+    @Transactional
+    public AdminUserResponse approveUser(Long userId, AdminApproveUserRequest request, Long actorId, String actorEmail) {
+        User user = userRepositoryPort.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng #" + userId));
+
+        String currentStatus = user.getStatus() != null ? user.getStatus().trim().toUpperCase() : "ACTIVE";
+        if (!"PENDING".equals(currentStatus) && !"REJECTED".equals(currentStatus)) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Chỉ có thể phê duyệt tài khoản đang ở trạng thái chờ duyệt (PENDING) hoặc đã từ chối (REJECTED)."
+            );
+        }
+
+        Long targetEnterpriseId = request != null ? request.getEnterpriseId() : null;
+        WorkspaceEntity targetEnterprise = validateEnterpriseIfPresent(targetEnterpriseId);
+
+        RoleType targetRole = null;
+        if (request != null && StringUtils.hasText(request.getRole())) {
+            targetRole = RoleType.fromString(request.getRole());
+        }
+
+        user.setStatus("ACTIVE");
+        user.setRejectionReason(null);
+        user.setApprovedBy(actorId);
+        user.setApprovedAt(Instant.now());
+        userRepositoryPort.save(user);
+
+        if (targetRole != null) {
+            userRepositoryPort.changeRole(userId, targetRole.getRawName());
+        }
+        if (targetEnterpriseId != null) {
+            userRepositoryPort.assignEnterprise(userId, targetEnterpriseId);
+        }
+
+        if (auditServicePort != null) {
+            String detail = "Admin (" + actorEmail + ") phê duyệt tài khoản: " + user.getEmail();
+            if (targetRole != null) {
+                detail += " | vai trò: " + targetRole.getRawName();
+            }
+            if (targetEnterprise != null) {
+                detail += " | doanh nghiệp: " + targetEnterprise.getName();
+            }
+            auditServicePort.recordSecurityAction(
+                    actorId,
+                    AuditAction.USER_APPROVED,
+                    "USER",
+                    String.valueOf(userId),
+                    detail
+            );
+        }
+
+        return toResponse(userRepositoryPort.findById(userId).orElse(user), null);
+    }
+
+    @Override
+    @Transactional
+    public AdminUserResponse rejectUser(Long userId, AdminRejectUserRequest request, Long actorId, String actorEmail) {
+        User user = userRepositoryPort.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng #" + userId));
+
+        String currentStatus = user.getStatus() != null ? user.getStatus().trim().toUpperCase() : "ACTIVE";
+        if (!"PENDING".equals(currentStatus)) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Chỉ có thể từ chối tài khoản đang ở trạng thái chờ duyệt (PENDING)."
+            );
+        }
+
+        String reason = request != null && StringUtils.hasText(request.getReason())
+                ? request.getReason().trim()
+                : null;
+
+        user.setStatus("REJECTED");
+        user.setRejectionReason(reason);
+        user.setApprovedBy(actorId);
+        user.setApprovedAt(Instant.now());
+        userRepositoryPort.save(user);
+
+        if (auditServicePort != null) {
+            String detail = "Admin (" + actorEmail + ") từ chối tài khoản: " + user.getEmail()
+                    + (reason != null ? " | Lý do: " + reason : "");
+            auditServicePort.recordSecurityAction(
+                    actorId,
+                    AuditAction.USER_REJECTED,
+                    "USER",
+                    String.valueOf(userId),
+                    detail
+            );
+        }
+
+        return toResponse(userRepositoryPort.findById(userId).orElse(user), null);
+    }
+
+    @Override
+    @Transactional
+    public AdminUserResponse assignUserEnterprise(Long userId, Long enterpriseId, Long actorId, String actorEmail) {
+        User user = userRepositoryPort.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng #" + userId));
+
+        WorkspaceEntity targetEnterprise = validateEnterpriseIfPresent(enterpriseId);
+        String oldEnterpriseName = user.getWorkspaceName() != null
+                ? user.getWorkspaceName()
+                : (user.getWorkspaceId() != null ? "#" + user.getWorkspaceId() : "Chưa phân doanh nghiệp");
+
+        userRepositoryPort.assignEnterprise(userId, enterpriseId);
+
+        if (auditServicePort != null) {
+            String newEnterpriseName = targetEnterprise != null
+                    ? targetEnterprise.getName()
+                    : (enterpriseId != null ? "#" + enterpriseId : "Chưa phân doanh nghiệp");
+            auditServicePort.recordSecurityAction(
+                    actorId,
+                    AuditAction.USER_ENTERPRISE_CHANGED,
+                    "USER",
+                    String.valueOf(userId),
+                    "Admin (" + actorEmail + ") đổi doanh nghiệp cho " + user.getEmail()
+                            + ": " + oldEnterpriseName + " -> " + newEnterpriseName
+            );
+        }
+
+        return toResponse(userRepositoryPort.findById(userId).orElse(user), null);
     }
 
     @Override
@@ -86,10 +258,12 @@ public class AdminUserServiceImpl implements AdminUserServicePort {
                 .orElseThrow(() -> new AuthenticationException("Không tìm thấy người dùng"));
         String previousRoles = user.getRoles() == null
                 ? ""
-                : user.getRoles().stream().map(Enum::name).sorted().collect(java.util.stream.Collectors.joining(","));
+                : user.getRoles().stream().map(Enum::name).sorted().collect(Collectors.joining(","));
         userRepositoryPort.changeRole(user.getUserId(), roleType.getRawName());
-        auditServicePort.recordRoleChange(actorId, actorEmail, userId, previousRoles, roleType.getRawName());
-        return toResponse(userRepositoryPort.findById(userId).orElse(user));
+        if (auditServicePort != null) {
+            auditServicePort.recordRoleChange(actorId, actorEmail, userId, previousRoles, roleType.getRawName());
+        }
+        return toResponse(userRepositoryPort.findById(userId).orElse(user), null);
     }
 
     @Override
@@ -109,7 +283,7 @@ public class AdminUserServiceImpl implements AdminUserServicePort {
                     "Admin (" + actorEmail + ") " + verb + " tài khoản: " + user.getEmail()
             );
         }
-        return toResponse(updated);
+        return toResponse(updated, null);
     }
 
     @Override
@@ -119,7 +293,6 @@ public class AdminUserServiceImpl implements AdminUserServicePort {
         User user = userRepositoryPort.findByEmail(email)
                 .orElseThrow(() -> new AuthenticationException("Không tìm thấy tài khoản với email: " + email));
 
-        // Kiểm tra xem đã có yêu cầu PENDING chưa
         PasswordResetRequestEntity entity = passwordResetRequestRepository
                 .findFirstByEmailAndStatusOrderByCreatedAtDesc(email, "PENDING")
                 .orElseGet(() -> PasswordResetRequestEntity.builder()
@@ -188,7 +361,6 @@ public class AdminUserServiceImpl implements AdminUserServicePort {
         user.setPasswordHash(passwordEncoder.encode(newPassword.trim()));
         User updated = userRepositoryPort.save(user);
 
-        // Đánh dấu các yêu cầu PENDING của user này thành RESOLVED nếu có
         passwordResetRequestRepository.findFirstByEmailAndStatusOrderByCreatedAtDesc(user.getEmail(), "PENDING")
                 .ifPresent(req -> {
                     req.setStatus("RESOLVED");
@@ -208,7 +380,36 @@ public class AdminUserServiceImpl implements AdminUserServicePort {
             );
         }
 
-        return toResponse(updated);
+        return toResponse(updated, null);
+    }
+
+    private WorkspaceEntity validateEnterpriseIfPresent(Long enterpriseId) {
+        if (enterpriseId == null) {
+            return null;
+        }
+        if (workspaceRepository == null) {
+            return null;
+        }
+        return workspaceRepository.findById(enterpriseId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Không tìm thấy doanh nghiệp #" + enterpriseId));
+    }
+
+    private Map<Long, String> loadGitHubUsernameFallbackMap() {
+        if (gitHubConnectionRepository == null) {
+            return Collections.emptyMap();
+        }
+        try {
+            Map<Long, String> map = new HashMap<>();
+            for (GitHubConnectionEntity conn : gitHubConnectionRepository.findAll()) {
+                if (conn.getUserId() != null && StringUtils.hasText(conn.getGithubUsername())) {
+                    map.putIfAbsent(conn.getUserId(), conn.getGithubUsername());
+                }
+            }
+            return map;
+        } catch (Exception ignored) {
+            return Collections.emptyMap();
+        }
     }
 
     private PasswordResetRequestResponse toResetResponse(PasswordResetRequestEntity e) {
@@ -224,10 +425,28 @@ public class AdminUserServiceImpl implements AdminUserServicePort {
                 .build();
     }
 
-    private AdminUserResponse toResponse(User user) {
-        java.util.Set<String> roleStrings = user.getRoles() != null
-                ? user.getRoles().stream().map(Enum::name).collect(java.util.stream.Collectors.toSet())
-                : java.util.Collections.emptySet();
+    public AdminUserResponse toResponse(User user) {
+        return toResponse(user, null);
+    }
+
+    private AdminUserResponse toResponse(User user, Map<Long, String> githubFallbackMap) {
+        Set<String> roleStrings = user.getRoles() != null
+                ? user.getRoles().stream().map(Enum::name).collect(Collectors.toSet())
+                : Collections.emptySet();
+
+        String githubUsername = user.getGithubUsername();
+        if (!StringUtils.hasText(githubUsername)) {
+            if (githubFallbackMap != null) {
+                githubUsername = githubFallbackMap.get(user.getUserId());
+            } else if (gitHubConnectionRepository != null && user.getUserId() != null) {
+                try {
+                    githubUsername = gitHubConnectionRepository.findFirstByUserIdOrderByCreatedAtDesc(user.getUserId())
+                            .map(GitHubConnectionEntity::getGithubUsername)
+                            .orElse(null);
+                } catch (Exception ignored) {
+                }
+            }
+        }
 
         return AdminUserResponse.builder()
                 .userId(user.getUserId())
@@ -236,6 +455,11 @@ public class AdminUserServiceImpl implements AdminUserServicePort {
                 .avatarUrl(user.getAvatarUrl())
                 .status(user.getStatus())
                 .roles(roleStrings)
+                .enterpriseId(user.getWorkspaceId())
+                .enterpriseName(user.getWorkspaceName())
+                .githubUsername(githubUsername)
+                .rejectionReason(user.getRejectionReason())
+                .approvedAt(user.getApprovedAt())
                 .createdAt(user.getCreatedAt())
                 .build();
     }

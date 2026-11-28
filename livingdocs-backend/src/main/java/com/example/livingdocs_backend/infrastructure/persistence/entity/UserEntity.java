@@ -37,6 +37,27 @@ public class UserEntity {
     @Builder.Default
     private String status = "ACTIVE";
 
+    @Column(name = "workspace_id")
+    private Long workspaceId;
+
+    @Column(name = "role_id")
+    private Long roleId;
+
+    @Column(name = "github_user_id")
+    private Long githubUserId;
+
+    @Column(name = "github_username", length = 100)
+    private String githubUsername;
+
+    @Column(name = "rejection_reason", columnDefinition = "TEXT")
+    private String rejectionReason;
+
+    @Column(name = "approved_by")
+    private Long approvedBy;
+
+    @Column(name = "approved_at")
+    private Instant approvedAt;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;

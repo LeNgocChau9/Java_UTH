@@ -19,7 +19,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/admin/users")
 @RequiredArgsConstructor
-@Tag(name = "Admin - Quản trị người dùng & Cấp lại mật khẩu", description = "API dành cho ADMIN: xem danh sách, tạo tài khoản mới, đổi vai trò, khóa/mở khóa tài khoản, duyệt yêu cầu cấp lại mật khẩu")
+@Tag(name = "Admin - Quản trị người dùng & Phê duyệt", description = "API dành cho ADMIN: xem danh sách, phê duyệt/từ chối đăng ký, gán doanh nghiệp, tạo tài khoản, đổi vai trò, khóa/mở khóa, cấp lại mật khẩu")
 public class AdminUserController {
 
     private final AdminUserServicePort adminUserServicePort;
@@ -27,21 +27,64 @@ public class AdminUserController {
     @GetMapping
     @PreAuthorize("hasRole('ADMIN')")
     @SecurityRequirement(name = "BearerAuth")
-    @Operation(summary = "Danh sách người dùng", description = "Trả về toàn bộ người dùng kèm vai trò và trạng thái. Chỉ ADMIN.")
-    public ResponseEntity<List<AdminUserResponse>> listUsers() {
-        return ResponseEntity.ok(adminUserServicePort.listUsers());
+    @Operation(summary = "Danh sách người dùng", description = "Trả về người dùng kèm vai trò, trạng thái và doanh nghiệp. Hỗ trợ lọc theo status, enterpriseId, unassigned. Chỉ ADMIN.")
+    public ResponseEntity<List<AdminUserResponse>> listUsers(
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Long enterpriseId,
+            @RequestParam(required = false) Boolean unassigned) {
+        return ResponseEntity.ok(adminUserServicePort.listUsers(status, enterpriseId, unassigned));
     }
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
     @SecurityRequirement(name = "BearerAuth")
-    @Operation(summary = "Tạo tài khoản người dùng mới", description = "Chỉ ADMIN mới có quyền tạo tài khoản trực tiếp và chỉ định vai trò ban đầu.")
+    @Operation(summary = "Tạo tài khoản người dùng mới", description = "Chỉ ADMIN mới có quyền tạo tài khoản trực tiếp (ACTIVE ngay), chỉ định vai trò và doanh nghiệp (tùy chọn).")
     public ResponseEntity<AdminUserResponse> createUser(@Valid @RequestBody AdminCreateUserRequest request,
                                                         @AuthenticationPrincipal UserPrincipal actor) {
         Long actorId = actor != null ? actor.getUserId() : null;
         String actorEmail = actor != null ? actor.getEmail() : "admin";
         AdminUserResponse response = adminUserServicePort.createUser(request, actorId, actorEmail);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PostMapping("/{userId}/approve")
+    @PreAuthorize("hasRole('ADMIN')")
+    @SecurityRequirement(name = "BearerAuth")
+    @Operation(summary = "Phê duyệt tài khoản chờ duyệt / duyệt lại tài khoản bị từ chối", description = "Chuyển trạng thái sang ACTIVE, tùy chọn gán doanh nghiệp và vai trò.")
+    public ResponseEntity<AdminUserResponse> approveUser(
+            @PathVariable Long userId,
+            @RequestBody(required = false) AdminApproveUserRequest request,
+            @AuthenticationPrincipal UserPrincipal actor) {
+        Long actorId = actor != null ? actor.getUserId() : null;
+        String actorEmail = actor != null ? actor.getEmail() : "admin";
+        return ResponseEntity.ok(adminUserServicePort.approveUser(userId, request, actorId, actorEmail));
+    }
+
+    @PostMapping("/{userId}/reject")
+    @PreAuthorize("hasRole('ADMIN')")
+    @SecurityRequirement(name = "BearerAuth")
+    @Operation(summary = "Từ chối tài khoản chờ duyệt", description = "Chuyển trạng thái PENDING -> REJECTED kèm lý do từ chối (tùy chọn), giữ lại lịch sử.")
+    public ResponseEntity<AdminUserResponse> rejectUser(
+            @PathVariable Long userId,
+            @RequestBody(required = false) AdminRejectUserRequest request,
+            @AuthenticationPrincipal UserPrincipal actor) {
+        Long actorId = actor != null ? actor.getUserId() : null;
+        String actorEmail = actor != null ? actor.getEmail() : "admin";
+        return ResponseEntity.ok(adminUserServicePort.rejectUser(userId, request, actorId, actorEmail));
+    }
+
+    @PutMapping("/{userId}/enterprise")
+    @PreAuthorize("hasRole('ADMIN')")
+    @SecurityRequirement(name = "BearerAuth")
+    @Operation(summary = "Gán hoặc gỡ doanh nghiệp cho người dùng", description = "Truyền { enterpriseId: number } để gán/chuyển doanh nghiệp, hoặc { enterpriseId: null } để gỡ.")
+    public ResponseEntity<AdminUserResponse> assignEnterprise(
+            @PathVariable Long userId,
+            @RequestBody(required = false) AdminAssignEnterpriseRequest request,
+            @AuthenticationPrincipal UserPrincipal actor) {
+        Long actorId = actor != null ? actor.getUserId() : null;
+        String actorEmail = actor != null ? actor.getEmail() : "admin";
+        Long enterpriseId = request != null ? request.getEnterpriseId() : null;
+        return ResponseEntity.ok(adminUserServicePort.assignUserEnterprise(userId, enterpriseId, actorId, actorEmail));
     }
 
     @PutMapping("/{userId}/role")
@@ -51,8 +94,9 @@ public class AdminUserController {
     public ResponseEntity<AdminUserResponse> changeRole(@PathVariable Long userId,
                                                         @RequestParam String role,
                                                         @AuthenticationPrincipal UserPrincipal actor) {
-        return ResponseEntity.ok(adminUserServicePort.changeRole(
-                userId, role, actor.getUserId(), actor.getEmail()));
+        Long actorId = actor != null ? actor.getUserId() : null;
+        String actorEmail = actor != null ? actor.getEmail() : "admin";
+        return ResponseEntity.ok(adminUserServicePort.changeRole(userId, role, actorId, actorEmail));
     }
 
     @PutMapping("/{userId}/status")

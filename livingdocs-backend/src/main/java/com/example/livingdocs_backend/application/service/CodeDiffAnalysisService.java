@@ -6,14 +6,18 @@ import com.example.livingdocs_backend.application.dto.github.GitHubPrFileDto;
 import com.example.livingdocs_backend.application.dto.github.GitHubPullRequestDto;
 import com.example.livingdocs_backend.application.port.CodeDiffAnalysisServicePort;
 import com.example.livingdocs_backend.application.port.GitHubClientPort;
+import com.example.livingdocs_backend.domain.exception.AuthenticationException;
 import com.example.livingdocs_backend.domain.model.CodeEntity;
 import com.example.livingdocs_backend.domain.repository.CodeEntityRepositoryPort;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentChangeAlertEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.PullRequestEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentChangeAlertRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataPullRequestRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
+import com.example.livingdocs_backend.infrastructure.security.TenantAccessService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -42,6 +46,12 @@ public class CodeDiffAnalysisService implements CodeDiffAnalysisServicePort {
     private final SpringDataGitHubConnectionRepository connectionRepository;
     private final GitHubClientPort gitHubClient;
     private final RestClient restClient;
+
+    @Autowired(required = false)
+    private SpringDataPullRequestRepository pullRequestRepository;
+
+    @Autowired(required = false)
+    private TenantAccessService tenantAccessService;
 
     private static final Set<String> RESERVED_KEYWORDS = Set.of(
             "if", "for", "while", "switch", "catch", "synchronized", "return", "throw", "new");
@@ -104,6 +114,9 @@ public class CodeDiffAnalysisService implements CodeDiffAnalysisServicePort {
 
     @Override
     public AstDiffRequestDto fetchPullRequestDiff(Long repositoryId, int prNumber) {
+        if (tenantAccessService != null && repositoryId != null) {
+            tenantAccessService.requireRepositoryAccess(repositoryId);
+        }
         log.info("[CodeDiffPipeline] Kéo Git Diff thời gian thực cho PR #{} tại repository ID={}", prNumber,
                 repositoryId);
 
@@ -199,6 +212,9 @@ public class CodeDiffAnalysisService implements CodeDiffAnalysisServicePort {
 
     @Override
     public AstDiffResponseDto analyzeAstDiff(AstDiffRequestDto requestDto) {
+        if (tenantAccessService != null && requestDto != null && requestDto.repository_id() != null) {
+            tenantAccessService.requireRepositoryAccess(requestDto.repository_id());
+        }
         log.info("[CodeDiffPipeline] Gửi yêu cầu đối chiếu AST sang AI Engine (/v1/ast/diff) cho repo={}, files={}",
                 requestDto.repository_id(), requestDto.files() != null ? requestDto.files().size() : 0);
 
@@ -221,6 +237,9 @@ public class CodeDiffAnalysisService implements CodeDiffAnalysisServicePort {
     @Transactional
     public List<DocumentChangeAlertEntity> processPullRequestCodeDiff(Long repositoryId, Long prId,
             AstDiffRequestDto requestDto) {
+        if (tenantAccessService != null && repositoryId != null) {
+            tenantAccessService.requireRepositoryAccess(repositoryId);
+        }
         log.info("[CodeDiffPipeline] Bắt đầu quy trình đối chiếu Code cho PR #{}, repo={}", prId, repositoryId);
 
         AstDiffResponseDto diffResponse = analyzeAstDiff(requestDto);
@@ -281,11 +300,36 @@ public class CodeDiffAnalysisService implements CodeDiffAnalysisServicePort {
 
     @Override
     public List<DocumentChangeAlertEntity> getAlertsByRepository(Long repositoryId) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireRepositoryAccess(repositoryId);
+        }
         return alertRepository.findByRepositoryId(repositoryId);
     }
 
     @Override
     public List<DocumentChangeAlertEntity> getAlertsByPr(Long prId) {
+        if (tenantAccessService != null) {
+            TenantAccessService.TenantScope scope = tenantAccessService.currentScope();
+            if (scope.unassigned()) {
+                throw AuthenticationException.forbidden(
+                        TenantAccessService.ERR_NO_ENTERPRISE, TenantAccessService.MSG_NO_ENTERPRISE);
+            }
+            if (!scope.systemBypass() && !scope.globalAdmin()) {
+                if (pullRequestRepository != null && prId != null) {
+                    Optional<PullRequestEntity> prOpt = pullRequestRepository.findById(prId);
+                    if (prOpt.isPresent() && prOpt.get().getRepositoryId() != null) {
+                        tenantAccessService.requireRepositoryAccess(prOpt.get().getRepositoryId());
+                    }
+                }
+                List<DocumentChangeAlertEntity> alerts = alertRepository.findBySourcePrId(prId);
+                for (DocumentChangeAlertEntity alert : alerts) {
+                    if (alert.getRepositoryId() != null) {
+                        tenantAccessService.requireRepositoryAccess(alert.getRepositoryId());
+                    }
+                }
+                return alerts;
+            }
+        }
         return alertRepository.findBySourcePrId(prId);
     }
 

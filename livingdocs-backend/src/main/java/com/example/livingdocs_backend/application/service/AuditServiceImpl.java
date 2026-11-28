@@ -32,6 +32,18 @@ public class AuditServiceImpl implements AuditServicePort {
     private final SpringDataAdminSettingRepository adminSettingRepository;
     private final ObjectMapper objectMapper;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.security.TenantAccessService tenantAccessService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.example.livingdocs_backend.domain.repository.UserRepositoryPort userRepositoryPort;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentRepository documentRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository repositoryRepository;
+
     @Override
     public void recordLogin(Long actorId, String actorEmail, boolean successful) {
         AuditAction action = successful ? AuditAction.LOGIN_SUCCESS : AuditAction.LOGIN_FAILURE;
@@ -68,13 +80,44 @@ public class AuditServiceImpl implements AuditServicePort {
 
     @Override
     public java.util.List<AuditLog> getAuditLogsForResource(String resourceType, String resourceId) {
+        if (tenantAccessService != null) {
+            Long parsedId = parseLongOrNull(resourceId);
+            if ("DOCUMENT".equalsIgnoreCase(resourceType) && parsedId != null) {
+                tenantAccessService.requireDocumentAccess(parsedId);
+            } else if ("REPOSITORY".equalsIgnoreCase(resourceType) && parsedId != null) {
+                tenantAccessService.requireRepositoryAccess(parsedId);
+            }
+            var scope = tenantAccessService.currentScope();
+            if (scope.unassigned()) {
+                return java.util.Collections.emptyList();
+            }
+            List<AuditLog> list = auditLogRepositoryPort.findByResourceTypeAndResourceId(resourceType, resourceId);
+            if (scope.hasTenantFilter()) {
+                return list.stream()
+                        .filter(l -> l.getWorkspaceId() == null || scope.workspaceId().equals(l.getWorkspaceId()))
+                        .toList();
+            }
+            return list;
+        }
         return auditLogRepositoryPort.findByResourceTypeAndResourceId(resourceType, resourceId);
     }
 
     @Override
     public List<AuditLog> search(String action, Instant from, Instant to) {
         String wanted = action == null ? "" : action.trim().toUpperCase();
-        return auditLogRepositoryPort.findRecent().stream()
+        List<AuditLog> source;
+        if (tenantAccessService != null) {
+            var scope = tenantAccessService.currentScope();
+            if (scope.unassigned()) {
+                return java.util.Collections.emptyList();
+            }
+            source = scope.hasTenantFilter()
+                    ? auditLogRepositoryPort.findRecentByWorkspaceId(scope.workspaceId())
+                    : auditLogRepositoryPort.findRecent();
+        } else {
+            source = auditLogRepositoryPort.findRecent();
+        }
+        return source.stream()
                 .filter(log -> wanted.isEmpty() || (log.getAction() != null && log.getAction().name().equals(wanted)))
                 .filter(log -> from == null || (log.getCreatedAt() != null && !log.getCreatedAt().isBefore(from)))
                 .filter(log -> to == null || (log.getCreatedAt() != null && !log.getCreatedAt().isAfter(to)))
@@ -223,12 +266,63 @@ public class AuditServiceImpl implements AuditServicePort {
 
     private void record(Long actorId, AuditAction action, String resourceType,
                         String resourceId, String detail) {
+        Long workspaceId = resolveWorkspaceIdForAudit(actorId, resourceType, resourceId);
         auditLogRepositoryPort.save(AuditLog.builder()
+                .workspaceId(workspaceId)
                 .actorId(actorId)
                 .action(action)
                 .resourceType(resourceType)
                 .resourceId(resourceId)
                 .detail(detail)
                 .build());
+    }
+
+    private Long resolveWorkspaceIdForAudit(Long actorId, String resourceType, String resourceId) {
+        try {
+            if (tenantAccessService != null) {
+                var scope = tenantAccessService.currentScope();
+                if (scope.hasTenantFilter()) {
+                    return scope.workspaceId();
+                }
+            }
+            Long parsedId = parseLongOrNull(resourceId);
+            if ("ENTERPRISE".equalsIgnoreCase(resourceType) && parsedId != null) {
+                return parsedId;
+            }
+            if ("DOCUMENT".equalsIgnoreCase(resourceType) && parsedId != null
+                    && documentRepository != null && repositoryRepository != null) {
+                var docOpt = documentRepository.findById(parsedId);
+                if (docOpt.isPresent() && docOpt.get().getRepoId() != null) {
+                    var repoOpt = repositoryRepository.findById(docOpt.get().getRepoId());
+                    if (repoOpt.isPresent() && repoOpt.get().getWorkspaceId() != null) {
+                        return repoOpt.get().getWorkspaceId();
+                    }
+                }
+            }
+            if ("REPOSITORY".equalsIgnoreCase(resourceType) && parsedId != null && repositoryRepository != null) {
+                var repoOpt = repositoryRepository.findById(parsedId);
+                if (repoOpt.isPresent() && repoOpt.get().getWorkspaceId() != null) {
+                    return repoOpt.get().getWorkspaceId();
+                }
+            }
+            if (actorId != null && userRepositoryPort != null) {
+                return userRepositoryPort.findById(actorId)
+                        .map(com.example.livingdocs_backend.domain.model.User::getWorkspaceId)
+                        .orElse(null);
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private static Long parseLongOrNull(String val) {
+        if (val == null || val.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(val.trim());
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 }

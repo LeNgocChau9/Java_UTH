@@ -31,6 +31,9 @@ public class DetailedHealthService {
     private final RestClient aiEngineClient;
     private final RestClient githubClient;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.security.TenantAccessService tenantAccessService;
+
     public DetailedHealthService(
             JdbcTemplate jdbcTemplate,
             SpringDataGitHubConnectionRepository gitHubConnectionRepository,
@@ -228,7 +231,22 @@ public class DetailedHealthService {
 
     private String findUsableGitHubToken() {
         try {
-            List<GitHubConnectionEntity> connected = gitHubConnectionRepository.findAllByStatus("CONNECTED");
+            List<GitHubConnectionEntity> connected;
+            if (tenantAccessService != null) {
+                var scope = tenantAccessService.currentScope();
+                if (scope.unassigned()) {
+                    return null;
+                }
+                if (scope.hasTenantFilter()) {
+                    connected = gitHubConnectionRepository.findByWorkspaceId(scope.workspaceId()).stream()
+                            .filter(c -> "CONNECTED".equalsIgnoreCase(c.getStatus()))
+                            .toList();
+                } else {
+                    connected = gitHubConnectionRepository.findAllByStatus("CONNECTED");
+                }
+            } else {
+                connected = gitHubConnectionRepository.findAllByStatus("CONNECTED");
+            }
             for (GitHubConnectionEntity conn : connected) {
                 String rawToken = conn.getAccessTokenEncrypted();
                 String token = rawToken != null ? rawToken.trim() : null;
@@ -291,7 +309,18 @@ public class DetailedHealthService {
 
     private List<Map<String, Object>> fetchRecentAuditLogs() {
         try {
-            List<AuditLog> logs = auditLogRepositoryPort.findRecent();
+            List<AuditLog> logs;
+            if (tenantAccessService != null) {
+                var scope = tenantAccessService.currentScope();
+                if (scope.unassigned()) {
+                    return Collections.emptyList();
+                }
+                logs = scope.hasTenantFilter()
+                        ? auditLogRepositoryPort.findRecentByWorkspaceId(scope.workspaceId())
+                        : auditLogRepositoryPort.findRecent();
+            } else {
+                logs = auditLogRepositoryPort.findRecent();
+            }
             if (logs == null || logs.isEmpty()) {
                 return Collections.emptyList();
             }

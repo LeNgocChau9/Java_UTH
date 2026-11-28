@@ -79,6 +79,9 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
     @Autowired(required = false)
     private com.example.livingdocs_backend.infrastructure.persistence.repository.JpaDriftAlertRepository jpaDriftAlertRepository;
 
+    @Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.security.TenantAccessService tenantAccessService;
+
     public static final String BOT_MARKER = "<!-- livingdocs-drift-alert -->";
 
     @Autowired
@@ -171,6 +174,9 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
 
     @Override
     public List<AffectedDocumentResultDto> findAffectedDocumentsForPullRequest(Long repositoryId, int prNumber) {
+        if (tenantAccessService != null && repositoryId != null) {
+            tenantAccessService.requireRepositoryAccess(repositoryId);
+        }
         log.info("[DocDrift] Bắt đầu quy trình tự động kéo Git Diff và tìm tài liệu ảnh hưởng cho PR #{} (repo={})",
                 prNumber, repositoryId);
         AstDiffRequestDto diffRequest = codeDiffAnalysisService.fetchPullRequestDiff(repositoryId, prNumber);
@@ -179,6 +185,9 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
 
     @Override
     public List<AffectedDocumentResultDto> findAffectedDocuments(Long repositoryId, AstDiffRequestDto diffRequest) {
+        if (tenantAccessService != null && repositoryId != null) {
+            tenantAccessService.requireRepositoryAccess(repositoryId);
+        }
         log.info("[DocDrift] Bắt đầu tìm tài liệu bị ảnh hưởng cho repo={}", repositoryId);
 
         AstDiffResponseDto diffResponse = codeDiffAnalysisService.analyzeAstDiff(diffRequest);
@@ -199,13 +208,14 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
                 String severity = resolveSeverity(entity.impact_level(), changeType);
                 String details = entity.details();
 
-                // 1. Tìm doc_code_links khớp chính xác file_path + methodName hoặc className
-                List<DocCodeLinkEntity> matchedLinks = docCodeLinkRepository.findMatchingLinks(filePath, className,
-                        methodName);
+                // 1. Tìm doc_code_links khớp chính xác trong phạm vi repository (cách ly multi-tenant)
+                List<DocCodeLinkEntity> matchedLinks = repositoryId != null
+                        ? docCodeLinkRepository.findMatchingLinksByRepositoryId(repositoryId, filePath, className, methodName)
+                        : Collections.emptyList();
 
-                // Nếu không có link khớp method, tìm link liên kết ở cấp độ file/class
-                if (matchedLinks.isEmpty()) {
-                    matchedLinks = docCodeLinkRepository.findMatchingLinks(filePath, className, null);
+                // Nếu không có link khớp method, tìm link liên kết ở cấp độ file/class trong cùng repository
+                if (matchedLinks.isEmpty() && repositoryId != null) {
+                    matchedLinks = docCodeLinkRepository.findMatchingLinksByRepositoryId(repositoryId, filePath, className, null);
                 }
 
                 // Nếu vẫn chưa có trong doc_code_links, fallback tìm document theo target_path
@@ -295,6 +305,9 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
 
     @Override
     public PrDriftAnalysisResultDto detectDriftAndCommentOnPr(Long repositoryId, int prNumber) {
+        if (tenantAccessService != null && repositoryId != null) {
+            tenantAccessService.requireRepositoryAccess(repositoryId);
+        }
         AstDiffRequestDto diffRequest = codeDiffAnalysisService.fetchPullRequestDiff(repositoryId, prNumber);
         return detectDriftAndCommentOnPr(repositoryId, prNumber, diffRequest);
     }
@@ -303,6 +316,9 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
     @Transactional
     public PrDriftAnalysisResultDto detectDriftAndCommentOnPr(Long repositoryId, int prNumber,
             AstDiffRequestDto diffRequest) {
+        if (tenantAccessService != null && repositoryId != null) {
+            tenantAccessService.requireRepositoryAccess(repositoryId);
+        }
         log.info("[DocDrift] Khởi chạy quy trình phát hiện sai lệch và comment lên PR #{} (repo={})", prNumber,
                 repositoryId);
 
@@ -498,6 +514,9 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
     }
 
     private ManualDriftAnalysisResponseDto analyzePullRequestManual(Long repositoryId, Integer prNumber, Instant now) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireRepositoryAccess(repositoryId);
+        }
         RepositoryEntity repo = repositoryRepository.findById(repositoryId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy Repository ID=" + repositoryId));
 
@@ -576,6 +595,9 @@ public class DocDriftDetectionService implements DocDriftDetectionServicePort {
     }
 
     private ManualDriftAnalysisResponseDto analyzeSingleDocumentManual(Long documentId, Instant now) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireDocumentAccess(documentId);
+        }
         DocumentEntity doc = documentRepository.findById(documentId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy Tài liệu với ID=" + documentId));
 

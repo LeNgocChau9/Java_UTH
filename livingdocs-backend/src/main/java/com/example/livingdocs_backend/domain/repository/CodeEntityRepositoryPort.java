@@ -3,6 +3,7 @@ package com.example.livingdocs_backend.domain.repository;
 import com.example.livingdocs_backend.domain.model.CodeEntity;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Port lưu trữ và truy vấn CodeEntity (DDD / Clean Architecture).
@@ -13,9 +14,17 @@ public interface CodeEntityRepositoryPort {
 
     List<CodeEntity> saveAll(List<CodeEntity> entities);
 
+    default Optional<CodeEntity> findById(Long entityId) {
+        return Optional.empty();
+    }
+
     List<CodeEntity> findByRepositoryId(Long repositoryId);
 
     List<CodeEntity> findByRepositoryIdAndFilePath(Long repositoryId, String filePath);
+
+    default List<CodeEntity> findByWorkspaceId(Long workspaceId) {
+        return List.of();
+    }
 
     void deleteByRepositoryIdAndFilePath(Long repositoryId, String filePath);
 

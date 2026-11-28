@@ -6,6 +6,7 @@ import com.example.livingdocs_backend.application.port.ChangelogServicePort;
 import com.example.livingdocs_backend.application.port.DocumentServicePort;
 import com.example.livingdocs_backend.application.port.PrMergeBlockingServicePort;
 import com.example.livingdocs_backend.application.port.ReviewServicePort;
+import com.example.livingdocs_backend.domain.exception.AuthenticationException;
 import com.example.livingdocs_backend.domain.exception.DocumentNotFoundException;
 import com.example.livingdocs_backend.domain.model.ActorRole;
 import com.example.livingdocs_backend.domain.model.AuditAction;
@@ -31,6 +32,7 @@ import com.example.livingdocs_backend.infrastructure.persistence.repository.Spri
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataManagerApprovalPolicyRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataReviewCommentRepository;
+import com.example.livingdocs_backend.infrastructure.security.TenantAccessService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -43,6 +45,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -71,6 +74,9 @@ public class ReviewServiceImpl implements ReviewServicePort {
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.example.livingdocs_backend.infrastructure.notification.ExternalIntegrationWebhookDispatcher webhookDispatcher;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private TenantAccessService tenantAccessService;
 
     @Autowired
     public ReviewServiceImpl(
@@ -145,13 +151,29 @@ public class ReviewServiceImpl implements ReviewServicePort {
         this.userRepositoryPort = userRepositoryPort;
     }
 
+    public void setTenantAccessService(TenantAccessService tenantAccessService) {
+        this.tenantAccessService = tenantAccessService;
+    }
+
     public static final String KEY_APPROVAL_POLICIES = "approval_policies";
     public static final String KEY_MANAGER_DELEGATIONS = "manager_delegations";
 
     @Override
     @Transactional(readOnly = true)
     public List<ReviewQueueItemResponse> getStaffQueue() {
-        List<Document> docs = documentRepositoryPort.findByStatus(DocumentStatus.UNDER_REVIEW_STAFF);
+        List<Document> docs;
+        if (tenantAccessService != null) {
+            TenantAccessService.TenantScope scope = tenantAccessService.currentScope();
+            if (scope.unassigned()) {
+                return List.of();
+            }
+            Long workspaceId = tenantAccessService.resolveReadWorkspaceId(null);
+            docs = workspaceId != null
+                    ? documentRepositoryPort.findByStatusAndWorkspaceId(DocumentStatus.UNDER_REVIEW_STAFF, workspaceId)
+                    : documentRepositoryPort.findByStatus(DocumentStatus.UNDER_REVIEW_STAFF);
+        } else {
+            docs = documentRepositoryPort.findByStatus(DocumentStatus.UNDER_REVIEW_STAFF);
+        }
         List<ReviewQueueItemResponse> queue = new ArrayList<>();
 
         for (Document doc : docs) {
@@ -179,7 +201,7 @@ public class ReviewServiceImpl implements ReviewServicePort {
             targetStatus = DocumentStatus.REJECTED;
         } else {
             String docType = resolveDocType(document);
-            int tiers = getApprovalTiersForDocType(docType);
+            int tiers = getApprovalTiersForDocType(document, docType);
             if (tiers == 1) {
                 targetStatus = DocumentStatus.PUBLISHED;
                 isOneTier = true;
@@ -321,7 +343,19 @@ public class ReviewServiceImpl implements ReviewServicePort {
     @Override
     @Transactional(readOnly = true)
     public List<ReviewQueueItemResponse> getManagerQueue() {
-        List<Document> docs = documentRepositoryPort.findByStatus(DocumentStatus.UNDER_REVIEW_MANAGER);
+        List<Document> docs;
+        if (tenantAccessService != null) {
+            TenantAccessService.TenantScope scope = tenantAccessService.currentScope();
+            if (scope.unassigned()) {
+                return List.of();
+            }
+            Long workspaceId = tenantAccessService.resolveReadWorkspaceId(null);
+            docs = workspaceId != null
+                    ? documentRepositoryPort.findByStatusAndWorkspaceId(DocumentStatus.UNDER_REVIEW_MANAGER, workspaceId)
+                    : documentRepositoryPort.findByStatus(DocumentStatus.UNDER_REVIEW_MANAGER);
+        } else {
+            docs = documentRepositoryPort.findByStatus(DocumentStatus.UNDER_REVIEW_MANAGER);
+        }
         List<ReviewQueueItemResponse> queue = new ArrayList<>();
 
         for (Document doc : docs) {
@@ -356,7 +390,7 @@ public class ReviewServiceImpl implements ReviewServicePort {
         DocumentStatus nextStatus = DocumentStateMachine.transition(currentStatus, targetStatus, effectiveRole);
 
         // Kiểm tra xem có ủy quyền phê duyệt (Manager Delegation) đang hiệu lực không
-        ManagerDelegationDto matchedDelegation = findActiveDelegation(actorEmail, actorId, request);
+        ManagerDelegationDto matchedDelegation = findActiveDelegation(document, actorEmail, actorId, request);
         String delegationMsg = null;
         if (matchedDelegation != null) {
             String delegatorLabel = (matchedDelegation.getDelegatorName() != null && !matchedDelegation.getDelegatorName().isBlank())
@@ -545,14 +579,22 @@ public class ReviewServiceImpl implements ReviewServicePort {
         // Thử tìm theo Document ID
         Optional<Document> docOpt = documentRepositoryPort.findById(id);
         if (docOpt.isPresent()) {
-            return docOpt.get();
+            Document doc = docOpt.get();
+            if (tenantAccessService != null) {
+                tenantAccessService.requireDocumentAccess(doc.getDocId());
+            }
+            return doc;
         }
 
         // Nếu không thấy, thử tìm xem ID có phải là Review ID
         Optional<Review> reviewOpt = reviewRepositoryPort.findById(id);
         if (reviewOpt.isPresent() && reviewOpt.get().getDocId() != null) {
-            return documentRepositoryPort.findById(reviewOpt.get().getDocId())
+            Document doc = documentRepositoryPort.findById(reviewOpt.get().getDocId())
                     .orElseThrow(() -> new DocumentNotFoundException(id));
+            if (tenantAccessService != null) {
+                tenantAccessService.requireDocumentAccess(doc.getDocId());
+            }
+            return doc;
         }
 
         throw new DocumentNotFoundException(id);
@@ -621,7 +663,7 @@ public class ReviewServiceImpl implements ReviewServicePort {
                 .missingHeadings(structure.getMissingHeadings())
                 .aiGenerated(isAiGenerated(latestVersion))
                 .docType(docType)
-                .approvalTiers(getApprovalTiersForDocType(docType))
+                .approvalTiers(getApprovalTiersForDocType(doc, docType))
                 .build();
     }
 
@@ -751,7 +793,19 @@ public class ReviewServiceImpl implements ReviewServicePort {
     @Override
     @Transactional(readOnly = true)
     public List<ReviewHistoryItemResponse> getReviewHistory() {
-        List<Review> reviews = reviewRepositoryPort.findAll();
+        List<Review> reviews;
+        if (tenantAccessService != null) {
+            TenantAccessService.TenantScope scope = tenantAccessService.currentScope();
+            if (scope.unassigned()) {
+                return List.of();
+            }
+            Long workspaceId = tenantAccessService.resolveReadWorkspaceId(null);
+            reviews = workspaceId != null
+                    ? reviewRepositoryPort.findByWorkspaceId(workspaceId)
+                    : reviewRepositoryPort.findAll();
+        } else {
+            reviews = reviewRepositoryPort.findAll();
+        }
         List<ReviewHistoryItemResponse> list = new ArrayList<>();
 
         for (Review r : reviews) {
@@ -837,9 +891,22 @@ public class ReviewServiceImpl implements ReviewServicePort {
     @Override
     @Transactional(readOnly = true)
     public List<ApprovalPolicyDto> getApprovalPolicies() {
+        if (tenantAccessService != null) {
+            TenantAccessService.TenantScope scope = tenantAccessService.currentScope();
+            if (scope.unassigned()) {
+                return List.of();
+            }
+            Long workspaceId = tenantAccessService.resolveReadWorkspaceId(null);
+            return getApprovalPoliciesForWorkspace(workspaceId != null ? workspaceId : TenantAccessService.DEFAULT_WORKSPACE_ID);
+        }
+        return getApprovalPoliciesForWorkspace(TenantAccessService.DEFAULT_WORKSPACE_ID);
+    }
+
+    private List<ApprovalPolicyDto> getApprovalPoliciesForWorkspace(Long workspaceId) {
+        Long effectiveWorkspaceId = workspaceId != null ? workspaceId : TenantAccessService.DEFAULT_WORKSPACE_ID;
         if (managerApprovalPolicyRepository != null) {
             try {
-                List<ManagerApprovalPolicyEntity> entities = managerApprovalPolicyRepository.findByWorkspaceId(1L);
+                List<ManagerApprovalPolicyEntity> entities = managerApprovalPolicyRepository.findByWorkspaceId(effectiveWorkspaceId);
                 if (entities != null && !entities.isEmpty()) {
                     List<ApprovalPolicyDto> list = new ArrayList<>();
                     for (ManagerApprovalPolicyEntity e : entities) {
@@ -854,31 +921,18 @@ public class ReviewServiceImpl implements ReviewServicePort {
                     return list;
                 }
             } catch (Exception ex) {
-                log.debug("[ReviewServiceImpl] Lỗi đọc từ managerApprovalPolicyRepository, fallback sang adminSettingRepository: {}", ex.getMessage());
+                log.debug("[ReviewServiceImpl] Lỗi đọc từ managerApprovalPolicyRepository cho workspace {}: {}", effectiveWorkspaceId, ex.getMessage());
             }
         }
-        if (adminSettingRepository == null) {
-            return defaultApprovalPolicies();
-        }
-        Optional<AdminSettingEntity> stored = adminSettingRepository.findById(KEY_APPROVAL_POLICIES);
-        if (stored == null || stored.isEmpty()) {
-            return defaultApprovalPolicies();
-        }
-        return stored
-                .map(entity -> {
-                    try {
-                        return objectMapper.readValue(entity.getSettingValue(), new TypeReference<List<ApprovalPolicyDto>>() {});
-                    } catch (Exception e) {
-                        log.warn("[ReviewServiceImpl] Lỗi đọc cấu hình approval_policies: {}", e.getMessage());
-                        return defaultApprovalPolicies();
-                    }
-                })
-                .orElseGet(this::defaultApprovalPolicies);
+        return defaultApprovalPolicies();
     }
 
     @Override
     @Transactional
     public List<ApprovalPolicyDto> updateApprovalPolicies(List<ApprovalPolicyDto> policies, Long actorId, String actorEmail) {
+        Long workspaceId = tenantAccessService != null
+                ? tenantAccessService.resolveWriteWorkspaceId(null)
+                : TenantAccessService.DEFAULT_WORKSPACE_ID;
         if (policies == null || policies.isEmpty()) {
             policies = defaultApprovalPolicies();
         }
@@ -892,54 +946,26 @@ public class ReviewServiceImpl implements ReviewServicePort {
             }
         }
 
-        // 1. Lưu vào bảng quan hệ manager_approval_policies
+        // Lưu trực tiếp vào bảng quan hệ manager_approval_policies theo từng workspace (không dual-write global admin_settings)
         if (managerApprovalPolicyRepository != null) {
-            try {
-                for (ApprovalPolicyDto p : policies) {
-                    String dt = normalizeDocType(p.getDocType());
-                    int tiers = p.getTiers() != null && p.getTiers() == 1 ? 1 : 2;
-                    ManagerApprovalPolicyEntity entity = managerApprovalPolicyRepository
-                            .findByWorkspaceIdAndDocumentType(1L, dt)
-                            .orElseGet(() -> ManagerApprovalPolicyEntity.builder()
-                                    .workspaceId(1L)
-                                    .documentType(dt)
-                                    .build());
-                    entity.setTiers(tiers);
-                    entity.setApprovalRequired(tiers > 1);
-                    entity.setDescription(p.getDescription());
-                    entity.setUpdatedBy(actorId);
-                    entity.setUpdatedByEmail(updater);
-                    entity.setUpdatedAt(now);
-                    managerApprovalPolicyRepository.save(entity);
-                }
-            } catch (Exception ex) {
-                log.warn("[ReviewServiceImpl] Lỗi lưu vào managerApprovalPolicyRepository: {}", ex.getMessage());
-            }
-        }
-
-        // 2. Dual-write sang admin_settings JSON blob để tương thích ngược
-        if (adminSettingRepository != null) {
-            try {
-                String json = objectMapper.writeValueAsString(policies);
-                AdminSettingEntity entity = adminSettingRepository.findById(KEY_APPROVAL_POLICIES)
-                        .map(existing -> {
-                            existing.setSettingValue(json);
-                            existing.setUpdatedBy(actorId);
-                            existing.setUpdatedAt(now);
-                            return existing;
-                        })
-                        .orElseGet(() -> AdminSettingEntity.builder()
-                                .settingKey(KEY_APPROVAL_POLICIES)
-                                .settingValue(json)
-                                .updatedBy(actorId)
-                                .updatedAt(now)
+            for (ApprovalPolicyDto p : policies) {
+                String dt = normalizeDocType(p.getDocType());
+                int tiers = p.getTiers() != null && p.getTiers() == 1 ? 1 : 2;
+                ManagerApprovalPolicyEntity entity = managerApprovalPolicyRepository
+                        .findByWorkspaceIdAndDocumentType(workspaceId, dt)
+                        .orElseGet(() -> ManagerApprovalPolicyEntity.builder()
+                                .workspaceId(workspaceId)
+                                .documentType(dt)
                                 .build());
-                adminSettingRepository.save(entity);
-                log.info("[ReviewServiceImpl] Đã cập nhật {} chính sách phê duyệt bởi {}", policies.size(), updater);
-            } catch (Exception e) {
-                log.error("[ReviewServiceImpl] Lỗi lưu cấu hình approval_policies: {}", e.getMessage(), e);
-                throw new RuntimeException("Không thể lưu cấu hình chính sách phê duyệt: " + e.getMessage(), e);
+                entity.setTiers(tiers);
+                entity.setApprovalRequired(tiers > 1);
+                entity.setDescription(p.getDescription());
+                entity.setUpdatedBy(actorId);
+                entity.setUpdatedByEmail(updater);
+                entity.setUpdatedAt(now);
+                managerApprovalPolicyRepository.save(entity);
             }
+            log.info("[ReviewServiceImpl] Đã cập nhật {} chính sách phê duyệt cho workspace {} bởi {}", policies.size(), workspaceId, updater);
         }
         return policies;
     }
@@ -947,51 +973,57 @@ public class ReviewServiceImpl implements ReviewServicePort {
     @Override
     @Transactional(readOnly = true)
     public List<ManagerDelegationDto> getManagerDelegations() {
-        if (managerApprovalDelegationRepository != null) {
-            try {
-                List<ManagerApprovalDelegationEntity> entities = managerApprovalDelegationRepository.findByWorkspaceId(1L);
-                if (entities != null && !entities.isEmpty()) {
-                    List<ManagerDelegationDto> list = new ArrayList<>();
-                    for (ManagerApprovalDelegationEntity e : entities) {
-                        list.add(ManagerDelegationDto.builder()
-                                .id(String.valueOf(e.getDelegationId()))
-                                .delegatorId(e.getDelegatorId() != null && e.getDelegatorId() > 0 ? e.getDelegatorId() : null)
-                                .delegatorEmail(e.getDelegatorEmail())
-                                .delegatorName(e.getDelegatorName())
-                                .delegateeId(e.getDelegateId() != null && e.getDelegateId() > 0 ? e.getDelegateId() : null)
-                                .delegateeEmail(e.getDelegateeEmail())
-                                .delegateeName(e.getDelegateeName())
-                                .fromDate(e.getStartsAt() != null ? e.getStartsAt().toString() : null)
-                                .toDate(e.getEndsAt() != null ? e.getEndsAt().toString() : null)
-                                .reason(e.getReason())
-                                .active(e.getActive() != null ? e.getActive() : true)
-                                .createdAt(e.getCreatedAt() != null ? e.getCreatedAt().toString() : null)
-                                .build());
-                    }
-                    return list;
-                }
-            } catch (Exception ex) {
-                log.debug("[ReviewServiceImpl] Lỗi đọc managerApprovalDelegationRepository, fallback sang adminSettingRepository: {}", ex.getMessage());
+        if (tenantAccessService != null) {
+            TenantAccessService.TenantScope scope = tenantAccessService.currentScope();
+            if (scope.unassigned()) {
+                return List.of();
             }
+            Long workspaceId = tenantAccessService.resolveReadWorkspaceId(null);
+            return getManagerDelegationsForWorkspace(workspaceId);
         }
-        if (adminSettingRepository == null) {
+        return getManagerDelegationsForWorkspace(TenantAccessService.DEFAULT_WORKSPACE_ID);
+    }
+
+    private List<ManagerDelegationDto> getManagerDelegationsForWorkspace(Long workspaceId) {
+        if (managerApprovalDelegationRepository == null) {
             return new ArrayList<>();
         }
-        return adminSettingRepository.findById(KEY_MANAGER_DELEGATIONS)
-                .map(entity -> {
-                    try {
-                        return objectMapper.readValue(entity.getSettingValue(), new TypeReference<List<ManagerDelegationDto>>() {});
-                    } catch (Exception e) {
-                        log.warn("[ReviewServiceImpl] Lỗi đọc manager_delegations: {}", e.getMessage());
-                        return new ArrayList<ManagerDelegationDto>();
-                    }
-                })
-                .orElseGet(ArrayList::new);
+        try {
+            List<ManagerApprovalDelegationEntity> entities = workspaceId != null
+                    ? managerApprovalDelegationRepository.findByWorkspaceId(workspaceId)
+                    : managerApprovalDelegationRepository.findAll();
+            List<ManagerDelegationDto> list = new ArrayList<>();
+            if (entities != null) {
+                for (ManagerApprovalDelegationEntity e : entities) {
+                    list.add(ManagerDelegationDto.builder()
+                            .id(String.valueOf(e.getDelegationId()))
+                            .delegatorId(e.getDelegatorId() != null && e.getDelegatorId() > 0 ? e.getDelegatorId() : null)
+                            .delegatorEmail(e.getDelegatorEmail())
+                            .delegatorName(e.getDelegatorName())
+                            .delegateeId(e.getDelegateId() != null && e.getDelegateId() > 0 ? e.getDelegateId() : null)
+                            .delegateeEmail(e.getDelegateeEmail())
+                            .delegateeName(e.getDelegateeName())
+                            .fromDate(e.getStartsAt() != null ? e.getStartsAt().toString() : null)
+                            .toDate(e.getEndsAt() != null ? e.getEndsAt().toString() : null)
+                            .reason(e.getReason())
+                            .active(e.getActive() != null ? e.getActive() : true)
+                            .createdAt(e.getCreatedAt() != null ? e.getCreatedAt().toString() : null)
+                            .build());
+                }
+            }
+            return list;
+        } catch (Exception ex) {
+            log.debug("[ReviewServiceImpl] Lỗi đọc managerApprovalDelegationRepository cho workspace {}: {}", workspaceId, ex.getMessage());
+            return new ArrayList<>();
+        }
     }
 
     @Override
     @Transactional
     public ManagerDelegationDto createManagerDelegation(ManagerDelegationDto delegation, Long actorId, String actorEmail) {
+        Long workspaceId = tenantAccessService != null
+                ? tenantAccessService.resolveWriteWorkspaceId(null)
+                : TenantAccessService.DEFAULT_WORKSPACE_ID;
         if (delegation == null) {
             throw new IllegalArgumentException("Thông tin ủy quyền không được rỗng.");
         }
@@ -1029,6 +1061,13 @@ public class ReviewServiceImpl implements ReviewServicePort {
                 Optional<User> delegateeOpt = userRepositoryPort.findByEmail(delegation.getDelegateeEmail().trim());
                 if (delegateeOpt != null && delegateeOpt.isPresent()) {
                     User u = delegateeOpt.get();
+                    if (tenantAccessService != null
+                            && tenantAccessService.currentScope().hasTenantFilter()
+                            && !Objects.equals(u.getWorkspaceId(), workspaceId)) {
+                        throw AuthenticationException.forbidden(
+                                TenantAccessService.ERR_TENANT_DENIED,
+                                TenantAccessService.MSG_TENANT_DENIED);
+                    }
                     if (delegation.getDelegateeId() == null) {
                         delegation.setDelegateeId(u.getUserId());
                     }
@@ -1080,75 +1119,30 @@ public class ReviewServiceImpl implements ReviewServicePort {
             }
         }
 
-        // 1. Lưu vào bảng quan hệ manager_approval_delegations
+        // Lưu trực tiếp vào bảng quan hệ manager_approval_delegations theo workspace (không dual-write global admin_settings)
         if (managerApprovalDelegationRepository != null) {
-            try {
-                Instant start = parseDate(delegation.getFromDate(), true);
-                Instant end = parseDate(delegation.getToDate(), false);
-                ManagerApprovalDelegationEntity entity = ManagerApprovalDelegationEntity.builder()
-                        .workspaceId(1L)
-                        .delegatorId(delegation.getDelegatorId())
-                        .delegateId(delegation.getDelegateeId())
-                        .delegatorName(delegation.getDelegatorName())
-                        .delegatorEmail(delegation.getDelegatorEmail())
-                        .delegateeName(delegation.getDelegateeName())
-                        .delegateeEmail(delegation.getDelegateeEmail())
-                        .active(delegation.getActive())
-                        .startsAt(start)
-                        .endsAt(end)
-                        .reason(delegation.getReason())
-                        .createdAt(now)
-                        .build();
-                ManagerApprovalDelegationEntity saved = managerApprovalDelegationRepository.save(entity);
-                if (saved != null && saved.getDelegationId() != null) {
-                    delegation.setId(String.valueOf(saved.getDelegationId()));
-                }
-            } catch (Exception ex) {
-                log.warn("[ReviewServiceImpl] Lỗi lưu vào managerApprovalDelegationRepository: {}", ex.getMessage());
+            Instant start = parseDate(delegation.getFromDate(), true);
+            Instant end = parseDate(delegation.getToDate(), false);
+            ManagerApprovalDelegationEntity entity = ManagerApprovalDelegationEntity.builder()
+                    .workspaceId(workspaceId)
+                    .delegatorId(delegation.getDelegatorId())
+                    .delegateId(delegation.getDelegateeId())
+                    .delegatorName(delegation.getDelegatorName())
+                    .delegatorEmail(delegation.getDelegatorEmail())
+                    .delegateeName(delegation.getDelegateeName())
+                    .delegateeEmail(delegation.getDelegateeEmail())
+                    .active(delegation.getActive())
+                    .startsAt(start)
+                    .endsAt(end)
+                    .reason(delegation.getReason())
+                    .createdAt(now)
+                    .build();
+            ManagerApprovalDelegationEntity saved = managerApprovalDelegationRepository.save(entity);
+            if (saved != null && saved.getDelegationId() != null) {
+                delegation.setId(String.valueOf(saved.getDelegationId()));
             }
-        }
-
-        // 2. Dual-write sang admin_settings JSON blob (đọc trực tiếp từ adminSettingRepository & chống trùng theo id)
-        if (adminSettingRepository != null) {
-            List<ManagerDelegationDto> current = adminSettingRepository.findById(KEY_MANAGER_DELEGATIONS)
-                    .map(existing -> {
-                        try {
-                            return objectMapper.readValue(existing.getSettingValue(), new TypeReference<List<ManagerDelegationDto>>() {});
-                        } catch (Exception e) {
-                            return new ArrayList<ManagerDelegationDto>();
-                        }
-                    })
-                    .orElseGet(ArrayList::new);
-            List<ManagerDelegationDto> updated = new ArrayList<>();
-            updated.add(delegation);
-            for (ManagerDelegationDto existingItem : current) {
-                if (existingItem != null && (delegation.getId() == null || !delegation.getId().equals(existingItem.getId()))) {
-                    updated.add(existingItem);
-                }
-            }
-
-            try {
-                String json = objectMapper.writeValueAsString(updated);
-                AdminSettingEntity entity = adminSettingRepository.findById(KEY_MANAGER_DELEGATIONS)
-                        .map(existing -> {
-                            existing.setSettingValue(json);
-                            existing.setUpdatedBy(actorId);
-                            existing.setUpdatedAt(now);
-                            return existing;
-                        })
-                        .orElseGet(() -> AdminSettingEntity.builder()
-                                .settingKey(KEY_MANAGER_DELEGATIONS)
-                                .settingValue(json)
-                                .updatedBy(actorId)
-                                .updatedAt(now)
-                                .build());
-                adminSettingRepository.save(entity);
-                log.info("[ReviewServiceImpl] Đã lưu ủy quyền mới: {} ủy quyền cho {}",
-                        delegation.getDelegatorName(), delegation.getDelegateeName());
-            } catch (Exception e) {
-                log.error("[ReviewServiceImpl] Lỗi lưu manager_delegations: {}", e.getMessage(), e);
-                throw new RuntimeException("Không thể lưu ủy quyền phê duyệt: " + e.getMessage(), e);
-            }
+            log.info("[ReviewServiceImpl] Đã lưu ủy quyền mới cho workspace {}: {} ủy quyền cho {}",
+                    workspaceId, delegation.getDelegatorName(), delegation.getDelegateeName());
         }
         return delegation;
     }
@@ -1156,6 +1150,9 @@ public class ReviewServiceImpl implements ReviewServicePort {
     @Override
     @Transactional(readOnly = true)
     public List<ReviewCommentDto> getDocumentComments(Long docId, String status) {
+        if (tenantAccessService != null && docId != null) {
+            tenantAccessService.requireDocumentAccess(docId);
+        }
         if (reviewCommentRepository == null || docId == null) {
             return new ArrayList<>();
         }
@@ -1177,6 +1174,9 @@ public class ReviewServiceImpl implements ReviewServicePort {
     public ReviewCommentDto addDocumentComment(Long docId, CreateReviewCommentRequest request, Long actorId, String actorRole, String actorEmail) {
         if (docId == null) {
             throw new IllegalArgumentException("Document ID không được để trống");
+        }
+        if (tenantAccessService != null) {
+            tenantAccessService.requireDocumentAccess(docId);
         }
         if (request == null || request.getDetailedComment() == null || request.getDetailedComment().isBlank()) {
             throw new IllegalArgumentException("Nội dung nhận xét không được để trống");
@@ -1220,6 +1220,9 @@ public class ReviewServiceImpl implements ReviewServicePort {
         if (docId == null) {
             throw new IllegalArgumentException("Document ID không được để trống");
         }
+        if (tenantAccessService != null) {
+            tenantAccessService.requireDocumentAccess(docId);
+        }
         if (commentId == null) {
             throw new IllegalArgumentException("Comment ID không được để trống");
         }
@@ -1253,7 +1256,19 @@ public class ReviewServiceImpl implements ReviewServicePort {
         if (userRepositoryPort == null) {
             return result;
         }
-        List<User> users = userRepositoryPort.findAll();
+        List<User> users;
+        if (tenantAccessService != null) {
+            TenantAccessService.TenantScope scope = tenantAccessService.currentScope();
+            if (scope.unassigned()) {
+                return result;
+            }
+            Long workspaceId = tenantAccessService.resolveReadWorkspaceId(null);
+            users = workspaceId != null
+                    ? userRepositoryPort.findByWorkspaceId(workspaceId)
+                    : userRepositoryPort.findAll();
+        } else {
+            users = userRepositoryPort.findAll();
+        }
         for (User u : users) {
             if (u.getStatus() != null && !"ACTIVE".equalsIgnoreCase(u.getStatus())) {
                 continue;
@@ -1351,9 +1366,26 @@ public class ReviewServiceImpl implements ReviewServicePort {
         return dt;
     }
 
-    private int getApprovalTiersForDocType(String docType) {
+    private Long resolveWorkspaceIdForDocument(Document doc) {
+        if (doc != null && doc.getRepoId() != null && repositoryRepository != null) {
+            Optional<RepositoryEntity> repoOpt = repositoryRepository.findById(doc.getRepoId());
+            if (repoOpt != null && repoOpt.isPresent() && repoOpt.get().getWorkspaceId() != null) {
+                return repoOpt.get().getWorkspaceId();
+            }
+        }
+        if (tenantAccessService != null) {
+            Long wsId = tenantAccessService.resolveReadWorkspaceId(null);
+            if (wsId != null) {
+                return wsId;
+            }
+        }
+        return TenantAccessService.DEFAULT_WORKSPACE_ID;
+    }
+
+    private int getApprovalTiersForDocType(Document doc, String docType) {
         String normalized = normalizeDocType(docType);
-        List<ApprovalPolicyDto> policies = getApprovalPolicies();
+        Long workspaceId = resolveWorkspaceIdForDocument(doc);
+        List<ApprovalPolicyDto> policies = getApprovalPoliciesForWorkspace(workspaceId);
         for (ApprovalPolicyDto p : policies) {
             if (p.getDocType() != null) {
                 String pNorm = normalizeDocType(p.getDocType());
@@ -1394,8 +1426,9 @@ public class ReviewServiceImpl implements ReviewServicePort {
         }
     }
 
-    private ManagerDelegationDto findActiveDelegation(String actorEmail, Long actorId, ManagerActionRequest request) {
-        List<ManagerDelegationDto> delegations = getManagerDelegations();
+    private ManagerDelegationDto findActiveDelegation(Document doc, String actorEmail, Long actorId, ManagerActionRequest request) {
+        Long workspaceId = resolveWorkspaceIdForDocument(doc);
+        List<ManagerDelegationDto> delegations = getManagerDelegationsForWorkspace(workspaceId);
         if (delegations == null || delegations.isEmpty()) {
             return null;
         }

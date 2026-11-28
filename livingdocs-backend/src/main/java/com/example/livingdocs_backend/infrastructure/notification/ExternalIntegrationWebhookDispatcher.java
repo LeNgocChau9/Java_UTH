@@ -51,6 +51,15 @@ public class ExternalIntegrationWebhookDispatcher {
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
 
+    @Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository repositoryRepository;
+
+    @Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentRepository documentRepository;
+
+    @Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.security.TenantAccessService tenantAccessService;
+
     @Autowired
     public ExternalIntegrationWebhookDispatcher(
             SpringDataExternalIntegrationRepository integrationRepository,
@@ -102,7 +111,8 @@ public class ExternalIntegrationWebhookDispatcher {
             fields.put("Nguồn", sourceRef);
         }
 
-        dispatchAsync(EVENT_DRIFT_HIGH_CRITICAL, title, summary, SLACK_COLOR_DRIFT, DISCORD_COLOR_RED, fields, data);
+        Long targetWorkspaceId = resolveWorkspaceIdForEvent(repositoryId, documentId);
+        dispatchAsync(targetWorkspaceId, EVENT_DRIFT_HIGH_CRITICAL, title, summary, SLACK_COLOR_DRIFT, DISCORD_COLOR_RED, fields, data);
     }
 
     /**
@@ -127,7 +137,8 @@ public class ExternalIntegrationWebhookDispatcher {
             fields.put("Người gửi (ID)", String.valueOf(actorId));
         }
 
-        dispatchAsync(EVENT_REVIEW_SUBMITTED, title, summary, SLACK_COLOR_REVIEW, DISCORD_COLOR_BLUE, fields, data);
+        Long targetWorkspaceId = resolveWorkspaceIdForEvent(null, docId);
+        dispatchAsync(targetWorkspaceId, EVENT_REVIEW_SUBMITTED, title, summary, SLACK_COLOR_REVIEW, DISCORD_COLOR_BLUE, fields, data);
     }
 
     /**
@@ -155,10 +166,42 @@ public class ExternalIntegrationWebhookDispatcher {
             fields.put("Git Commit SHA", commitSha);
         }
 
-        dispatchAsync(EVENT_DOCUMENT_PUBLISHED, title, summary, SLACK_COLOR_PUBLISHED, DISCORD_COLOR_GREEN, fields, data);
+        Long targetWorkspaceId = resolveWorkspaceIdForEvent(null, docId);
+        dispatchAsync(targetWorkspaceId, EVENT_DOCUMENT_PUBLISHED, title, summary, SLACK_COLOR_PUBLISHED, DISCORD_COLOR_GREEN, fields, data);
+    }
+
+    private Long resolveWorkspaceIdForEvent(Long repositoryId, Long documentId) {
+        try {
+            if (repositoryId != null && repositoryRepository != null) {
+                var repoOpt = repositoryRepository.findById(repositoryId);
+                if (repoOpt.isPresent() && repoOpt.get().getWorkspaceId() != null) {
+                    return repoOpt.get().getWorkspaceId();
+                }
+            }
+            if (documentId != null && documentRepository != null && repositoryRepository != null) {
+                var docOpt = documentRepository.findById(documentId);
+                if (docOpt.isPresent() && docOpt.get().getRepoId() != null) {
+                    var repoOpt = repositoryRepository.findById(docOpt.get().getRepoId());
+                    if (repoOpt.isPresent() && repoOpt.get().getWorkspaceId() != null) {
+                        return repoOpt.get().getWorkspaceId();
+                    }
+                }
+            }
+            if (tenantAccessService != null) {
+                var scope = tenantAccessService.currentScope();
+                if (scope.workspaceId() != null) {
+                    return scope.workspaceId();
+                }
+            }
+        } catch (Exception ex) {
+            log.debug("[WebhookDispatcher] Không thể phân giải workspaceId cho sự kiện: {}", ex.getMessage());
+        }
+        // Chỉ fallback DEFAULT_WORKSPACE_ID khi chạy unit test không có repository beans
+        return (repositoryRepository == null && documentRepository == null) ? DEFAULT_WORKSPACE_ID : null;
     }
 
     private void dispatchAsync(
+            Long targetWorkspaceId,
             String eventType,
             String title,
             String summary,
@@ -166,13 +209,13 @@ public class ExternalIntegrationWebhookDispatcher {
             int discordColor,
             Map<String, String> fields,
             Map<String, Object> customData) {
-        if (integrationRepository == null) {
+        if (integrationRepository == null || targetWorkspaceId == null) {
             return;
         }
-        // Đọc danh sách tích hợp đã bật trước khi chạy bất đồng bộ để tránh mất context transaction/JPA sau này
+        // Đọc danh sách tích hợp đã bật của ĐÚNG doanh nghiệp sở hữu sự kiện (tránh rò rỉ cross-tenant)
         List<ExternalIntegrationEntity> enabledIntegrations;
         try {
-            enabledIntegrations = integrationRepository.findByWorkspaceIdAndEnabledTrue(DEFAULT_WORKSPACE_ID);
+            enabledIntegrations = integrationRepository.findByWorkspaceIdAndEnabledTrue(targetWorkspaceId);
         } catch (Exception ex) {
             log.warn("[WebhookDispatcher] Không thể truy vấn external_integrations: {}", ex.getMessage());
             return;

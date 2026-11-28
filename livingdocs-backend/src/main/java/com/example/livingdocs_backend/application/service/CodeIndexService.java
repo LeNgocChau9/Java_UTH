@@ -22,6 +22,7 @@ import com.example.livingdocs_backend.domain.util.HashUtils;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocCodeLinkEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocCodeLinkRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
+import com.example.livingdocs_backend.infrastructure.security.TenantAccessService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -70,6 +71,9 @@ public class CodeIndexService implements CodeIndexServicePort {
 
     @Autowired(required = false)
     private com.example.livingdocs_backend.infrastructure.ai.GeminiDirectClient geminiDirectClient;
+
+    @Autowired(required = false)
+    private TenantAccessService tenantAccessService;
 
     @Autowired
     public CodeIndexService(
@@ -131,6 +135,9 @@ public class CodeIndexService implements CodeIndexServicePort {
     @Override
     @Transactional
     public List<CodeEntity> indexFile(Long repositoryId, String filePath, String sourceCode, String commitHash) {
+        if (tenantAccessService != null && repositoryId != null) {
+            tenantAccessService.requireRepositoryAccess(repositoryId);
+        }
         log.info("Bắt đầu bóc tách và lập chỉ mục AST cho repo={}, file={}", repositoryId, filePath);
 
         if (!StringUtils.hasText(filePath) || !StringUtils.hasText(sourceCode)) {
@@ -209,6 +216,9 @@ public class CodeIndexService implements CodeIndexServicePort {
     @Override
     public AstExtractResponseDto extractAstRaw(Long repositoryId, String filePath, String sourceCode,
             String commitHash) {
+        if (tenantAccessService != null && repositoryId != null) {
+            tenantAccessService.requireRepositoryAccess(repositoryId);
+        }
         AstExtractRequestDto requestDto = AstExtractRequestDto.builder()
                 .repository_id(repositoryId)
                 .file_path(filePath)
@@ -231,11 +241,17 @@ public class CodeIndexService implements CodeIndexServicePort {
 
     @Override
     public List<CodeEntity> getEntitiesByRepository(Long repositoryId) {
+        if (tenantAccessService != null && repositoryId != null) {
+            tenantAccessService.requireRepositoryAccess(repositoryId);
+        }
         return codeEntityRepository.findByRepositoryId(repositoryId);
     }
 
     @Override
     public List<CodeEntity> getEntitiesByFile(Long repositoryId, String filePath) {
+        if (tenantAccessService != null && repositoryId != null) {
+            tenantAccessService.requireRepositoryAccess(repositoryId);
+        }
         return codeEntityRepository.findByRepositoryIdAndFilePath(repositoryId, filePath);
     }
 
@@ -307,6 +323,30 @@ public class CodeIndexService implements CodeIndexServicePort {
             String entityType,
             String search) {
 
+        Long workspaceId = null;
+        if (tenantAccessService != null) {
+            if (repositoryId != null) {
+                tenantAccessService.requireRepositoryAccess(repositoryId);
+            }
+            TenantAccessService.TenantScope scope = tenantAccessService.currentScope();
+            if (scope.unassigned()) {
+                return DocGapSummaryDto.builder()
+                        .repositoryId(repositoryId)
+                        .repoFullName("All Repositories")
+                        .totalEntities(0)
+                        .totalGaps(0)
+                        .documentedEntities(0)
+                        .coveragePercentage(100.0)
+                        .totalClasses(0)
+                        .totalInterfaces(0)
+                        .totalMethods(0)
+                        .packages(List.of())
+                        .items(List.of())
+                        .build();
+            }
+            workspaceId = tenantAccessService.resolveReadWorkspaceId(null);
+        }
+
         List<CodeEntity> allEntities;
         String repoFullName = "All Repositories";
 
@@ -318,26 +358,37 @@ public class CodeIndexService implements CodeIndexServicePort {
                     repoFullName = repoOpt.get().getRepoFullName();
                 }
             }
+        } else if (workspaceId != null) {
+            allEntities = codeEntityRepository.findByWorkspaceId(workspaceId);
         } else {
             allEntities = codeEntityRepository.findAll();
         }
 
-        // 1. Thu thập liên kết từ bảng doc_code_links để đối chiếu
+        // 1. Thu thập liên kết từ bảng doc_code_links theo đúng phạm vi repo/workspace để đối chiếu
         Set<String> documentedKeys = new HashSet<>();
         Set<Long> documentedEntityIds = new HashSet<>();
         if (docCodeLinkRepository != null) {
             try {
-                var allLinks = docCodeLinkRepository.findAll();
-                for (var link : allLinks) {
-                    if (link.getEntityId() != null) {
-                        documentedEntityIds.add(link.getEntityId());
-                    }
-                    String fp = link.getFilePath() != null ? link.getFilePath().trim() : "";
-                    String cn = link.getClassName() != null ? link.getClassName().trim() : "";
-                    String mn = link.getMethodName() != null ? link.getMethodName().trim() : "";
-                    documentedKeys.add(fp + "#" + cn + "#" + mn);
-                    if (!mn.isEmpty()) {
-                        documentedKeys.add(fp + "#" + cn + "#");
+                List<DocCodeLinkEntity> scopedLinks;
+                if (repositoryId != null) {
+                    scopedLinks = docCodeLinkRepository.findByRepositoryId(repositoryId);
+                } else if (workspaceId != null) {
+                    scopedLinks = docCodeLinkRepository.findByWorkspaceId(workspaceId);
+                } else {
+                    scopedLinks = docCodeLinkRepository.findAll();
+                }
+                if (scopedLinks != null) {
+                    for (var link : scopedLinks) {
+                        if (link.getEntityId() != null) {
+                            documentedEntityIds.add(link.getEntityId());
+                        }
+                        String fp = link.getFilePath() != null ? link.getFilePath().trim() : "";
+                        String cn = link.getClassName() != null ? link.getClassName().trim() : "";
+                        String mn = link.getMethodName() != null ? link.getMethodName().trim() : "";
+                        documentedKeys.add(fp + "#" + cn + "#" + mn);
+                        if (!mn.isEmpty()) {
+                            documentedKeys.add(fp + "#" + cn + "#");
+                        }
                     }
                 }
             } catch (Exception ex) {
@@ -485,6 +536,17 @@ public class CodeIndexService implements CodeIndexServicePort {
 
     @Transactional
     public EntityDocRegenerateResponseDto regenerateEntityDoc(Long entityId, EntityDocRegenerateRequestDto request) {
+        if (tenantAccessService != null) {
+            if (tenantAccessService.currentScope().unassigned()) {
+                tenantAccessService.resolveWriteWorkspaceId(null);
+            }
+            if (request != null && request.getRepositoryId() != null) {
+                tenantAccessService.requireRepositoryAccess(request.getRepositoryId());
+            }
+            if (request != null && request.getDocumentId() != null) {
+                tenantAccessService.requireDocumentAccess(request.getDocumentId());
+            }
+        }
         Long resolvedEntityId = entityId != null ? entityId : (request != null ? request.getEntityId() : null);
 
         // 1. Tìm CodeEntity hiện có trong CSDL
@@ -494,6 +556,12 @@ public class CodeIndexService implements CodeIndexServicePort {
                 request != null ? request.getRepositoryId() : null,
                 existingEntity != null ? existingEntity.getRepositoryId() : null,
                 1L);
+        if (tenantAccessService != null) {
+            if (existingEntity != null && existingEntity.getRepositoryId() != null) {
+                tenantAccessService.requireRepositoryAccess(existingEntity.getRepositoryId());
+            }
+            tenantAccessService.requireRepositoryAccess(repoId);
+        }
         String filePath = firstNonBlank(
                 request != null ? request.getFilePath() : null,
                 existingEntity != null ? existingEntity.getFilePath() : null,
@@ -1091,10 +1159,28 @@ public class CodeIndexService implements CodeIndexServicePort {
                 candidates.addAll(byRepo);
             }
         }
-        if (candidates.isEmpty()) {
-            List<CodeEntity> all = codeEntityRepository.findAll();
-            if (all != null) {
-                candidates.addAll(all);
+        if (candidates.isEmpty() && entityId != null) {
+            Optional<CodeEntity> byId = codeEntityRepository.findById(entityId);
+            if (byId != null && byId.isPresent()) {
+                CodeEntity found = byId.get();
+                if (tenantAccessService != null && found.getRepositoryId() != null) {
+                    tenantAccessService.requireRepositoryAccess(found.getRepositoryId());
+                }
+                return found;
+            }
+        }
+        if (candidates.isEmpty() && (request == null || request.getRepositoryId() == null)) {
+            List<CodeEntity> scoped;
+            if (tenantAccessService != null) {
+                Long wsId = tenantAccessService.resolveReadWorkspaceId(null);
+                scoped = wsId != null
+                        ? codeEntityRepository.findByWorkspaceId(wsId)
+                        : (tenantAccessService.currentScope().unassigned() ? List.of() : codeEntityRepository.findAll());
+            } else {
+                scoped = codeEntityRepository.findAll();
+            }
+            if (scoped != null) {
+                candidates.addAll(scoped);
             }
         }
 
@@ -1155,12 +1241,31 @@ public class CodeIndexService implements CodeIndexServicePort {
 
         if (docCodeLinkRepository != null && StringUtils.hasText(filePath)) {
             try {
-                List<DocCodeLinkEntity> links = docCodeLinkRepository.findByFilePath(filePath);
+                List<DocCodeLinkEntity> links;
+                if (repoId != null) {
+                    links = docCodeLinkRepository.findByRepositoryIdAndFilePath(repoId, filePath);
+                } else if (tenantAccessService != null) {
+                    TenantAccessService.TenantScope scope = tenantAccessService.currentScope();
+                    if (scope.unassigned()) {
+                        links = List.of();
+                    } else {
+                        Long wsId = tenantAccessService.resolveReadWorkspaceId(null);
+                        links = wsId != null
+                                ? docCodeLinkRepository.findByWorkspaceId(wsId).stream()
+                                        .filter(l -> filePath.equals(l.getFilePath()))
+                                        .toList()
+                                : docCodeLinkRepository.findByFilePath(filePath);
+                    }
+                } else {
+                    links = docCodeLinkRepository.findByFilePath(filePath);
+                }
                 if (links != null) {
                     for (DocCodeLinkEntity link : links) {
                         if (link.getDocumentId() != null) {
                             Optional<Document> linkedDoc = documentRepositoryPort.findById(link.getDocumentId());
-                            if (linkedDoc.isPresent() && isDocumentMatchingTarget(linkedDoc.get(), filePath, className, simpleFile, isGenericFileName)) {
+                            if (linkedDoc.isPresent()
+                                    && (repoId == null || repoId.equals(linkedDoc.get().getRepoId()))
+                                    && isDocumentMatchingTarget(linkedDoc.get(), filePath, className, simpleFile, isGenericFileName)) {
                                 return linkedDoc.get();
                             }
                         }
@@ -1177,11 +1282,18 @@ public class CodeIndexService implements CodeIndexServicePort {
             if (repoDocs != null) {
                 candidates.addAll(repoDocs);
             }
-        }
-        if (candidates.isEmpty()) {
-            List<Document> allDocs = documentRepositoryPort.findAll();
-            if (allDocs != null) {
-                candidates.addAll(allDocs);
+        } else {
+            List<Document> scopedDocs;
+            if (tenantAccessService != null) {
+                Long wsId = tenantAccessService.resolveReadWorkspaceId(null);
+                scopedDocs = wsId != null
+                        ? documentRepositoryPort.findByWorkspaceId(wsId)
+                        : (tenantAccessService.currentScope().unassigned() ? List.of() : documentRepositoryPort.findAll());
+            } else {
+                scopedDocs = documentRepositoryPort.findAll();
+            }
+            if (scopedDocs != null) {
+                candidates.addAll(scopedDocs);
             }
         }
 

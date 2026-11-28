@@ -16,6 +16,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -38,6 +39,7 @@ import com.example.livingdocs_backend.infrastructure.persistence.entity.Reposito
 import com.example.livingdocs_backend.infrastructure.persistence.repository.DocTemplateRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataCodeEntityRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
+import com.example.livingdocs_backend.infrastructure.security.TenantAccessService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -64,6 +66,9 @@ public class DocQualityEvaluationServiceImpl implements DocQualityEvaluationServ
     private final DocumentVersionRepositoryPort documentVersionRepositoryPort;
     private final SpringDataRepositoryRepository repositoryRepository;
     private final PrMergeBlockingServiceImpl prMergeBlockingService;
+
+    @Autowired(required = false)
+    private TenantAccessService tenantAccessService;
 
     // Bộ từ khóa / kiểu chuẩn an toàn phổ biến (không xem là ảo giác)
     private static final Set<String> SAFE_STANDARD_SYMBOLS = new HashSet<>(Arrays.asList(
@@ -109,6 +114,14 @@ public class DocQualityEvaluationServiceImpl implements DocQualityEvaluationServ
     public DocumentQualityEvaluationResponse evaluateQuality(DocumentQualityEvaluationRequest request) {
         Long repoId = request.getRepositoryId();
         Long docId = request.getDocumentId();
+        if (tenantAccessService != null) {
+            if (docId != null) {
+                tenantAccessService.requireDocumentAccess(docId);
+            }
+            if (repoId != null) {
+                tenantAccessService.requireRepositoryAccess(repoId);
+            }
+        }
         String markdown = request.getMarkdown();
         String filePath = request.getFilePath();
         String docTitle = "Tài liệu kỹ thuật";
@@ -414,12 +427,29 @@ public class DocQualityEvaluationServiceImpl implements DocQualityEvaluationServ
         DocTemplate template = null;
         if (tplId != null) {
             template = docTemplateRepository.findById(tplId).orElse(null);
+            if (template != null && tenantAccessService != null && template.getWorkspaceId() != null) {
+                tenantAccessService.requireWorkspaceAccess(template.getWorkspaceId());
+            }
         }
         if (template == null) {
-            template = docTemplateRepository.findAll().stream()
+            List<DocTemplate> accessibleTemplates;
+            if (tenantAccessService != null) {
+                TenantAccessService.TenantScope scope = tenantAccessService.currentScope();
+                if (scope.unassigned()) {
+                    accessibleTemplates = docTemplateRepository.findByWorkspaceIdIsNull();
+                } else {
+                    Long wsId = tenantAccessService.resolveReadWorkspaceId(null);
+                    accessibleTemplates = wsId != null
+                            ? docTemplateRepository.findAccessibleByWorkspaceId(wsId)
+                            : docTemplateRepository.findAll();
+                }
+            } else {
+                accessibleTemplates = docTemplateRepository.findAll();
+            }
+            template = accessibleTemplates.stream()
                     .filter(t -> Boolean.TRUE.equals(t.getIsDefault()))
                     .findFirst()
-                    .orElseGet(() -> docTemplateRepository.findAll().stream().findFirst().orElse(null));
+                    .orElseGet(() -> accessibleTemplates.stream().findFirst().orElse(null));
         }
 
         if (template != null) {

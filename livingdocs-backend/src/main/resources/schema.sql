@@ -20,6 +20,13 @@ CREATE TABLE IF NOT EXISTS public.users
     full_name character varying(150) COLLATE pg_catalog."default" NOT NULL,
     avatar_url text COLLATE pg_catalog."default",
     status character varying(50) COLLATE pg_catalog."default" NOT NULL DEFAULT 'ACTIVE'::character varying,
+    workspace_id bigint,
+    role_id bigint,
+    github_user_id bigint,
+    github_username character varying(100) COLLATE pg_catalog."default",
+    rejection_reason text COLLATE pg_catalog."default",
+    approved_by bigint,
+    approved_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT users_pkey PRIMARY KEY (user_id),
@@ -169,13 +176,13 @@ CREATE TABLE IF NOT EXISTS public.code_entities
 CREATE TABLE IF NOT EXISTS public.doc_templates
 (
     id bigserial NOT NULL,
+    workspace_id bigint,
     name character varying(150) COLLATE pg_catalog."default" NOT NULL,
     type character varying(50) COLLATE pg_catalog."default" NOT NULL,
     structure_json jsonb NOT NULL,
     is_default boolean NOT NULL DEFAULT false,
     created_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT doc_templates_pkey PRIMARY KEY (id),
-    CONSTRAINT uk_doc_templates_type UNIQUE (type)
+    CONSTRAINT doc_templates_pkey PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS public.document_template_versions
@@ -194,6 +201,7 @@ CREATE TABLE IF NOT EXISTS public.document_template_versions
 CREATE TABLE IF NOT EXISTS public.doc_collections
 (
     id bigserial NOT NULL,
+    workspace_id bigint NOT NULL DEFAULT 1,
     name character varying(255) COLLATE pg_catalog."default" NOT NULL,
     description text COLLATE pg_catalog."default",
     created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
@@ -275,6 +283,7 @@ CREATE TABLE IF NOT EXISTS public.review_comments
 CREATE TABLE IF NOT EXISTS public.ci_tokens
 (
     token_id bigserial NOT NULL,
+    workspace_id bigint NOT NULL DEFAULT 1,
     token_name character varying(100) NOT NULL,
     token_hash character varying(255) NOT NULL UNIQUE,
     token_prefix character varying(16) NOT NULL,
@@ -375,6 +384,7 @@ CREATE TABLE IF NOT EXISTS public.document_change_policies
 CREATE TABLE IF NOT EXISTS public.document_update_policies
 (
     policy_id bigserial NOT NULL,
+    workspace_id bigint NOT NULL DEFAULT 1,
     document_type character varying(100) COLLATE pg_catalog."default" NOT NULL,
     trigger_commit boolean NOT NULL DEFAULT true,
     trigger_pull_request boolean NOT NULL DEFAULT true,
@@ -383,7 +393,7 @@ CREATE TABLE IF NOT EXISTS public.document_update_policies
     updated_by bigint,
     updated_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT document_update_policies_pkey PRIMARY KEY (policy_id),
-    CONSTRAINT document_update_policies_document_type_key UNIQUE (document_type)
+    CONSTRAINT uk_doc_update_policy_workspace_type UNIQUE (workspace_id, document_type)
 );
 
 CREATE TABLE IF NOT EXISTS public.manager_approval_policies
@@ -474,6 +484,7 @@ CREATE TABLE IF NOT EXISTS public.admin_settings
 CREATE TABLE IF NOT EXISTS public.audit_logs
 (
     log_id bigserial NOT NULL,
+    workspace_id bigint,
     user_id bigint,
     action character varying(100) COLLATE pg_catalog."default" NOT NULL,
     resource_type character varying(100) COLLATE pg_catalog."default" NOT NULL,
@@ -487,6 +498,7 @@ CREATE TABLE IF NOT EXISTS public.audit_logs
 CREATE TABLE IF NOT EXISTS public.jobs
 (
     job_id bigserial NOT NULL,
+    workspace_id bigint,
     type character varying(100) COLLATE pg_catalog."default" NOT NULL,
     payload_json text COLLATE pg_catalog."default" NOT NULL DEFAULT '{}'::text,
     result_json text COLLATE pg_catalog."default",
@@ -544,6 +556,7 @@ CREATE INDEX IF NOT EXISTS idx_doc_code_links_file ON public.doc_code_links(file
 
 CREATE TABLE IF NOT EXISTS public.webhook_deliveries (
     id bigserial NOT NULL,
+    workspace_id bigint,
     delivery_id character varying(128),
     event_type character varying(64) NOT NULL,
     repository_id bigint,
@@ -558,6 +571,7 @@ CREATE TABLE IF NOT EXISTS public.webhook_deliveries (
 );
 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_repo_time ON public.webhook_deliveries(repository_id, delivered_at DESC);
 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_delivered_at ON public.webhook_deliveries(delivered_at DESC);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_ws_time ON public.webhook_deliveries(workspace_id, delivered_at DESC);
 
 -- Foreign Keys & Constraints
 ALTER TABLE IF EXISTS public.admin_settings
@@ -833,6 +847,94 @@ ALTER TABLE IF EXISTS public.workspaces
     ON UPDATE NO ACTION
     ON DELETE RESTRICT;
 
+-- Multi-tenant & Approval Gate Foreign Keys & Indexes
+ALTER TABLE IF EXISTS public.users
+    ADD CONSTRAINT fk_users_workspace FOREIGN KEY (workspace_id)
+    REFERENCES public.workspaces (workspace_id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE SET NULL;
+
+ALTER TABLE IF EXISTS public.users
+    ADD CONSTRAINT fk_users_role FOREIGN KEY (role_id)
+    REFERENCES public.roles (role_id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE SET NULL;
+
+ALTER TABLE IF EXISTS public.users
+    ADD CONSTRAINT fk_users_approved_by FOREIGN KEY (approved_by)
+    REFERENCES public.users (user_id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE SET NULL;
+
+ALTER TABLE IF EXISTS public.doc_collections
+    ADD CONSTRAINT fk_doc_collections_workspace FOREIGN KEY (workspace_id)
+    REFERENCES public.workspaces (workspace_id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE CASCADE;
+
+ALTER TABLE IF EXISTS public.ci_tokens
+    ADD CONSTRAINT fk_ci_tokens_workspace FOREIGN KEY (workspace_id)
+    REFERENCES public.workspaces (workspace_id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE CASCADE;
+
+ALTER TABLE IF EXISTS public.document_update_policies
+    ADD CONSTRAINT fk_doc_update_policies_workspace FOREIGN KEY (workspace_id)
+    REFERENCES public.workspaces (workspace_id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE CASCADE;
+
+ALTER TABLE IF EXISTS public.audit_logs
+    ADD CONSTRAINT fk_audit_logs_workspace FOREIGN KEY (workspace_id)
+    REFERENCES public.workspaces (workspace_id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE SET NULL;
+
+ALTER TABLE IF EXISTS public.jobs
+    ADD CONSTRAINT fk_jobs_workspace FOREIGN KEY (workspace_id)
+    REFERENCES public.workspaces (workspace_id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE SET NULL;
+
+ALTER TABLE IF EXISTS public.webhook_deliveries
+    ADD CONSTRAINT fk_webhook_deliveries_workspace FOREIGN KEY (workspace_id)
+    REFERENCES public.workspaces (workspace_id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE SET NULL;
+
+ALTER TABLE IF EXISTS public.doc_templates
+    ADD CONSTRAINT fk_doc_templates_workspace FOREIGN KEY (workspace_id)
+    REFERENCES public.workspaces (workspace_id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE CASCADE;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_doc_templates_global_type
+    ON public.doc_templates(type) WHERE workspace_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uk_doc_templates_ws_type
+    ON public.doc_templates(workspace_id, type) WHERE workspace_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_users_workspace_id ON public.users(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_users_status ON public.users(status);
+CREATE INDEX IF NOT EXISTS idx_users_role_id ON public.users(role_id);
+CREATE INDEX IF NOT EXISTS idx_users_github_user_id ON public.users(github_user_id);
+CREATE INDEX IF NOT EXISTS idx_workspace_members_user_id ON public.workspace_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_doc_collections_workspace_id ON public.doc_collections(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_ci_tokens_workspace_id ON public.ci_tokens(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_ci_tokens_repo_id ON public.ci_tokens(repository_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_workspace_created ON public.audit_logs(workspace_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_workspace_status ON public.jobs(workspace_id, status);
+CREATE INDEX IF NOT EXISTS idx_documents_repo_id ON public.documents(repo_id);
+CREATE INDEX IF NOT EXISTS idx_documents_collection_id ON public.documents(collection_id);
+CREATE INDEX IF NOT EXISTS idx_document_versions_doc_id ON public.document_versions(doc_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_doc_id ON public.reviews(doc_id);
+CREATE INDEX IF NOT EXISTS idx_code_entities_repository_id ON public.code_entities(repository_id);
+CREATE INDEX IF NOT EXISTS idx_pull_requests_repository_id ON public.pull_requests(repository_id);
+CREATE INDEX IF NOT EXISTS idx_commits_repository_id ON public.commits(repository_id);
+CREATE INDEX IF NOT EXISTS idx_doc_change_alerts_repo_status ON public.document_change_alerts(repository_id, status);
+CREATE INDEX IF NOT EXISTS idx_drift_alerts_repo_id ON public.drift_alerts(repo_id);
+CREATE INDEX IF NOT EXISTS idx_doc_change_policies_workspace_id ON public.document_change_policies(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_manager_delegations_workspace_id ON public.manager_approval_delegations(workspace_id);
+
 -- 8. Default Seed Data: Roles & Default Workspace
 INSERT INTO public.roles (role_id, role_name, description)
 VALUES
@@ -851,6 +953,11 @@ ON CONFLICT (user_id) DO NOTHING;
 INSERT INTO public.workspaces (workspace_id, name, slug, owner_id)
 VALUES (1, 'LivingDocs Core Workspace', 'livingdocs-core', 1)
 ON CONFLICT (workspace_id) DO NOTHING;
+
+-- Sync sequences after explicit seed IDs
+SELECT setval(pg_get_serial_sequence('public.roles', 'role_id'), COALESCE((SELECT MAX(role_id) FROM public.roles), 1), true);
+SELECT setval(pg_get_serial_sequence('public.users', 'user_id'), COALESCE((SELECT MAX(user_id) FROM public.users), 1), true);
+SELECT setval(pg_get_serial_sequence('public.workspaces', 'workspace_id'), COALESCE((SELECT MAX(workspace_id) FROM public.workspaces), 1), true);
 
 COMMIT;
 

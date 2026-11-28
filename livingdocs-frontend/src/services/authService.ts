@@ -1,4 +1,11 @@
-import { apiClient, ACCESS_TOKEN_KEY, USER_PROFILE_KEY, ACCESS_TOKEN_COOKIE, clearAuthStorage } from "@/services/apiClient";
+import {
+  apiClient,
+  ACCESS_TOKEN_KEY,
+  USER_PROFILE_KEY,
+  ACCESS_TOKEN_COOKIE,
+  clearAuthStorage,
+  clearTenantClientState,
+} from "@/services/apiClient";
 import type { AuthResponse, LoginRequest, UserProfile } from "@/types/auth";
 
 export const SAVED_ACCOUNTS_KEY = "livingdocs_saved_accounts";
@@ -11,6 +18,7 @@ export interface SavedAccountEntry {
 
 export async function login(payload: LoginRequest) {
   const { data } = await apiClient.post<AuthResponse>("/api/auth/login", payload);
+  clearTenantClientState();
   saveSession(data);
   return data;
 }
@@ -22,9 +30,12 @@ export interface RegisterRequest {
   avatarUrl?: string;
 }
 
-export async function register(payload: RegisterRequest) {
+export async function register(payload: RegisterRequest): Promise<AuthResponse> {
   const { data } = await apiClient.post<AuthResponse>("/api/auth/register", payload);
-  saveSession(data);
+  if (data.token && !data.pendingApproval) {
+    clearTenantClientState();
+    saveSession(data);
+  }
   return data;
 }
 
@@ -51,7 +62,10 @@ export function saveProfile(user: UserProfile) {
 }
 
 export function saveSession(data: AuthResponse) {
-  saveToken(data.token, data.expiresIn);
+  if (!data.token) {
+    return;
+  }
+  saveToken(data.token, data.expiresIn ?? 86400);
   saveProfile(data.user);
 }
 
@@ -122,6 +136,7 @@ export function removeSavedAccount(emailOrUserId: string | number) {
 
 /** Chuyển ngay lập tức sang một tài khoản đã lưu mà không cần đăng xuất */
 export function switchToSavedAccount(entry: SavedAccountEntry) {
+  clearTenantClientState();
   saveToken(entry.token, 604800);
   saveProfile(entry.user);
 }

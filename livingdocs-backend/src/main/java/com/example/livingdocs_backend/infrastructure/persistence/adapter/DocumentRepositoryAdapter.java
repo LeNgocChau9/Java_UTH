@@ -70,6 +70,24 @@ public class DocumentRepositoryAdapter implements DocumentRepositoryPort {
     }
 
     @Override
+    public List<Document> findByWorkspaceId(Long workspaceId) {
+        return springDataDocumentRepository.findByWorkspaceId(workspaceId)
+                .stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<Document> findByStatusAndWorkspaceId(
+            com.example.livingdocs_backend.domain.model.DocumentStatus status,
+            Long workspaceId) {
+        return springDataDocumentRepository.findByStatusAndWorkspaceId(status, workspaceId)
+                .stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    @Override
     public boolean existsById(Long docId) {
         return springDataDocumentRepository.existsById(docId);
     }

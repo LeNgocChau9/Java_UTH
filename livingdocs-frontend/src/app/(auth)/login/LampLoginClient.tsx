@@ -9,6 +9,7 @@ import gsap from "gsap";
 import {
   AlertCircle,
   ArrowLeft,
+  Clock,
   Eye,
   EyeOff,
   Loader2,
@@ -48,7 +49,13 @@ const LOGIN_HIGHLIGHTS = [
   },
 ];
 
-export function LampLoginClient({ initialError }: { initialError?: string }) {
+export function LampLoginClient({
+  initialError,
+  initialNotice,
+}: {
+  initialError?: string;
+  initialNotice?: string;
+}) {
   const router = useRouter();
   const pageRef = useRef<HTMLDivElement>(null);
 
@@ -62,6 +69,9 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
   const [pending, setPending] = useState(false);
   const [formError, setFormError] = useState<string | null>(
     initialError ?? null
+  );
+  const [formNotice, setFormNotice] = useState<string | null>(
+    initialNotice ?? null
   );
   const [rememberMe, setRememberMe] = useState(true);
 
@@ -98,6 +108,7 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setFormError(null);
+    setFormNotice(null);
 
     if (activeTab === "register" && !fullName.trim()) {
       setFormError("Vui lòng nhập họ và tên.");
@@ -120,11 +131,20 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
     setPending(true);
     try {
       if (activeTab === "register") {
-        await register({
+        const res = await register({
           email: email.trim(),
           password,
           fullName: fullName.trim(),
         });
+        if (res.pendingApproval || !res.token) {
+          setFormNotice(
+            res.message?.trim() ||
+              "Đăng ký tài khoản thành công! Tài khoản đang chờ Quản trị viên phê duyệt trước khi đăng nhập."
+          );
+          setPassword("");
+          setActiveTab("signin");
+          return;
+        }
       } else {
         await login({ email: email.trim(), password });
       }
@@ -132,11 +152,26 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
       router.refresh();
     } catch (caught) {
       if (axios.isAxiosError(caught)) {
-        const msg = caught.response?.data?.message;
-        if (typeof msg === "string" && msg.trim()) {
+        const payload = caught.response?.data as
+          | { message?: string; errorCode?: string }
+          | undefined;
+        const msg = payload?.message;
+        const errorCode = payload?.errorCode;
+
+        if (errorCode === "ACCOUNT_PENDING") {
+          setFormNotice(
+            typeof msg === "string" && msg.trim()
+              ? msg
+              : "Tài khoản của bạn đang chờ Quản trị viên phê duyệt. Vui lòng thử lại sau khi được duyệt."
+          );
+        } else if (typeof msg === "string" && msg.trim()) {
           setFormError(msg);
         } else if (caught.response?.status === 401) {
           setFormError("Email hoặc mật khẩu không chính xác.");
+        } else if (caught.response?.status === 403) {
+          setFormError(
+            "Tài khoản đang chờ Quản trị viên phê duyệt, đã bị từ chối hoặc đang bị khóa."
+          );
         } else if (caught.response?.status === 409) {
           setFormError(
             "Email này đã được sử dụng. Vui lòng đăng nhập hoặc dùng email khác."
@@ -407,7 +442,7 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
                 >
                   {activeTab === "signin"
                     ? "Đăng nhập LivingDocs"
-                    : "Tạo tài khoản quản lý (Manager)"}
+                    : "Đăng ký tài khoản LivingDocs"}
                 </h1>
               </div>
 
@@ -424,6 +459,7 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
                   onClick={() => {
                     setActiveTab("signin");
                     setFormError(null);
+                    setFormNotice(null);
                   }}
                   className="cursor-pointer rounded-full py-2.5 text-xs font-extrabold transition-all duration-200"
                   style={
@@ -443,6 +479,7 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
                   onClick={() => {
                     setActiveTab("register");
                     setFormError(null);
+                    setFormNotice(null);
                   }}
                   className="cursor-pointer rounded-full py-2.5 text-xs font-extrabold transition-all duration-200"
                   style={
@@ -458,6 +495,23 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
                   Đăng ký
                 </button>
               </div>
+
+              {/* Pending Approval / Info Notice Banner */}
+              {formNotice && (
+                <div
+                  className="mb-5 flex items-start gap-2.5 rounded-2xl border-2 px-4 py-3 text-xs font-bold"
+                  style={{
+                    backgroundColor: isDark
+                      ? "rgba(245,158,11,0.14)"
+                      : "#FFFBEB",
+                    borderColor: "#D97706",
+                    color: isDark ? "#FCD34D" : "#92400E",
+                  }}
+                >
+                  <Clock size={15} className="mt-0.5 flex-shrink-0" />
+                  <span>{formNotice}</span>
+                </div>
+              )}
 
               {/* Error Banner */}
               {formError && (
@@ -516,10 +570,7 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
                     className="mb-1.5 block text-xs font-extrabold"
                     style={{ color: "var(--ld-ink)" }}
                   >
-                    Email{" "}
-                    {activeTab === "register"
-                      ? "quản lý (Manager)"
-                      : "tài khoản"}
+                    Email tài khoản
                   </label>
                   <div className="relative">
                     <Mail
@@ -595,20 +646,29 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
                   </div>
                 </div>
 
-                <label className="flex cursor-pointer items-center gap-2.5 pt-1 select-none">
-                  <input
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    className="h-4 w-4 cursor-pointer rounded accent-[#211D16]"
-                  />
-                  <span
-                    className="text-xs font-semibold"
+                {activeTab === "signin" ? (
+                  <label className="flex cursor-pointer items-center gap-2.5 pt-1 select-none">
+                    <input
+                      type="checkbox"
+                      checked={rememberMe}
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                      className="h-4 w-4 cursor-pointer rounded accent-[#211D16]"
+                    />
+                    <span
+                      className="text-xs font-semibold"
+                      style={{ color: "var(--ld-muted)" }}
+                    >
+                      Ghi nhớ phiên đăng nhập
+                    </span>
+                  </label>
+                ) : (
+                  <p
+                    className="pt-0.5 text-xs font-semibold leading-relaxed"
                     style={{ color: "var(--ld-muted)" }}
                   >
-                    Ghi nhớ phiên đăng nhập
-                  </span>
-                </label>
+                    Tài khoản mới cần Quản trị viên phê duyệt và phân doanh nghiệp trước khi đăng nhập.
+                  </p>
+                )}
 
                 <button
                   type="submit"
@@ -624,7 +684,7 @@ export function LampLoginClient({ initialError }: { initialError?: string }) {
                     <span>
                       {activeTab === "signin"
                         ? "Đăng nhập"
-                        : "Đăng ký tài khoản Manager"}
+                        : "Đăng ký tài khoản"}
                     </span>
                   )}
                 </button>

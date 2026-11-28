@@ -18,4 +18,8 @@ public interface ReviewRepositoryPort {
     Optional<Review> findFirstByDocIdAndResultOrderByCreatedAtDesc(Long docId, String result);
 
     List<Review> findAll();
+
+    default List<Review> findByWorkspaceId(Long workspaceId) {
+        return List.of();
+    }
 }

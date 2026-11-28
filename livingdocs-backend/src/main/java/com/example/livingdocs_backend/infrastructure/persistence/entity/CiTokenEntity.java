@@ -19,6 +19,10 @@ public class CiTokenEntity {
     @Column(name = "token_id")
     private Long tokenId;
 
+    @Column(name = "workspace_id", nullable = false)
+    @Builder.Default
+    private Long workspaceId = 1L;
+
     @Column(name = "token_name", nullable = false, length = 100)
     private String tokenName;
 
@@ -56,6 +60,9 @@ public class CiTokenEntity {
     @PrePersist
     public void prePersist() {
         Instant now = Instant.now();
+        if (workspaceId == null) {
+            workspaceId = 1L;
+        }
         if (createdAt == null) {
             createdAt = now;
         }

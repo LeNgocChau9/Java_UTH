@@ -4,12 +4,15 @@ import com.example.livingdocs_backend.application.dto.DashboardStatsResponse;
 import com.example.livingdocs_backend.application.dto.DashboardTrendPoint;
 import com.example.livingdocs_backend.application.dto.DashboardTrendResponse;
 import com.example.livingdocs_backend.application.port.DashboardStatsQueryPort;
+import com.example.livingdocs_backend.infrastructure.security.TenantAccessService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -26,8 +29,35 @@ public class DashboardStatsService {
 
     private final DashboardStatsQueryPort queryPort;
 
+    @Autowired(required = false)
+    private TenantAccessService tenantAccessService;
+
     @Transactional(readOnly = true)
     public DashboardStatsResponse getStats(Long repositoryId) {
+        if (tenantAccessService != null) {
+            if (repositoryId != null) {
+                tenantAccessService.requireRepositoryAccess(repositoryId);
+            } else if (tenantAccessService.currentScope().unassigned()) {
+                return DashboardStatsResponse.builder()
+                        .repositoryId(null)
+                        .totalClassesAndFunctions(0L)
+                        .documentedEntities(0L)
+                        .coveragePercent(0.0)
+                        .freshnessPercent(0.0)
+                        .latestCommitAt(null)
+                        .totalDocuments(0L)
+                        .freshDocuments(0L)
+                        .approvedDocuments(0L)
+                        .pendingReviewDocuments(0L)
+                        .draftDocuments(0L)
+                        .totalPullRequests(0L)
+                        .totalRepositories(0L)
+                        .repoCoverages(Collections.emptyList())
+                        .openDriftAlerts(0L)
+                        .openAlertsBySeverity(groupAlerts(null))
+                        .build();
+            }
+        }
         long scanned = queryPort.countScannedClassesAndFunctions(repositoryId);
         long documented = queryPort.countDocumentedEntities(repositoryId);
         long documents = queryPort.countDocuments(repositoryId);
@@ -65,6 +95,17 @@ public class DashboardStatsService {
     public DashboardTrendResponse getTrend(Long repositoryId, int weeks) {
         if (weeks < 1 || weeks > MAX_TREND_WEEKS) {
             throw new IllegalArgumentException("weeks phải từ 1 đến " + MAX_TREND_WEEKS);
+        }
+        if (tenantAccessService != null) {
+            if (repositoryId != null) {
+                tenantAccessService.requireRepositoryAccess(repositoryId);
+            } else if (tenantAccessService.currentScope().unassigned()) {
+                return DashboardTrendResponse.builder()
+                        .repositoryId(null)
+                        .weeks(weeks)
+                        .points(Collections.emptyList())
+                        .build();
+            }
         }
         List<DashboardTrendPoint> points = queryPort.findWeeklyTrend(repositoryId, weeks).stream()
                 .map(bucket -> DashboardTrendPoint.builder()

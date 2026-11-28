@@ -54,6 +54,16 @@ public class ChangelogRepositoryAdapter implements ChangelogRepositoryPort {
 
     @Override
     @Transactional(readOnly = true)
+    public List<Changelog> findAllByWorkspaceId(Long workspaceId, Long documentId, String actorRole) {
+        String roleParam = (actorRole != null && !actorRole.isBlank()) ? actorRole.trim() : null;
+        return springDataChangelogRepository.findFilteredByWorkspaceId(workspaceId, documentId, roleParam)
+                .stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public org.springframework.data.domain.Page<Changelog> findWithFilters(
             String actorRole,
             Long repoId,
@@ -61,6 +71,19 @@ public class ChangelogRepositoryAdapter implements ChangelogRepositoryPort {
             java.time.Instant toDate,
             org.springframework.data.domain.Pageable pageable) {
         return springDataChangelogRepository.findWithFilters(actorRole, repoId, fromDate, toDate, pageable)
+                .map(this::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public org.springframework.data.domain.Page<Changelog> findWithFiltersByWorkspaceId(
+            Long workspaceId,
+            String actorRole,
+            Long repoId,
+            java.time.Instant fromDate,
+            java.time.Instant toDate,
+            org.springframework.data.domain.Pageable pageable) {
+        return springDataChangelogRepository.findWithFiltersByWorkspaceId(workspaceId, actorRole, repoId, fromDate, toDate, pageable)
                 .map(this::toDomain);
     }
 

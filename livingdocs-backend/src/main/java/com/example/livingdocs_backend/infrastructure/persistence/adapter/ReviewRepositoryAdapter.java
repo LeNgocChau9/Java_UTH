@@ -55,6 +55,14 @@ public class ReviewRepositoryAdapter implements ReviewRepositoryPort {
                 .collect(Collectors.toList());
     }
 
+    @Override
+    public List<Review> findByWorkspaceId(Long workspaceId) {
+        return springDataReviewRepository.findByWorkspaceIdOrderByCreatedAtDesc(workspaceId)
+                .stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
     private ReviewEntity toEntity(Review domain) {
         return ReviewEntity.builder()
                 .reviewId(domain.getReviewId())

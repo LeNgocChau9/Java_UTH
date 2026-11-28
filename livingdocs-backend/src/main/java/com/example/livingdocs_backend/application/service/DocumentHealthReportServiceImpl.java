@@ -39,6 +39,9 @@ public class DocumentHealthReportServiceImpl implements DocumentHealthReportServ
     private final SpringDataCodeEntityRepository codeEntityRepository;
     private final SpringDataDocumentRepository documentRepository;
 
+    @Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.security.TenantAccessService tenantAccessService;
+
     @Autowired
     public DocumentHealthReportServiceImpl(
             DashboardStatsQueryPort queryPort,
@@ -65,6 +68,14 @@ public class DocumentHealthReportServiceImpl implements DocumentHealthReportServ
     @Transactional(readOnly = true)
     public DocumentHealthReportResponse generateHealthReport(Long repositoryId) {
         long startTime = System.currentTimeMillis();
+
+        if (tenantAccessService != null) {
+            if (repositoryId != null) {
+                tenantAccessService.requireRepositoryAccess(repositoryId);
+            } else if (tenantAccessService.currentScope().unassigned()) {
+                return buildEmptyUnconfiguredReport(null, null, System.currentTimeMillis() - startTime);
+            }
+        }
 
         String repoName = null;
         if (repositoryId != null) {
@@ -196,6 +207,22 @@ public class DocumentHealthReportServiceImpl implements DocumentHealthReportServ
     @Override
     @Transactional(readOnly = true)
     public CoverageGapsResponse getCoverageGaps(Long repositoryId) {
+        if (tenantAccessService != null) {
+            if (repositoryId != null) {
+                tenantAccessService.requireRepositoryAccess(repositoryId);
+            } else if (tenantAccessService.currentScope().unassigned()) {
+                return CoverageGapsResponse.builder()
+                        .repositoryId(null)
+                        .repositoryName(null)
+                        .totalMissing(0L)
+                        .missingClasses(0L)
+                        .missingMethods(0L)
+                        .packages(Collections.emptyList())
+                        .items(Collections.emptyList())
+                        .build();
+            }
+        }
+
         String repoName = null;
         if (repositoryId != null) {
             repoName = repositoryRepository.findById(repositoryId)
@@ -206,6 +233,19 @@ public class DocumentHealthReportServiceImpl implements DocumentHealthReportServ
         List<CodeEntityJpaEntity> entities = (codeEntityRepository != null)
                 ? codeEntityRepository.findCoverageGaps(repositoryId)
                 : List.of();
+
+        // Scope global coverage gaps to current enterprise repositories when repositoryId == null
+        if (repositoryId == null && tenantAccessService != null) {
+            var scope = tenantAccessService.currentScope();
+            if (scope.hasTenantFilter()) {
+                java.util.Set<Long> allowedRepoIds = repositoryRepository.findByWorkspaceId(scope.workspaceId()).stream()
+                        .map(com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity::getRepositoryId)
+                        .collect(java.util.stream.Collectors.toSet());
+                entities = entities.stream()
+                        .filter(e -> e.getRepositoryId() != null && allowedRepoIds.contains(e.getRepositoryId()))
+                        .toList();
+            }
+        }
 
         // ponytail: Nếu repositoryId được chỉ định và repo chưa có code entity nào hoặc không có gaps, trả về danh sách rỗng ngay lập tức
         if (repositoryId != null) {
@@ -574,6 +614,45 @@ public class DocumentHealthReportServiceImpl implements DocumentHealthReportServ
         sb.append("*Báo cáo được sinh tự động bởi LivingDocs Health Monitor Engine.*\n");
 
         return sb.toString();
+    }
+
+    private DocumentHealthReportResponse buildEmptyUnconfiguredReport(Long repositoryId, String repoName, long executionTimeMs) {
+        ProjectComplianceDto unconfiguredCompliance = ProjectComplianceDto.builder()
+                .overallScore(0.0)
+                .rating("NOT_CONFIGURED")
+                .coverageScore(0.0)
+                .freshnessScore(0.0)
+                .driftControlScore(0.0)
+                .summary("Tài khoản chưa được phân vào doanh nghiệp hoặc chưa có dữ liệu đo lường.")
+                .recommendations(Collections.emptyList())
+                .build();
+        MissingDocEntityStatsDto emptyMissingStats = MissingDocEntityStatsDto.builder()
+                .totalMissing(0L)
+                .missingClasses(0L)
+                .missingMethodsAndFunctions(0L)
+                .missingByType(Collections.emptyMap())
+                .build();
+        return DocumentHealthReportResponse.builder()
+                .repositoryId(repositoryId)
+                .repositoryName(repoName)
+                .generatedAt(Instant.now())
+                .executionTimeMs(executionTimeMs)
+                .readyForScan(false)
+                .hasData(false)
+                .overallRating("NOT_CONFIGURED")
+                .coveragePercent(0.0)
+                .totalScannedEntities(0L)
+                .documentedEntities(0L)
+                .freshnessPercent(0.0)
+                .latestCommitAt(null)
+                .totalDocuments(0L)
+                .freshDocuments(0L)
+                .missingDocEntities(emptyMissingStats)
+                .totalOpenDriftAlerts(0L)
+                .openAlertsBySeverity(Collections.emptyMap())
+                .compliance(unconfiguredCompliance)
+                .repositoryDetails(Collections.emptyList())
+                .build();
     }
 
     private String renderMarkdownReport(DocumentHealthReportResponse r) {

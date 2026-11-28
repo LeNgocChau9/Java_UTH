@@ -33,6 +33,9 @@ public class JobDemoController {
     private final JobRepositoryPort jobRepositoryPort;
     private final JobStreamService jobStreamService;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.security.TenantAccessService tenantAccessService;
+
     @Operation(
             summary = "Tra cứu danh sách các tác vụ nền theo trạng thái",
             description = "Cho phép tra cứu các tác vụ nền gần đây hoặc theo trạng thái (QUEUED, PROCESSING, COMPLETED, FAILED, DEAD)."
@@ -44,7 +47,20 @@ public class JobDemoController {
             @RequestParam(defaultValue = "50") int limit
     ) {
         int safeLimit = Math.max(1, Math.min(limit, 100));
-        List<Job> jobs = (status != null)
+        List<Job> jobs;
+        if (tenantAccessService != null) {
+            var scope = tenantAccessService.currentScope();
+            if (scope.unassigned()) {
+                return ResponseEntity.ok(java.util.Collections.emptyList());
+            }
+            if (scope.hasTenantFilter()) {
+                jobs = (status != null)
+                        ? jobRepositoryPort.findTopJobsByWorkspaceAndStatus(scope.workspaceId(), status, safeLimit)
+                        : jobRepositoryPort.findRecentJobsByWorkspace(scope.workspaceId(), safeLimit);
+                return ResponseEntity.ok(jobs.stream().map(this::toProgressDto).toList());
+            }
+        }
+        jobs = (status != null)
                 ? jobRepositoryPort.findTopJobsByStatus(status, safeLimit)
                 : jobRepositoryPort.findRecentJobs(safeLimit);
         return ResponseEntity.ok(jobs.stream().map(this::toProgressDto).toList());
@@ -60,6 +76,9 @@ public class JobDemoController {
             @Parameter(description = "Mã định danh tác vụ nền (jobId)", example = "1")
             @PathVariable Long jobId
     ) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireJobAccess(jobId);
+        }
         Optional<Job> jobOpt = jobRepositoryPort.findById(jobId);
         if (jobOpt.isEmpty() && jobStreamService.getLatestEvent(jobId) == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
@@ -80,6 +99,9 @@ public class JobDemoController {
             @Parameter(description = "Mã định danh tác vụ nền (jobId)", example = "1")
             @PathVariable Long jobId
     ) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireJobAccess(jobId);
+        }
         return jobRepositoryPort.findById(jobId)
                 .map(this::toProgressDto)
                 .map(ResponseEntity::ok)
@@ -96,7 +118,19 @@ public class JobDemoController {
             @Parameter(description = "Số lượng job tối đa cần lấy", example = "50")
             @RequestParam(defaultValue = "50") int limit
     ) {
-        List<Job> dlqJobs = jobRepositoryPort.findDeadLetterJobs(Math.min(limit, 100));
+        int safeLimit = Math.max(1, Math.min(limit, 100));
+        List<Job> dlqJobs;
+        if (tenantAccessService != null) {
+            var scope = tenantAccessService.currentScope();
+            if (scope.unassigned()) {
+                return ResponseEntity.ok(java.util.Collections.emptyList());
+            }
+            if (scope.hasTenantFilter()) {
+                dlqJobs = jobRepositoryPort.findDeadLetterJobsByWorkspace(scope.workspaceId(), safeLimit);
+                return ResponseEntity.ok(dlqJobs.stream().map(this::toProgressDto).toList());
+            }
+        }
+        dlqJobs = jobRepositoryPort.findDeadLetterJobs(safeLimit);
         List<JobProgressResponseDto> dtos = dlqJobs.stream()
                 .map(this::toProgressDto)
                 .toList();
@@ -113,6 +147,9 @@ public class JobDemoController {
             @Parameter(description = "Mã định danh tác vụ nền (jobId)", example = "1")
             @PathVariable Long jobId
     ) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireJobAccess(jobId);
+        }
         Optional<Job> jobOpt = jobRepositoryPort.findById(jobId);
         if (jobOpt.isEmpty()) {
             return ResponseEntity.notFound().build();
@@ -157,6 +194,9 @@ public class JobDemoController {
             @Parameter(description = "Mã định danh tác vụ nền (jobId)", example = "1")
             @PathVariable Long jobId
     ) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireJobAccess(jobId);
+        }
         return jobRepositoryPort.findById(jobId)
                 .map(this::toProgressDto)
                 .map(ResponseEntity::ok)
@@ -170,6 +210,9 @@ public class JobDemoController {
             @RequestParam(defaultValue = "3") int maxAttempts,
             @RequestBody(required = false) Map<String, Object> payload
     ) {
+        if (tenantAccessService != null) {
+            tenantAccessService.resolveWriteWorkspaceId(null);
+        }
         String payloadStr = payload != null ? payload.toString() : "{\"testReason\": \"verify_retry_and_dlq\"}";
         Job job = jobQueue.enqueue(FailingTestJobHandler.JOB_TYPE, payloadStr, maxAttempts);
         return ResponseEntity.ok(toProgressDto(job));

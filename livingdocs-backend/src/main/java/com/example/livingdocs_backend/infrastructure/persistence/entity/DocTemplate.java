@@ -30,10 +30,13 @@ public class DocTemplate {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "workspace_id")
+    private Long workspaceId;
+
     @Column(name = "name", nullable = false, length = 150)
     private String name;
 
-    @Column(name = "type", nullable = false, length = 50, unique = true)
+    @Column(name = "type", nullable = false, length = 50)
     private String type;
 
     @JdbcTypeCode(SqlTypes.JSON)

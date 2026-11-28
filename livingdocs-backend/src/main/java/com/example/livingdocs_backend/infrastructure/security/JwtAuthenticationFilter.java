@@ -1,7 +1,14 @@
 package com.example.livingdocs_backend.infrastructure.security;
 
-import java.io.IOException;
-
+import com.example.livingdocs_backend.infrastructure.persistence.entity.UserEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataUserRepository;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
@@ -9,20 +16,38 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-import jakarta.servlet.FilterChain;
-import jakarta.servlet.ServletException;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import java.io.IOException;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
+    public static final String ENTERPRISE_HEADER = "X-Enterprise-Id";
+
+    private static final Set<String> PUBLIC_AUTH_PATHS = Set.of(
+            "/api/auth/login",
+            "/api/auth/register",
+            "/api/auth/forgot-password",
+            "/api/auth/refresh",
+            "/api/auth/github",
+            "/api/auth/github/callback",
+            "/api/admin/users/forgot-password",
+            "/api/health"
+    );
+
     private final JwtTokenProvider tokenProvider;
-    private final com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataUserRepository springDataUserRepository;
+    private final SpringDataUserRepository springDataUserRepository;
+
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        return uri != null && PUBLIC_AUTH_PATHS.contains(uri);
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -36,11 +61,30 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 try {
                     String email = tokenProvider.getEmailFromToken(token);
                     Long userId = tokenProvider.getUserIdFromToken(token);
-                    java.util.List<String> roles = null;
+                    List<String> roles = null;
+                    Long workspaceId = tokenProvider.getWorkspaceIdFromToken(token);
 
                     if (userId != null) {
+                        Optional<UserEntity> userOpt = Optional.empty();
                         try {
-                            java.util.List<String> dbRoles = springDataUserRepository.findRoleNamesByUserId(userId);
+                            userOpt = springDataUserRepository.findById(userId);
+                        } catch (Exception dbEx) {
+                            log.debug("Không thể nạp user từ DB cho userId {}: {}", userId, dbEx.getMessage());
+                        }
+
+                        if (userOpt.isPresent()) {
+                            UserEntity userEntity = userOpt.get();
+                            String status = userEntity.getStatus() != null ? userEntity.getStatus().trim().toUpperCase() : "ACTIVE";
+                            if (!"ACTIVE".equals(status)) {
+                                SecurityContextHolder.clearContext();
+                                writeAccountBlockedResponse(response, status, userEntity.getRejectionReason());
+                                return;
+                            }
+                            workspaceId = userEntity.getWorkspaceId();
+                        }
+
+                        try {
+                            List<String> dbRoles = springDataUserRepository.findRoleNamesByUserId(userId);
                             if (dbRoles != null && !dbRoles.isEmpty()) {
                                 roles = dbRoles;
                             }
@@ -53,7 +97,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                         roles = tokenProvider.getRolesFromToken(token);
                     }
 
-                    UserPrincipal userPrincipal = new UserPrincipal(userId, email, roles);
+                    boolean isAdmin = hasAdminRole(roles);
+                    Long requestedEnterpriseId = isAdmin ? parseEnterpriseHeader(request) : null;
+
+                    UserPrincipal userPrincipal = new UserPrincipal(userId, email, roles, workspaceId, requestedEnterpriseId);
 
                     UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                             userPrincipal, null, userPrincipal.getAuthorities());
@@ -79,9 +126,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return bearerToken.substring(7);
         }
         // Fallback cho EventSource (SSE) qua same-origin proxy: đọc từ cookie livingdocs_access_token
-        jakarta.servlet.http.Cookie[] cookies = request.getCookies();
+        Cookie[] cookies = request.getCookies();
         if (cookies != null) {
-            for (jakarta.servlet.http.Cookie cookie : cookies) {
+            for (Cookie cookie : cookies) {
                 if ("livingdocs_access_token".equals(cookie.getName()) && StringUtils.hasText(cookie.getValue())) {
                     return cookie.getValue();
                 }
@@ -96,5 +143,73 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
         }
         return null;
+    }
+
+    private boolean hasAdminRole(List<String> roles) {
+        if (roles == null) {
+            return false;
+        }
+        for (String role : roles) {
+            if (role == null) {
+                continue;
+            }
+            String norm = role.trim().toUpperCase();
+            if ("ADMIN".equals(norm) || "ROLE_ADMIN".equals(norm)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Long parseEnterpriseHeader(HttpServletRequest request) {
+        String raw = request.getHeader(ENTERPRISE_HEADER);
+        if (!StringUtils.hasText(raw)) {
+            return null;
+        }
+        try {
+            long id = Long.parseLong(raw.trim());
+            return id > 0 ? id : null;
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private void writeAccountBlockedResponse(HttpServletResponse response, String status, String rejectionReason) throws IOException {
+        String errorCode;
+        String message;
+        switch (status) {
+            case "PENDING" -> {
+                errorCode = "ACCOUNT_PENDING";
+                message = "Tài khoản của bạn đang chờ Quản trị viên phê duyệt. Vui lòng thử lại sau khi được duyệt.";
+            }
+            case "REJECTED" -> {
+                errorCode = "ACCOUNT_REJECTED";
+                message = StringUtils.hasText(rejectionReason)
+                        ? "Yêu cầu đăng ký tài khoản của bạn đã bị Quản trị viên từ chối. Lý do: " + rejectionReason.trim()
+                        : "Yêu cầu đăng ký tài khoản của bạn đã bị Quản trị viên từ chối.";
+            }
+            default -> {
+                errorCode = "ACCOUNT_LOCKED";
+                message = "Tài khoản của bạn đã bị khóa bởi Quản trị viên. Vui lòng liên hệ quản trị hệ thống.";
+            }
+        }
+        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        response.setContentType("application/json");
+        response.setCharacterEncoding("UTF-8");
+        String json = "{\"status\":403,\"error\":\"Forbidden\",\"errorCode\":\"" + escapeJson(errorCode)
+                + "\",\"message\":\"" + escapeJson(message)
+                + "\",\"timestamp\":\"" + Instant.now() + "\"}";
+        response.getWriter().write(json);
+    }
+
+    private static String escapeJson(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r");
     }
 }

@@ -30,6 +30,7 @@ import com.example.livingdocs_backend.infrastructure.persistence.entity.Reposito
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataCommitRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
+import com.example.livingdocs_backend.infrastructure.security.TenantAccessService;
 import com.example.livingdocs_backend.infrastructure.security.UserPrincipal;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -59,6 +60,9 @@ public class RepositoryController {
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.example.livingdocs_backend.application.service.WebhookDeliveryService webhookDeliveryService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private TenantAccessService tenantAccessService;
 
     @PostMapping
     @PreAuthorize("hasAnyRole('DEVELOPER','TECH_LEAD','MANAGER','ADMIN')")
@@ -98,6 +102,9 @@ public class RepositoryController {
     @PreAuthorize("hasAnyRole('DEVELOPER','TECH_LEAD','MANAGER','ADMIN')")
     @Operation(summary = "Tái lập chỉ mục Vector RAG cho kho lưu trữ", description = "Băm nhỏ và lập vector embedding cho toàn bộ tài liệu PUBLISHED và thực thể code trong repository.")
     public ResponseEntity<java.util.Map<String, Object>> reindexRepository(@PathVariable("id") Long id) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireRepositoryAccess(id);
+        }
         int indexed = documentServicePort != null ? documentServicePort.reindexRepository(id) : 0;
         java.util.Map<String, Object> resp = new java.util.HashMap<>();
         resp.put("status", "SUCCESS");
@@ -113,9 +120,20 @@ public class RepositoryController {
     public ResponseEntity<List<RepoResponse>> listRepositories(
             @RequestParam(value = "workspaceId", required = false) Long workspaceId,
             @AuthenticationPrincipal UserPrincipal userPrincipal) {
-        Long targetWorkspaceId = workspaceId != null ? workspaceId : 1L;
+        Long targetWorkspaceId = workspaceId;
+        if (tenantAccessService != null) {
+            TenantAccessService.TenantScope scope = tenantAccessService.currentScope();
+            if (scope.unassigned()) {
+                return ResponseEntity.ok(List.of());
+            }
+            targetWorkspaceId = tenantAccessService.resolveReadWorkspaceId(workspaceId);
+        } else if (targetWorkspaceId == null) {
+            targetWorkspaceId = 1L;
+        }
         Long userId = userPrincipal != null ? userPrincipal.getUserId() : null;
-        autoImportReposIfNeeded(targetWorkspaceId, userId);
+        if (targetWorkspaceId != null) {
+            autoImportReposIfNeeded(targetWorkspaceId, userId);
+        }
         List<RepoResponse> list = repositoryService.listRepositories(workspaceId);
         return ResponseEntity.ok(list);
     }
@@ -134,6 +152,9 @@ public class RepositoryController {
     public ResponseEntity<List<com.example.livingdocs_backend.infrastructure.persistence.entity.PullRequestEntity>> getPullRequests(
             @PathVariable("id") Long id,
             @AuthenticationPrincipal UserPrincipal userPrincipal) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireRepositoryAccess(id);
+        }
         autoSyncRepoIfNeverSynced(id, userPrincipal != null ? userPrincipal.getUserId() : 1L);
         return ResponseEntity.ok(repositoryService.getRepoPullRequests(id));
     }
@@ -144,6 +165,9 @@ public class RepositoryController {
     public ResponseEntity<List<com.example.livingdocs_backend.infrastructure.persistence.entity.CommitEntity>> getCommits(
             @PathVariable("id") Long id,
             @AuthenticationPrincipal UserPrincipal userPrincipal) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireRepositoryAccess(id);
+        }
         autoSyncRepoIfNeverSynced(id, userPrincipal != null ? userPrincipal.getUserId() : 1L);
         return ResponseEntity.ok(repositoryService.getRepoCommits(id));
     }
@@ -153,6 +177,9 @@ public class RepositoryController {
     @Operation(summary = "Lấy lịch sử giao nhận GitHub Webhook của Repository")
     public ResponseEntity<List<com.example.livingdocs_backend.infrastructure.persistence.entity.WebhookDeliveryEntity>> getWebhookDeliveries(
             @PathVariable("id") Long id) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireRepositoryAccess(id);
+        }
         if (webhookDeliveryService == null) {
             return ResponseEntity.ok(List.of());
         }
@@ -190,6 +217,9 @@ public class RepositoryController {
     @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Lấy danh sách các phần tử mã nguồn (Code Entities) theo Repo ID")
     public ResponseEntity<List<CodeEntity>> getCodeEntitiesByRepo(@PathVariable("id") Long id) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireRepositoryAccess(id);
+        }
         if (codeIndexService == null) {
             return ResponseEntity.ok(List.of());
         }
@@ -221,8 +251,20 @@ public class RepositoryController {
     @Operation(summary = "Lấy danh sách các kết nối GitHub và trạng thái hiện tại trong workspace")
     public ResponseEntity<List<com.example.livingdocs_backend.application.dto.github.GitHubConnectionStatusResponse>> listConnections(
             @RequestParam(value = "workspaceId", required = false) Long workspaceId) {
-        Long targetWorkspaceId = workspaceId != null ? workspaceId : 1L;
-        List<GitHubConnectionEntity> connections = gitHubConnectionRepository.findByWorkspaceId(targetWorkspaceId);
+        List<GitHubConnectionEntity> connections;
+        if (tenantAccessService != null) {
+            TenantAccessService.TenantScope scope = tenantAccessService.currentScope();
+            if (scope.unassigned()) {
+                return ResponseEntity.ok(List.of());
+            }
+            Long targetWorkspaceId = tenantAccessService.resolveReadWorkspaceId(workspaceId);
+            connections = targetWorkspaceId != null
+                    ? gitHubConnectionRepository.findByWorkspaceId(targetWorkspaceId)
+                    : gitHubConnectionRepository.findAll();
+        } else {
+            Long targetWorkspaceId = workspaceId != null ? workspaceId : 1L;
+            connections = gitHubConnectionRepository.findByWorkspaceId(targetWorkspaceId);
+        }
         List<com.example.livingdocs_backend.application.dto.github.GitHubConnectionStatusResponse> list = connections
                 .stream()
                 .map(conn -> com.example.livingdocs_backend.application.dto.github.GitHubConnectionStatusResponse
@@ -243,13 +285,13 @@ public class RepositoryController {
     }
 
     private void autoImportReposIfNeeded(Long workspaceId, Long userId) {
+        if (workspaceId == null) {
+            return;
+        }
         try {
             if (userId != null) {
                 Optional<GitHubConnectionEntity> userConnOpt = gitHubConnectionRepository
                         .findByWorkspaceIdAndUserId(workspaceId, userId);
-                if (userConnOpt.isEmpty()) {
-                    userConnOpt = gitHubConnectionRepository.findFirstByUserIdOrderByCreatedAtDesc(userId);
-                }
                 if (userConnOpt.isPresent()) {
                     GitHubConnectionEntity userConn = userConnOpt.get();
                     if (repositoryRepository.findByConnectionId(userConn.getConnectionId()).isEmpty()) {

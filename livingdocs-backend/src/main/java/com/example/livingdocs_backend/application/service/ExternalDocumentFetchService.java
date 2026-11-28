@@ -539,7 +539,8 @@ public class ExternalDocumentFetchService {
             return Collections.emptyMap();
         }
         try {
-            return integrationService.getRawConfig(provider, ExternalIntegrationService.DEFAULT_WORKSPACE_ID);
+            // Truyền null để ExternalIntegrationService tự phân giải đúng doanh nghiệp hiện tại (tránh dùng nhầm token workspace 1)
+            return integrationService.getRawConfig(provider, null);
         } catch (Exception ex) {
             return Collections.emptyMap();
         }

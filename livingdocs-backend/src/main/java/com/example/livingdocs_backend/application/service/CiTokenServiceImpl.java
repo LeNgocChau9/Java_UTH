@@ -24,6 +24,8 @@ import com.example.livingdocs_backend.domain.model.User;
 import com.example.livingdocs_backend.domain.repository.UserRepositoryPort;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
+import com.example.livingdocs_backend.infrastructure.security.TenantAccessService;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,6 +40,9 @@ public class CiTokenServiceImpl implements CiTokenServicePort {
     private final SpringDataRepositoryRepository springDataRepositoryRepository;
     private final AuditServicePort auditServicePort;
 
+    @Autowired(required = false)
+    private TenantAccessService tenantAccessService;
+
     public static final String TOKEN_PREFIX = "ld_ci_";
     public static final String LEGACY_TOKEN_PREFIX = "lvd_ci_";
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
@@ -45,6 +50,22 @@ public class CiTokenServiceImpl implements CiTokenServicePort {
     @Override
     @Transactional
     public CreatedCiTokenResponse createToken(CreateCiTokenRequest request, Long currentUserId) {
+        Long workspaceId;
+        if (request.getRepositoryId() != null) {
+            if (tenantAccessService != null) {
+                tenantAccessService.requireRepositoryAccess(request.getRepositoryId());
+            }
+            workspaceId = springDataRepositoryRepository.findById(request.getRepositoryId())
+                    .map(RepositoryEntity::getWorkspaceId)
+                    .orElseGet(() -> tenantAccessService != null
+                            ? tenantAccessService.resolveWriteWorkspaceId(null)
+                            : 1L);
+        } else {
+            workspaceId = tenantAccessService != null
+                    ? tenantAccessService.resolveWriteWorkspaceId(null)
+                    : 1L;
+        }
+
         // Sinh 24 bytes ngẫu nhiên -> hex string (48 ký tự)
         byte[] randomBytes = new byte[24];
         SECURE_RANDOM.nextBytes(randomBytes);
@@ -61,6 +82,7 @@ public class CiTokenServiceImpl implements CiTokenServicePort {
         }
 
         CiToken ciToken = CiToken.builder()
+                .workspaceId(workspaceId)
                 .tokenName(request.getTokenName().trim())
                 .tokenHash(tokenHash)
                 .tokenPrefix(prefix)
@@ -99,6 +121,17 @@ public class CiTokenServiceImpl implements CiTokenServicePort {
     @Override
     @Transactional(readOnly = true)
     public List<CiTokenResponse> getAllTokens() {
+        if (tenantAccessService != null) {
+            var scope = tenantAccessService.currentScope();
+            if (scope.unassigned()) {
+                return List.of();
+            }
+            if (scope.hasTenantFilter()) {
+                return ciTokenRepositoryPort.findByWorkspaceId(scope.workspaceId()).stream()
+                        .map(this::toResponse)
+                        .toList();
+            }
+        }
         return ciTokenRepositoryPort.findAll().stream()
                 .map(this::toResponse)
                 .toList();
@@ -107,6 +140,9 @@ public class CiTokenServiceImpl implements CiTokenServicePort {
     @Override
     @Transactional(readOnly = true)
     public List<CiTokenResponse> getTokensByRepository(Long repositoryId) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireRepositoryAccess(repositoryId);
+        }
         return ciTokenRepositoryPort.findByRepositoryId(repositoryId).stream()
                 .map(this::toResponse)
                 .toList();
@@ -115,6 +151,9 @@ public class CiTokenServiceImpl implements CiTokenServicePort {
     @Override
     @Transactional
     public void revokeToken(Long tokenId, Long currentUserId) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireCiTokenAccess(tokenId);
+        }
         CiToken token = ciTokenRepositoryPort.findById(tokenId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy CI Token với ID: " + tokenId));
 

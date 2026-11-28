@@ -6,17 +6,21 @@ import com.example.livingdocs_backend.application.dto.policy.PolicyEvaluationReq
 import com.example.livingdocs_backend.application.dto.policy.PolicyEvaluationResponseDto;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentChangePolicyEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentUpdatePolicyEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentChangePolicyRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentUpdatePolicyRepository;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
+import com.example.livingdocs_backend.infrastructure.security.TenantAccessService;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.Instant;
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -28,6 +32,12 @@ public class DocumentPolicyService {
     private final SpringDataDocumentChangePolicyRepository changePolicyRepository;
     private final SpringDataDocumentUpdatePolicyRepository updatePolicyRepository;
 
+    @Autowired(required = false)
+    private TenantAccessService tenantAccessService;
+
+    @Autowired(required = false)
+    private SpringDataRepositoryRepository repositoryRepository;
+
     @PostConstruct
     public void initDefaultPolicies() {
         try {
@@ -35,6 +45,7 @@ public class DocumentPolicyService {
                 log.info("[PolicyEngine] Khởi tạo dữ liệu mẫu cho bảng document_update_policies...");
                 List<DocumentUpdatePolicyEntity> defaults = List.of(
                         DocumentUpdatePolicyEntity.builder()
+                                .workspaceId(1L)
                                 .documentType("API_SPEC")
                                 .triggerCommit(true)
                                 .triggerPullRequest(true)
@@ -43,6 +54,7 @@ public class DocumentPolicyService {
                                 .updatedAt(Instant.now())
                                 .build(),
                         DocumentUpdatePolicyEntity.builder()
+                                .workspaceId(1L)
                                 .documentType("TECHNICAL_DOC")
                                 .triggerCommit(true)
                                 .triggerPullRequest(true)
@@ -51,6 +63,7 @@ public class DocumentPolicyService {
                                 .updatedAt(Instant.now())
                                 .build(),
                         DocumentUpdatePolicyEntity.builder()
+                                .workspaceId(1L)
                                 .documentType("ARCHITECTURE")
                                 .triggerCommit(false)
                                 .triggerPullRequest(true)
@@ -59,6 +72,7 @@ public class DocumentPolicyService {
                                 .updatedAt(Instant.now())
                                 .build(),
                         DocumentUpdatePolicyEntity.builder()
+                                .workspaceId(1L)
                                 .documentType("USER_GUIDE")
                                 .triggerCommit(false)
                                 .triggerPullRequest(false)
@@ -109,6 +123,20 @@ public class DocumentPolicyService {
 
     @Transactional(readOnly = true)
     public List<DocumentUpdatePolicyDto> getAllUpdatePolicies() {
+        if (tenantAccessService != null) {
+            var scope = tenantAccessService.currentScope();
+            if (scope.unassigned()) {
+                return Collections.emptyList();
+            }
+            if (scope.hasTenantFilter()) {
+                List<DocumentUpdatePolicyEntity> wsPolicies = updatePolicyRepository.findByWorkspaceId(scope.workspaceId());
+                if (wsPolicies.isEmpty()) {
+                    // Fallback về chính sách mặc định workspace 1 khi doanh nghiệp mới chưa tùy chỉnh
+                    wsPolicies = updatePolicyRepository.findByWorkspaceId(1L);
+                }
+                return wsPolicies.stream().map(this::toUpdatePolicyDto).toList();
+            }
+        }
         return updatePolicyRepository.findAll().stream()
                 .map(this::toUpdatePolicyDto)
                 .toList();
@@ -120,10 +148,18 @@ public class DocumentPolicyService {
             throw new IllegalArgumentException("documentType không được để trống");
         }
 
-        String docType = dto.getDocumentType().trim().toUpperCase();
-        DocumentUpdatePolicyEntity entity = updatePolicyRepository.findByDocumentType(docType)
-                .orElse(DocumentUpdatePolicyEntity.builder().documentType(docType).build());
+        Long wsId = tenantAccessService != null
+                ? tenantAccessService.resolveWriteWorkspaceId(null)
+                : 1L;
 
+        String docType = dto.getDocumentType().trim().toUpperCase();
+        DocumentUpdatePolicyEntity entity = updatePolicyRepository.findByWorkspaceIdAndDocumentType(wsId, docType)
+                .orElse(DocumentUpdatePolicyEntity.builder()
+                        .workspaceId(wsId)
+                        .documentType(docType)
+                        .build());
+
+        entity.setWorkspaceId(wsId);
         if (dto.getTriggerCommit() != null) entity.setTriggerCommit(dto.getTriggerCommit());
         if (dto.getTriggerPullRequest() != null) entity.setTriggerPullRequest(dto.getTriggerPullRequest());
         if (dto.getTriggerMerge() != null) entity.setTriggerMerge(dto.getTriggerMerge());
@@ -142,28 +178,49 @@ public class DocumentPolicyService {
 
     @Transactional(readOnly = true)
     public List<DocumentChangePolicyDto> getChangePolicies(Long repositoryId, Long workspaceId) {
+        if (tenantAccessService != null && tenantAccessService.currentScope().unassigned()) {
+            return Collections.emptyList();
+        }
         List<DocumentChangePolicyEntity> list;
         if (repositoryId != null) {
+            if (tenantAccessService != null) {
+                tenantAccessService.requireRepositoryAccess(repositoryId);
+            }
             list = changePolicyRepository.findByRepositoryId(repositoryId);
-        } else if (workspaceId != null) {
-            list = changePolicyRepository.findByWorkspaceId(workspaceId);
         } else {
-            list = changePolicyRepository.findAll();
+            Long effectiveWs = tenantAccessService != null
+                    ? tenantAccessService.resolveReadWorkspaceId(workspaceId)
+                    : workspaceId;
+            if (effectiveWs != null) {
+                list = changePolicyRepository.findByWorkspaceId(effectiveWs);
+            } else {
+                list = changePolicyRepository.findAll();
+            }
         }
         return list.stream().map(this::toChangePolicyDto).toList();
     }
 
     @Transactional
     public DocumentChangePolicyDto saveChangePolicy(DocumentChangePolicyDto dto, Long userId) {
+        if (dto.getRepositoryId() != null && tenantAccessService != null) {
+            tenantAccessService.requireRepositoryAccess(dto.getRepositoryId());
+        }
+        Long targetWsId = tenantAccessService != null
+                ? tenantAccessService.resolveWriteWorkspaceId(dto.getWorkspaceId())
+                : (dto.getWorkspaceId() != null ? dto.getWorkspaceId() : 1L);
+
         DocumentChangePolicyEntity entity;
         if (dto.getPolicyId() != null) {
             entity = changePolicyRepository.findById(dto.getPolicyId())
                     .orElse(new DocumentChangePolicyEntity());
+            if (entity.getPolicyId() != null && tenantAccessService != null) {
+                tenantAccessService.requireWorkspaceAccess(entity.getWorkspaceId());
+            }
         } else {
             entity = new DocumentChangePolicyEntity();
         }
 
-        entity.setWorkspaceId(dto.getWorkspaceId() != null ? dto.getWorkspaceId() : 1L);
+        entity.setWorkspaceId(targetWsId);
         entity.setRepositoryId(dto.getRepositoryId());
         entity.setModulePattern(StringUtils.hasText(dto.getModulePattern()) ? dto.getModulePattern().trim() : "*");
         entity.setDocumentType(StringUtils.hasText(dto.getDocumentType()) ? dto.getDocumentType().trim().toUpperCase() : "TECHNICAL_DOC");
@@ -178,6 +235,10 @@ public class DocumentPolicyService {
 
     @Transactional
     public void deleteChangePolicy(Long policyId) {
+        Optional<DocumentChangePolicyEntity> existing = changePolicyRepository.findById(policyId);
+        if (existing.isPresent() && tenantAccessService != null) {
+            tenantAccessService.requireWorkspaceAccess(existing.get().getWorkspaceId());
+        }
         changePolicyRepository.deleteById(policyId);
     }
 
@@ -185,12 +246,22 @@ public class DocumentPolicyService {
 
     @Transactional(readOnly = true)
     public PolicyEvaluationResponseDto evaluatePolicy(PolicyEvaluationRequestDto req) {
+        if (req.getRepositoryId() != null && tenantAccessService != null) {
+            tenantAccessService.requireRepositoryAccess(req.getRepositoryId());
+        }
         String docType = StringUtils.hasText(req.getDocumentType()) ? req.getDocumentType().trim().toUpperCase() : "TECHNICAL_DOC";
         String eventType = StringUtils.hasText(req.getEventType()) ? req.getEventType().trim().toLowerCase() : "pull_request";
         int changeCount = req.getChangedFilesCount() != null ? req.getChangedFilesCount() : 1;
 
-        // 1. Kiểm tra quy tắc kích hoạt sự kiện (DocumentUpdatePolicy)
-        Optional<DocumentUpdatePolicyEntity> updatePolicyOpt = updatePolicyRepository.findByDocumentType(docType);
+        Long effectiveWs = resolveEvaluationWorkspaceId(req.getRepositoryId());
+
+        // 1. Kiểm tra quy tắc kích hoạt sự kiện (DocumentUpdatePolicy theo workspace, fallback 1L)
+        Optional<DocumentUpdatePolicyEntity> updatePolicyOpt = effectiveWs != null
+                ? updatePolicyRepository.findByWorkspaceIdAndDocumentType(effectiveWs, docType)
+                : Optional.empty();
+        if (updatePolicyOpt.isEmpty()) {
+            updatePolicyOpt = updatePolicyRepository.findByWorkspaceIdAndDocumentType(1L, docType);
+        }
         DocumentUpdatePolicyEntity updatePolicy = updatePolicyOpt.orElse(null);
 
         boolean eventAllowed = true;
@@ -220,10 +291,20 @@ public class DocumentPolicyService {
                     .build();
         }
 
-        // 2. Tra cứu quy tắc module và ngưỡng thay đổi (DocumentChangePolicy)
-        List<DocumentChangePolicyEntity> changePolicies = req.getRepositoryId() != null
-                ? changePolicyRepository.findByRepositoryId(req.getRepositoryId())
-                : changePolicyRepository.findAll();
+        // 2. Tra cứu quy tắc module và ngưỡng thay đổi (DocumentChangePolicy trong cùng workspace)
+        List<DocumentChangePolicyEntity> changePolicies;
+        if (tenantAccessService != null && tenantAccessService.currentScope().unassigned()) {
+            changePolicies = Collections.emptyList();
+        } else if (req.getRepositoryId() != null) {
+            changePolicies = changePolicyRepository.findByRepositoryId(req.getRepositoryId());
+            if (changePolicies.isEmpty() && effectiveWs != null) {
+                changePolicies = changePolicyRepository.findByWorkspaceId(effectiveWs);
+            }
+        } else if (effectiveWs != null) {
+            changePolicies = changePolicyRepository.findByWorkspaceId(effectiveWs);
+        } else {
+            changePolicies = changePolicyRepository.findAll();
+        }
 
         DocumentChangePolicyEntity matchingChangePolicy = changePolicies.stream()
                 .filter(p -> p.getDocumentType() == null || p.getDocumentType().equalsIgnoreCase(docType))
@@ -267,6 +348,22 @@ public class DocumentPolicyService {
                 .appliedUpdatePolicy(updatePolicy != null ? toUpdatePolicyDto(updatePolicy) : null)
                 .appliedChangePolicy(matchingChangePolicy != null ? toChangePolicyDto(matchingChangePolicy) : null)
                 .build();
+    }
+
+    private Long resolveEvaluationWorkspaceId(Long repositoryId) {
+        if (repositoryId != null && repositoryRepository != null) {
+            Optional<RepositoryEntity> repo = repositoryRepository.findById(repositoryId);
+            if (repo.isPresent() && repo.get().getWorkspaceId() != null) {
+                return repo.get().getWorkspaceId();
+            }
+        }
+        if (tenantAccessService != null) {
+            var scope = tenantAccessService.currentScope();
+            if (scope.hasTenantFilter()) {
+                return scope.workspaceId();
+            }
+        }
+        return null;
     }
 
     private DocumentUpdatePolicyDto toUpdatePolicyDto(DocumentUpdatePolicyEntity e) {

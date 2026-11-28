@@ -51,6 +51,9 @@ public class DriftAlertController {
     @Autowired(required = false)
     private ObjectMapper objectMapper;
 
+    @Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.security.TenantAccessService tenantAccessService;
+
     @PostMapping("/manual-analyze")
     @Operation(
             summary = "Kích hoạt thủ công phân tích sai lệch tài liệu theo PR hoặc Tài liệu cụ thể",
@@ -61,6 +64,15 @@ public class DriftAlertController {
             @RequestParam(name = "async", defaultValue = "false") boolean async,
             @AuthenticationPrincipal UserPrincipal actor
     ) {
+        if (tenantAccessService != null) {
+            if (request != null && request.getDocumentId() != null) {
+                tenantAccessService.requireDocumentAccess(request.getDocumentId());
+            } else if (request != null && request.getRepositoryId() != null) {
+                tenantAccessService.requireRepositoryAccess(request.getRepositoryId());
+            } else {
+                tenantAccessService.resolveWriteWorkspaceId(null);
+            }
+        }
         if (async && jobQueue != null) {
             try {
                 DriftAnalyzeJobPayload payload = DriftAnalyzeJobPayload.builder()
@@ -90,6 +102,13 @@ public class DriftAlertController {
     @GetMapping(value = "/stream", produces = org.springframework.http.MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "Mở kết nối Server-Sent Events (SSE) để nhận cảnh báo sai lệch thời gian thực")
     public org.springframework.web.servlet.mvc.method.annotation.SseEmitter streamDriftAlerts() {
+        if (tenantAccessService != null) {
+            var scope = tenantAccessService.currentScope();
+            if (scope.unassigned()) {
+                return sseNotificationService.createEmitter(null, false);
+            }
+            return sseNotificationService.createEmitter(scope.workspaceId(), scope.globalAdmin());
+        }
         return sseNotificationService.createEmitter();
     }
 

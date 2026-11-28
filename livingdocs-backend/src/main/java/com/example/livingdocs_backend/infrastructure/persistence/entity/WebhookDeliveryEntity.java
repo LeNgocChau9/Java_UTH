@@ -22,6 +22,9 @@ public class WebhookDeliveryEntity {
     @Column(name = "id")
     private Long id;
 
+    @Column(name = "workspace_id")
+    private Long workspaceId;
+
     @Column(name = "delivery_id", length = 128)
     private String deliveryId;
 

@@ -12,6 +12,7 @@ import com.example.livingdocs_backend.infrastructure.persistence.repository.Spri
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentVersionRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
+import com.example.livingdocs_backend.infrastructure.security.TenantAccessService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -30,6 +31,9 @@ public class DocsBundleService {
     private final SpringDataDocumentVersionRepository versionRepository;
     private final SpringDataCodeEntityRepository codeEntityRepository;
 
+    @Autowired(required = false)
+    private TenantAccessService tenantAccessService;
+
     @Autowired
     public DocsBundleService(
             SpringDataDocCollectionRepository collectionRepository,
@@ -45,15 +49,27 @@ public class DocsBundleService {
     }
 
     public byte[] exportCollection(Long collectionId) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireCollectionAccess(collectionId);
+        }
         DocCollectionEntity collection = collectionRepository.findById(collectionId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy bộ sưu tập."));
+        if (tenantAccessService != null) {
+            tenantAccessService.requireWorkspaceAccess(collection.getWorkspaceId());
+        }
         List<DocumentEntity> docs = documentRepository.findByCollectionIdOrderByUpdatedAtDesc(collectionId);
         return DocsBundleWriter.write(collection.getName(), approvedFiles(docs), null);
     }
 
     public byte[] exportRepository(Long repositoryId) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireRepositoryAccess(repositoryId);
+        }
         RepositoryEntity repository = repositoryRepository.findById(repositoryId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy kho lưu trữ."));
+        if (tenantAccessService != null) {
+            tenantAccessService.requireWorkspaceAccess(repository.getWorkspaceId());
+        }
         List<DocumentEntity> docs = documentRepository.findByRepoIdOrderByUpdatedAtDesc(repositoryId);
         String name = repository.getRepoFullName() != null ? repository.getRepoFullName() : repository.getRepoName();
         return DocsBundleWriter.write(name, approvedFiles(docs), openApiMarkdown(repositoryId, name));

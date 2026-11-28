@@ -7,6 +7,7 @@ import com.example.livingdocs_backend.application.dto.CollectionRollbackResponse
 import com.example.livingdocs_backend.application.dto.DocCollectionRequest;
 import com.example.livingdocs_backend.application.dto.DocCollectionResponse;
 import com.example.livingdocs_backend.application.port.DocumentServicePort;
+import com.example.livingdocs_backend.domain.exception.AuthenticationException;
 import com.example.livingdocs_backend.domain.model.RoleType;
 import com.example.livingdocs_backend.domain.model.User;
 import com.example.livingdocs_backend.domain.repository.UserRepositoryPort;
@@ -14,6 +15,7 @@ import com.example.livingdocs_backend.infrastructure.persistence.entity.DocColle
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocCollectionRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentRepository;
+import com.example.livingdocs_backend.infrastructure.security.TenantAccessService;
 import com.example.livingdocs_backend.infrastructure.security.UserPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -47,6 +49,9 @@ public class DocCollectionController {
     private final UserRepositoryPort userRepositoryPort;
     private DocsBundleService docsBundleService;
 
+    @Autowired(required = false)
+    private TenantAccessService tenantAccessService;
+
     @Autowired
     public DocCollectionController(
             SpringDataDocCollectionRepository collectionRepository,
@@ -70,7 +75,19 @@ public class DocCollectionController {
     @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Danh sách bộ sưu tập", description = "Lấy danh sách toàn bộ các bộ sưu tập tài liệu kèm thông tin người phụ trách (Owner) và số lượng tài liệu bên trong.")
     public ResponseEntity<List<DocCollectionResponse>> listCollections() {
-        List<DocCollectionEntity> entities = collectionRepository.findAll();
+        List<DocCollectionEntity> entities;
+        if (tenantAccessService != null) {
+            TenantAccessService.TenantScope scope = tenantAccessService.currentScope();
+            if (scope.unassigned()) {
+                return ResponseEntity.ok(List.of());
+            }
+            Long workspaceId = tenantAccessService.resolveReadWorkspaceId(null);
+            entities = workspaceId != null
+                    ? collectionRepository.findByWorkspaceId(workspaceId)
+                    : collectionRepository.findAll();
+        } else {
+            entities = collectionRepository.findAll();
+        }
         List<DocCollectionResponse> responses = entities.stream()
                 .map(this::toCollectionResponse)
                 .collect(Collectors.toList());
@@ -85,7 +102,19 @@ public class DocCollectionController {
         if (userRepositoryPort == null) {
             return ResponseEntity.ok(List.of());
         }
-        List<User> allUsers = userRepositoryPort.findAll();
+        List<User> allUsers;
+        if (tenantAccessService != null) {
+            TenantAccessService.TenantScope scope = tenantAccessService.currentScope();
+            if (scope.unassigned()) {
+                return ResponseEntity.ok(List.of());
+            }
+            Long workspaceId = tenantAccessService.resolveReadWorkspaceId(null);
+            allUsers = workspaceId != null
+                    ? userRepositoryPort.findByWorkspaceId(workspaceId)
+                    : userRepositoryPort.findAll();
+        } else {
+            allUsers = userRepositoryPort.findAll();
+        }
         List<CollectionOwnerDto> owners = allUsers.stream()
                 .filter(u -> u.getStatus() == null || "ACTIVE".equalsIgnoreCase(u.getStatus()))
                 .map(u -> {
@@ -107,8 +136,14 @@ public class DocCollectionController {
     @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Chi tiết bộ sưu tập", description = "Lấy thông tin chi tiết một bộ sưu tập theo ID.")
     public ResponseEntity<DocCollectionResponse> getCollection(@PathVariable Long id) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireCollectionAccess(id);
+        }
         DocCollectionEntity entity = collectionRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy bộ sưu tập ID: " + id));
+        if (tenantAccessService != null) {
+            tenantAccessService.requireWorkspaceAccess(entity.getWorkspaceId());
+        }
 
         return ResponseEntity.ok(toCollectionResponse(entity));
     }
@@ -117,6 +152,9 @@ public class DocCollectionController {
     @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Xuất ZIP tài liệu đã duyệt của bộ sưu tập", description = "Đóng gói các tài liệu APPROVED và PUBLISHED, giữ targetPath, kèm README.md và SUMMARY.md.")
     public ResponseEntity<byte[]> exportCollectionZip(@PathVariable Long id) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireCollectionAccess(id);
+        }
         if (docsBundleService == null) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
         }
@@ -136,7 +174,11 @@ public class DocCollectionController {
     @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
     @Operation(summary = "Tạo bộ sưu tập mới", description = "Tạo một bộ sưu tập tài liệu mới theo phân hệ nghiệp vụ và gán người phụ trách chính (Owner).")
     public ResponseEntity<DocCollectionResponse> createCollection(@Valid @RequestBody DocCollectionRequest request) {
+        Long workspaceId = tenantAccessService != null
+                ? tenantAccessService.resolveWriteWorkspaceId(null)
+                : 1L;
         DocCollectionEntity entity = DocCollectionEntity.builder()
+                .workspaceId(workspaceId)
                 .name(request.getName().trim())
                 .description(request.getDescription())
                 .moduleTag(request.getModuleTag() != null && !request.getModuleTag().isBlank() ? request.getModuleTag().trim() : null)
@@ -158,8 +200,14 @@ public class DocCollectionController {
     public ResponseEntity<DocCollectionResponse> updateCollection(
             @PathVariable Long id,
             @Valid @RequestBody DocCollectionRequest request) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireCollectionAccess(id);
+        }
         DocCollectionEntity entity = collectionRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy bộ sưu tập ID: " + id));
+        if (tenantAccessService != null) {
+            tenantAccessService.requireWorkspaceAccess(entity.getWorkspaceId());
+        }
 
         if (request.getName() != null && !request.getName().isBlank()) {
             entity.setName(request.getName().trim());
@@ -186,8 +234,14 @@ public class DocCollectionController {
     public ResponseEntity<DocCollectionResponse> assignDocumentsToCollection(
             @PathVariable Long id,
             @RequestBody CollectionDocumentsRequest request) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireCollectionAccess(id);
+        }
         DocCollectionEntity entity = collectionRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy bộ sưu tập ID: " + id));
+        if (tenantAccessService != null) {
+            tenantAccessService.requireWorkspaceAccess(entity.getWorkspaceId());
+        }
 
         List<Long> docIds = request != null && request.getDocumentIds() != null ? request.getDocumentIds() : List.of();
         boolean replaceAll = request != null && Boolean.TRUE.equals(request.getReplaceAll());
@@ -202,8 +256,15 @@ public class DocCollectionController {
     public ResponseEntity<DocCollectionResponse> removeDocumentFromCollection(
             @PathVariable Long id,
             @PathVariable Long docId) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireCollectionAccess(id);
+            tenantAccessService.requireDocumentAccess(docId);
+        }
         DocCollectionEntity entity = collectionRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy bộ sưu tập ID: " + id));
+        if (tenantAccessService != null) {
+            tenantAccessService.requireWorkspaceAccess(entity.getWorkspaceId());
+        }
 
         documentRepository.findById(docId).ifPresent(doc -> {
             if (Objects.equals(doc.getCollectionId(), id)) {
@@ -219,6 +280,9 @@ public class DocCollectionController {
     @PreAuthorize("hasAnyRole('TECH_LEAD','MANAGER','ADMIN')")
     @Operation(summary = "Xóa bộ sưu tập", description = "Xóa một bộ sưu tập (các tài liệu bên trong sẽ được set collectionId = null).")
     public ResponseEntity<Map<String, Object>> deleteCollection(@PathVariable Long id) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireCollectionAccess(id);
+        }
         if (!collectionRepository.existsById(id)) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "status", 404,
@@ -249,6 +313,9 @@ public class DocCollectionController {
             @PathVariable Long id,
             @RequestBody(required = false) CollectionRollbackRequest request,
             @AuthenticationPrincipal UserPrincipal userPrincipal) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireCollectionAccess(id);
+        }
 
         Long actorId = userPrincipal != null ? userPrincipal.getUserId() : null;
         String actorRole = extractRole(userPrincipal);
@@ -266,6 +333,13 @@ public class DocCollectionController {
             User resolvedUser = userRepositoryPort != null
                     ? userRepositoryPort.findById(request.getOwnerId()).orElse(null)
                     : null;
+            if (tenantAccessService != null && resolvedUser != null
+                    && tenantAccessService.currentScope().hasTenantFilter()
+                    && !Objects.equals(resolvedUser.getWorkspaceId(), entity.getWorkspaceId())) {
+                throw AuthenticationException.forbidden(
+                        TenantAccessService.ERR_TENANT_DENIED,
+                        TenantAccessService.MSG_TENANT_DENIED);
+            }
 
             String ownerName = (request.getOwnerName() != null && !request.getOwnerName().isBlank())
                     ? request.getOwnerName().trim()
@@ -308,6 +382,9 @@ public class DocCollectionController {
 
         for (Long docId : targetSet) {
             if (docId == null) continue;
+            if (tenantAccessService != null) {
+                tenantAccessService.requireDocumentAccess(docId);
+            }
             documentRepository.findById(docId).ifPresent(doc -> {
                 if (!Objects.equals(doc.getCollectionId(), collectionId)) {
                     doc.setCollectionId(collectionId);

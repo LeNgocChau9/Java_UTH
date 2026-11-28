@@ -13,6 +13,14 @@ public interface DocumentRepositoryPort {
     List<Document> findByCollectionId(Long collectionId);
     List<Document> findByRepoIdAndCollectionId(Long repoId, Long collectionId);
     List<Document> findByStatus(com.example.livingdocs_backend.domain.model.DocumentStatus status);
+    default List<Document> findByWorkspaceId(Long workspaceId) {
+        return List.of();
+    }
+    default List<Document> findByStatusAndWorkspaceId(
+            com.example.livingdocs_backend.domain.model.DocumentStatus status,
+            Long workspaceId) {
+        return List.of();
+    }
     boolean existsById(Long docId);
     void deleteById(Long docId);
 }

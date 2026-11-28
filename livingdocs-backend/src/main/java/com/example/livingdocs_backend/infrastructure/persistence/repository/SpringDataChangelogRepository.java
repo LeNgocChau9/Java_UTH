@@ -15,36 +15,69 @@ import java.util.List;
 @Repository
 public interface SpringDataChangelogRepository extends JpaRepository<ChangelogEntity, Long> {
 
-        List<ChangelogEntity> findByDocumentIdOrderByCreatedAtDesc(Long documentId);
+    List<ChangelogEntity> findByDocumentIdOrderByCreatedAtDesc(Long documentId);
 
-        @Query("SELECT c FROM ChangelogEntity c WHERE " +
-                        "(:documentId IS NULL OR c.documentId = :documentId) AND " +
-                        "(:actorRole IS NULL OR c.actorRole = :actorRole) " +
-                        "ORDER BY c.createdAt DESC")
-        List<ChangelogEntity> findFiltered(
-                        @Param("documentId") Long documentId,
-                        @Param("actorRole") String actorRole);
+    @Query("SELECT c FROM ChangelogEntity c WHERE " +
+            "(:documentId IS NULL OR c.documentId = :documentId) AND " +
+            "(:actorRole IS NULL OR c.actorRole = :actorRole) " +
+            "ORDER BY c.createdAt DESC")
+    List<ChangelogEntity> findFiltered(
+            @Param("documentId") Long documentId,
+            @Param("actorRole") String actorRole);
 
-        @Query(value = "SELECT c FROM ChangelogEntity c " +
-                        "WHERE (:actorRole IS NULL OR c.actorRole = :actorRole) " +
-                        "AND (:repoId IS NULL OR EXISTS (SELECT 1 FROM DocumentEntity d WHERE d.docId = c.documentId AND d.repoId = :repoId)) "
-                        +
-                        "AND (CAST(:fromDate AS timestamp) IS NULL OR c.createdAt >= :fromDate) " +
-                        "AND (CAST(:toDate AS timestamp) IS NULL OR c.createdAt <= :toDate) " +
-                        "ORDER BY c.createdAt DESC", countQuery = "SELECT COUNT(c) FROM ChangelogEntity c " +
-                                        "WHERE (:actorRole IS NULL OR c.actorRole = :actorRole) " +
-                                        "AND (:repoId IS NULL OR EXISTS (SELECT 1 FROM DocumentEntity d WHERE d.docId = c.documentId AND d.repoId = :repoId)) "
-                                        +
-                                        "AND (CAST(:fromDate AS timestamp) IS NULL OR c.createdAt >= :fromDate) " +
-                                        "AND (CAST(:toDate AS timestamp) IS NULL OR c.createdAt <= :toDate)")
-        Page<ChangelogEntity> findWithFilters(
-                        @Param("actorRole") String actorRole,
-                        @Param("repoId") Long repoId,
-                        @Param("fromDate") Instant fromDate,
-                        @Param("toDate") Instant toDate,
-                        Pageable pageable);
+    @Query("SELECT c FROM ChangelogEntity c WHERE " +
+            "EXISTS (SELECT 1 FROM DocumentEntity d, RepositoryEntity r " +
+            "        WHERE d.docId = c.documentId AND r.repositoryId = d.repoId AND r.workspaceId = :workspaceId) AND " +
+            "(:documentId IS NULL OR c.documentId = :documentId) AND " +
+            "(:actorRole IS NULL OR c.actorRole = :actorRole) " +
+            "ORDER BY c.createdAt DESC")
+    List<ChangelogEntity> findFilteredByWorkspaceId(
+            @Param("workspaceId") Long workspaceId,
+            @Param("documentId") Long documentId,
+            @Param("actorRole") String actorRole);
 
-        @Modifying
-        @Query("DELETE FROM ChangelogEntity c WHERE c.createdAt < :cutoff")
-        int deleteByCreatedAtBefore(@Param("cutoff") Instant cutoff);
+    @Query(value = "SELECT c FROM ChangelogEntity c " +
+            "WHERE (:actorRole IS NULL OR c.actorRole = :actorRole) " +
+            "AND (:repoId IS NULL OR EXISTS (SELECT 1 FROM DocumentEntity d WHERE d.docId = c.documentId AND d.repoId = :repoId)) " +
+            "AND (CAST(:fromDate AS timestamp) IS NULL OR c.createdAt >= :fromDate) " +
+            "AND (CAST(:toDate AS timestamp) IS NULL OR c.createdAt <= :toDate) " +
+            "ORDER BY c.createdAt DESC",
+            countQuery = "SELECT COUNT(c) FROM ChangelogEntity c " +
+                    "WHERE (:actorRole IS NULL OR c.actorRole = :actorRole) " +
+                    "AND (:repoId IS NULL OR EXISTS (SELECT 1 FROM DocumentEntity d WHERE d.docId = c.documentId AND d.repoId = :repoId)) " +
+                    "AND (CAST(:fromDate AS timestamp) IS NULL OR c.createdAt >= :fromDate) " +
+                    "AND (CAST(:toDate AS timestamp) IS NULL OR c.createdAt <= :toDate)")
+    Page<ChangelogEntity> findWithFilters(
+            @Param("actorRole") String actorRole,
+            @Param("repoId") Long repoId,
+            @Param("fromDate") Instant fromDate,
+            @Param("toDate") Instant toDate,
+            Pageable pageable);
+
+    @Query(value = "SELECT c FROM ChangelogEntity c " +
+            "WHERE EXISTS (SELECT 1 FROM DocumentEntity d, RepositoryEntity r " +
+            "              WHERE d.docId = c.documentId AND r.repositoryId = d.repoId AND r.workspaceId = :workspaceId) " +
+            "AND (:actorRole IS NULL OR c.actorRole = :actorRole) " +
+            "AND (:repoId IS NULL OR EXISTS (SELECT 1 FROM DocumentEntity d WHERE d.docId = c.documentId AND d.repoId = :repoId)) " +
+            "AND (CAST(:fromDate AS timestamp) IS NULL OR c.createdAt >= :fromDate) " +
+            "AND (CAST(:toDate AS timestamp) IS NULL OR c.createdAt <= :toDate) " +
+            "ORDER BY c.createdAt DESC",
+            countQuery = "SELECT COUNT(c) FROM ChangelogEntity c " +
+                    "WHERE EXISTS (SELECT 1 FROM DocumentEntity d, RepositoryEntity r " +
+                    "              WHERE d.docId = c.documentId AND r.repositoryId = d.repoId AND r.workspaceId = :workspaceId) " +
+                    "AND (:actorRole IS NULL OR c.actorRole = :actorRole) " +
+                    "AND (:repoId IS NULL OR EXISTS (SELECT 1 FROM DocumentEntity d WHERE d.docId = c.documentId AND d.repoId = :repoId)) " +
+                    "AND (CAST(:fromDate AS timestamp) IS NULL OR c.createdAt >= :fromDate) " +
+                    "AND (CAST(:toDate AS timestamp) IS NULL OR c.createdAt <= :toDate)")
+    Page<ChangelogEntity> findWithFiltersByWorkspaceId(
+            @Param("workspaceId") Long workspaceId,
+            @Param("actorRole") String actorRole,
+            @Param("repoId") Long repoId,
+            @Param("fromDate") Instant fromDate,
+            @Param("toDate") Instant toDate,
+            Pageable pageable);
+
+    @Modifying
+    @Query("DELETE FROM ChangelogEntity c WHERE c.createdAt < :cutoff")
+    int deleteByCreatedAtBefore(@Param("cutoff") Instant cutoff);
 }

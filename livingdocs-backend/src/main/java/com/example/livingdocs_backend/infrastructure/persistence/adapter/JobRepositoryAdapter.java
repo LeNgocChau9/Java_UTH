@@ -46,6 +46,21 @@ public class JobRepositoryAdapter implements JobRepositoryPort {
     }
 
     @Override
+    public List<Job> findTopJobsByWorkspaceAndStatus(Long workspaceId, JobStatus status, int limit) {
+        List<JobEntity> entities;
+        if (status == JobStatus.QUEUED || status == JobStatus.PENDING) {
+            entities = springDataJobRepository.findJobsByWorkspaceAndStatusesWithLimit(
+                    workspaceId, List.of(JobStatus.QUEUED, JobStatus.PENDING), PageRequest.of(0, limit));
+        } else {
+            entities = springDataJobRepository.findJobsByWorkspaceAndStatusWithLimit(
+                    workspaceId, status, PageRequest.of(0, limit));
+        }
+        return entities.stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    @Override
     public List<Job> findReadyJobs(JobStatus status, java.time.Instant now, int limit) {
         List<JobEntity> entities;
         if (status == JobStatus.QUEUED || status == JobStatus.PENDING) {
@@ -70,8 +85,26 @@ public class JobRepositoryAdapter implements JobRepositoryPort {
     }
 
     @Override
+    public List<Job> findDeadLetterJobsByWorkspace(Long workspaceId, int limit) {
+        List<JobEntity> entities = springDataJobRepository.findDeadLetterJobsByWorkspaceWithLimit(
+                workspaceId, List.of(JobStatus.FAILED, JobStatus.DEAD), PageRequest.of(0, limit));
+        return entities.stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    @Override
     public List<Job> findRecentJobs(int limit) {
         List<JobEntity> entities = springDataJobRepository.findRecentJobsWithLimit(PageRequest.of(0, limit));
+        return entities.stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<Job> findRecentJobsByWorkspace(Long workspaceId, int limit) {
+        List<JobEntity> entities = springDataJobRepository.findRecentJobsByWorkspaceWithLimit(
+                workspaceId, PageRequest.of(0, limit));
         return entities.stream()
                 .map(this::toDomain)
                 .collect(Collectors.toList());
@@ -80,6 +113,7 @@ public class JobRepositoryAdapter implements JobRepositoryPort {
     private JobEntity toEntity(Job job) {
         return JobEntity.builder()
                 .jobId(job.getJobId())
+                .workspaceId(job.getWorkspaceId())
                 .type(job.getType())
                 .payloadJson(job.getPayloadJson())
                 .resultJson(job.getResultJson())
@@ -97,6 +131,7 @@ public class JobRepositoryAdapter implements JobRepositoryPort {
     private Job toDomain(JobEntity entity) {
         return Job.builder()
                 .jobId(entity.getJobId())
+                .workspaceId(entity.getWorkspaceId())
                 .type(entity.getType())
                 .payloadJson(entity.getPayloadJson())
                 .resultJson(entity.getResultJson())

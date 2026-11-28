@@ -10,6 +10,7 @@ import com.example.livingdocs_backend.application.port.AiDocumentationServicePor
 import com.example.livingdocs_backend.application.port.AuditServicePort;
 import com.example.livingdocs_backend.application.port.DocumentServicePort;
 import com.example.livingdocs_backend.domain.model.AuditAction;
+import com.example.livingdocs_backend.infrastructure.security.TenantAccessService;
 import com.example.livingdocs_backend.infrastructure.security.UserPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -55,6 +56,9 @@ public class DocumentController {
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private TenantAccessService tenantAccessService;
 
     @PostMapping
     @PreAuthorize("hasAnyRole('DEVELOPER','STAFF','MANAGER','TECH_LEAD','ADMIN')")
@@ -132,6 +136,12 @@ public class DocumentController {
             }
         }
         final Long targetCollectionId = collectionId;
+        if (tenantAccessService != null) {
+            tenantAccessService.requireDocumentAccess(docId);
+            if (targetCollectionId != null) {
+                tenantAccessService.requireCollectionAccess(targetCollectionId);
+            }
+        }
         if (springDataDocumentRepository != null) {
             springDataDocumentRepository.findById(docId).ifPresent(doc -> {
                 doc.setCollectionId(targetCollectionId);
@@ -434,6 +444,13 @@ public class DocumentController {
         String actorRole = extractRole(userPrincipal);
 
         if (async && jobQueue != null) {
+            if (tenantAccessService != null) {
+                if (request != null && request.repository_id() != null) {
+                    tenantAccessService.requireRepositoryAccess(request.repository_id());
+                } else {
+                    tenantAccessService.resolveWriteWorkspaceId(null);
+                }
+            }
             try {
                 com.example.livingdocs_backend.application.dto.job.AiDocGenJobPayload payload =
                         com.example.livingdocs_backend.application.dto.job.AiDocGenJobPayload.builder()
@@ -481,6 +498,9 @@ public class DocumentController {
                description = "Trả về danh sách các tệp nguồn, lớp, hàm và khoảng dòng code được liên kết với tài liệu này.")
     public ResponseEntity<List<com.example.livingdocs_backend.application.dto.GroundingEvidenceItem>> getDocumentCodeLinks(
             @PathVariable Long docId) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireDocumentAccess(docId);
+        }
         if (docCodeLinkRepository == null) {
             return ResponseEntity.ok(List.of());
         }

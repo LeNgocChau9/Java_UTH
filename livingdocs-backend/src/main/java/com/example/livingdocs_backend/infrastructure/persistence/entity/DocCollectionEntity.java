@@ -20,6 +20,10 @@ public class DocCollectionEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "workspace_id", nullable = false)
+    @Builder.Default
+    private Long workspaceId = 1L;
+
     @Column(name = "name", nullable = false, length = 255)
     private String name;
 

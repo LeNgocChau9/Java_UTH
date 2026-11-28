@@ -14,25 +14,46 @@ import com.example.livingdocs_backend.domain.exception.EmailAlreadyExistsExcepti
 import com.example.livingdocs_backend.domain.model.AuditAction;
 import com.example.livingdocs_backend.domain.model.User;
 import com.example.livingdocs_backend.domain.repository.UserRepositoryPort;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.UserNotificationPreferenceEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataUserNotificationPreferenceRepository;
 import com.example.livingdocs_backend.infrastructure.security.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class AuthServiceImpl implements AuthServicePort {
 
+    public static final String MSG_REGISTER_PENDING =
+            "Đăng ký tài khoản thành công! Tài khoản đang chờ Quản trị viên phê duyệt trước khi đăng nhập.";
+    public static final String MSG_GITHUB_REGISTER_PENDING =
+            "Tài khoản GitHub của bạn đã được tạo và đang chờ Quản trị viên phê duyệt trước khi đăng nhập.";
+    public static final String MSG_ACCOUNT_PENDING =
+            "Tài khoản của bạn đang chờ Quản trị viên phê duyệt. Vui lòng thử lại sau khi được duyệt.";
+    public static final String MSG_ACCOUNT_REJECTED =
+            "Yêu cầu đăng ký tài khoản của bạn đã bị Quản trị viên từ chối.";
+    public static final String MSG_ACCOUNT_LOCKED =
+            "Tài khoản của bạn đã bị khóa bởi Quản trị viên. Vui lòng liên hệ quản trị hệ thống.";
+
     private final UserRepositoryPort userRepositoryPort;
     private final AuditServicePort auditServicePort;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
-    private final com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository gitHubConnectionRepository;
+    private final SpringDataGitHubConnectionRepository gitHubConnectionRepository;
 
     @Autowired(required = false)
     private SpringDataUserNotificationPreferenceRepository notificationPreferenceRepository;
@@ -42,35 +63,45 @@ public class AuthServiceImpl implements AuthServicePort {
     }
 
     @Override
+    @Transactional
     public AuthResponse register(RegisterRequest request) {
-        if (userRepositoryPort.existsByEmail(request.getEmail())) {
+        String normalizedEmail = request.getEmail().toLowerCase().trim();
+        if (userRepositoryPort.existsByEmail(normalizedEmail)) {
             throw new EmailAlreadyExistsException("Email '" + request.getEmail() + "' đã được sử dụng");
         }
 
         User newUser = User.builder()
-                .email(request.getEmail().toLowerCase().trim())
+                .email(normalizedEmail)
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                 .fullName(request.getFullName().trim())
                 .avatarUrl(request.getAvatarUrl() != null && !request.getAvatarUrl().isBlank()
                         ? request.getAvatarUrl().trim()
-                        : "https://api.dicebear.com/7.x/avataaars/svg?seed=" + request.getEmail().trim())
-                .status("ACTIVE")
+                        : "https://api.dicebear.com/7.x/avataaars/svg?seed=" + normalizedEmail)
+                .status("PENDING")
+                .workspaceId(null)
                 .build();
 
         User savedUser = userRepositoryPort.save(newUser);
-        // Đăng ký tài khoản mặc định vai trò MANAGER
-        userRepositoryPort.changeRole(savedUser.getUserId(), "MANAGER");
+        // Tự đăng ký mặc định vai trò DEVELOPER (chưa phân vào doanh nghiệp nào, chờ Admin phê duyệt)
+        userRepositoryPort.changeRole(savedUser.getUserId(), "DEVELOPER");
+
+        if (auditServicePort != null) {
+            auditServicePort.recordSecurityAction(
+                    savedUser.getUserId(),
+                    AuditAction.USER_REGISTERED,
+                    "USER",
+                    String.valueOf(savedUser.getUserId()),
+                    "Đăng ký tài khoản mới (chờ phê duyệt): " + normalizedEmail
+            );
+        }
 
         User freshUser = userRepositoryPort.findById(savedUser.getUserId()).orElse(savedUser);
-        java.util.Set<String> roleStrings = freshUser.getRoles() != null && !freshUser.getRoles().isEmpty()
-                ? freshUser.getRoles().stream().map(Enum::name).collect(java.util.stream.Collectors.toSet())
-                : java.util.Collections.singleton("ROLE_MANAGER");
-        String token = jwtTokenProvider.generateToken(freshUser.getUserId(), freshUser.getEmail(), roleStrings);
-
         return AuthResponse.builder()
-                .token(token)
-                .tokenType("Bearer")
-                .expiresIn(jwtTokenProvider.getExpirationSeconds())
+                .token(null)
+                .tokenType(null)
+                .expiresIn(null)
+                .pendingApproval(true)
+                .message(MSG_REGISTER_PENDING)
                 .user(toProfileResponse(freshUser))
                 .build();
     }
@@ -82,105 +113,177 @@ public class AuthServiceImpl implements AuthServicePort {
                 .orElse(null);
 
         if (user == null) {
-            auditServicePort.recordLogin(null, email, false);
+            if (auditServicePort != null) {
+                auditServicePort.recordLogin(null, email, false);
+            }
             throw new AuthenticationException("Email hoặc mật khẩu không chính xác");
         }
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
-            auditServicePort.recordLogin(user.getUserId(), email, false);
+            if (auditServicePort != null) {
+                auditServicePort.recordLogin(user.getUserId(), email, false);
+            }
             throw new AuthenticationException("Email hoặc mật khẩu không chính xác");
         }
 
-        if (!"ACTIVE".equalsIgnoreCase(user.getStatus())) {
-            auditServicePort.recordLogin(user.getUserId(), email, false);
-            throw new AuthenticationException("Tài khoản của bạn đã bị khóa hoặc chưa kích hoạt");
+        ensureAccountActive(user, true);
+
+        if (auditServicePort != null) {
+            auditServicePort.recordLogin(user.getUserId(), email, true);
         }
 
-        auditServicePort.recordLogin(user.getUserId(), email, true);
-
-        java.util.Set<String> roleStrings = user.getRoles() != null
-                ? user.getRoles().stream().map(Enum::name).collect(java.util.stream.Collectors.toSet())
-                : java.util.Collections.singleton("ROLE_DEVELOPER");
-
-        String token = jwtTokenProvider.generateToken(user.getUserId(), user.getEmail(), roleStrings);
+        Set<String> roleStrings = extractRoleStrings(user);
+        String token = jwtTokenProvider.generateToken(
+                user.getUserId(), user.getEmail(), roleStrings, user.getWorkspaceId());
 
         return AuthResponse.builder()
                 .token(token)
                 .tokenType("Bearer")
                 .expiresIn(jwtTokenProvider.getExpirationSeconds())
+                .pendingApproval(false)
                 .user(toProfileResponse(user))
                 .build();
     }
 
     @Override
+    @Transactional
     public AuthResponse loginWithGithub(GitHubProfileRequest request) {
         String email = request.getEmail() != null ? request.getEmail().toLowerCase().trim() : null;
+        String login = request.getLogin() != null ? request.getLogin().trim() : null;
 
-        // 1. Ưu tiên tìm người dùng đã liên kết với tài khoản GitHub này trong bảng github_connections
+        // 1. Tìm người dùng đã gắn github_user_id / github_username trực tiếp trên bảng users
         User user = null;
-        try {
-            if (request.getGithubId() != null) {
-                user = gitHubConnectionRepository.findFirstByGithubUserIdOrderByUpdatedAtDesc(request.getGithubId())
-                        .flatMap(conn -> userRepositoryPort.findById(conn.getUserId()))
-                        .orElse(null);
-            }
-            if (user == null && request.getLogin() != null && !request.getLogin().isBlank()) {
-                user = gitHubConnectionRepository.findFirstByGithubUsernameIgnoreCaseOrderByUpdatedAtDesc(request.getLogin().trim())
-                        .flatMap(conn -> userRepositoryPort.findById(conn.getUserId()))
-                        .orElse(null);
-            }
-        } catch (Exception ignored) {
+        if (request.getGithubId() != null) {
+            user = userRepositoryPort.findByGithubUserId(request.getGithubId()).orElse(null);
+        }
+        if (user == null && login != null && !login.isBlank()) {
+            user = userRepositoryPort.findByGithubUsername(login).orElse(null);
         }
 
-        // 2. Nếu chưa liên kết với user nào thì mới tìm theo email của GitHub
+        // 2. Fallback: tìm qua bảng github_connections (tương thích tài khoản cũ)
+        if (user == null && gitHubConnectionRepository != null) {
+            try {
+                if (request.getGithubId() != null) {
+                    user = gitHubConnectionRepository.findFirstByGithubUserIdOrderByUpdatedAtDesc(request.getGithubId())
+                            .flatMap(conn -> userRepositoryPort.findById(conn.getUserId()))
+                            .orElse(null);
+                }
+                if (user == null && login != null && !login.isBlank()) {
+                    user = gitHubConnectionRepository.findFirstByGithubUsernameIgnoreCaseOrderByUpdatedAtDesc(login)
+                            .flatMap(conn -> userRepositoryPort.findById(conn.getUserId()))
+                            .orElse(null);
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
+        // 3. Nếu chưa liên kết với user nào thì tìm theo email của GitHub
         if (user == null) {
             if (email == null || email.isBlank()) {
-                auditServicePort.recordLogin(null, email, false);
+                if (auditServicePort != null) {
+                    auditServicePort.recordLogin(null, email, false);
+                }
                 throw new AuthenticationException("GitHub không cung cấp email để đăng nhập");
             }
             user = userRepositoryPort.findByEmail(email).orElse(null);
         }
 
         if (user == null) {
-            // Người dùng mới: tạo tài khoản từ danh tính GitHub.
-            // Mật khẩu là chuỗi ngẫu nhiên đã băm -> không thể đăng nhập bằng email/mật khẩu.
+            // Người dùng GitHub lần đầu: tạo tài khoản trạng thái PENDING, vai trò DEVELOPER, chưa phân doanh nghiệp.
             User newUser = User.builder()
                     .email(email)
-                    .passwordHash(passwordEncoder.encode(java.util.UUID.randomUUID().toString()))
+                    .passwordHash(passwordEncoder.encode(UUID.randomUUID().toString()))
                     .fullName(resolveFullName(request))
                     .avatarUrl(request.getAvatarUrl())
-                    .status("ACTIVE")
+                    .status("PENDING")
+                    .workspaceId(null)
+                    .githubUserId(request.getGithubId())
+                    .githubUsername(login)
                     .build();
             user = userRepositoryPort.save(newUser);
-            // Gán vai trò mặc định (DEVELOPER) tại workspace mặc định để vai trò được ghi nhận trong CSDL.
-            userRepositoryPort.assignDefaultWorkspaceRole(user.getUserId());
+            userRepositoryPort.changeRole(user.getUserId(), "DEVELOPER");
             user = userRepositoryPort.findById(user.getUserId()).orElse(user);
-        } else {
-            if (!"ACTIVE".equalsIgnoreCase(user.getStatus())) {
-                auditServicePort.recordLogin(user.getUserId(), user.getEmail(), false);
-                throw new AuthenticationException("Tài khoản của bạn đã bị khóa hoặc chưa kích hoạt");
+
+            if (auditServicePort != null) {
+                auditServicePort.recordSecurityAction(
+                        user.getUserId(),
+                        AuditAction.USER_REGISTERED,
+                        "USER",
+                        String.valueOf(user.getUserId()),
+                        "Đăng ký lần đầu qua GitHub @" + (login != null ? login : email) + " (chờ phê duyệt)"
+                );
             }
-            // Làm mới ảnh đại diện nếu GitHub có và khác ảnh hiện tại.
-            if (request.getAvatarUrl() != null && !request.getAvatarUrl().equals(user.getAvatarUrl())) {
-                user.setAvatarUrl(request.getAvatarUrl());
-                user = userRepositoryPort.save(user);
-            }
+
+            return AuthResponse.builder()
+                    .token(null)
+                    .tokenType(null)
+                    .expiresIn(null)
+                    .pendingApproval(true)
+                    .message(MSG_GITHUB_REGISTER_PENDING)
+                    .user(toProfileResponse(user))
+                    .build();
         }
 
-        auditServicePort.recordLogin(user.getUserId(), user.getEmail(), true);
+        ensureAccountActive(user, true);
 
-        java.util.Set<String> roleStrings = user.getRoles() != null
-                ? user.getRoles().stream().map(Enum::name).collect(java.util.stream.Collectors.toSet())
-                : java.util.Collections.singleton("ROLE_DEVELOPER");
+        boolean needsSave = false;
+        if (request.getGithubId() != null && !request.getGithubId().equals(user.getGithubUserId())) {
+            user.setGithubUserId(request.getGithubId());
+            needsSave = true;
+        }
+        if (login != null && !login.isBlank() && !login.equals(user.getGithubUsername())) {
+            user.setGithubUsername(login);
+            needsSave = true;
+        }
+        if (request.getAvatarUrl() != null && !request.getAvatarUrl().equals(user.getAvatarUrl())) {
+            user.setAvatarUrl(request.getAvatarUrl());
+            needsSave = true;
+        }
+        if (needsSave) {
+            user = userRepositoryPort.save(user);
+        }
 
-        String token = jwtTokenProvider.generateToken(user.getUserId(), user.getEmail(), roleStrings);
+        if (auditServicePort != null) {
+            auditServicePort.recordLogin(user.getUserId(), user.getEmail(), true);
+        }
+
+        Set<String> roleStrings = extractRoleStrings(user);
+        String token = jwtTokenProvider.generateToken(
+                user.getUserId(), user.getEmail(), roleStrings, user.getWorkspaceId());
 
         return AuthResponse.builder()
                 .token(token)
                 .tokenType("Bearer")
                 .expiresIn(jwtTokenProvider.getExpirationSeconds())
+                .pendingApproval(false)
                 .user(toProfileResponse(user))
                 .build();
+    }
+
+    private void ensureAccountActive(User user, boolean recordLoginFailure) {
+        String status = user.getStatus() != null ? user.getStatus().trim().toUpperCase() : "ACTIVE";
+        if ("ACTIVE".equals(status)) {
+            return;
+        }
+        if (recordLoginFailure && auditServicePort != null) {
+            auditServicePort.recordLogin(user.getUserId(), user.getEmail(), false);
+        }
+        switch (status) {
+            case "PENDING" -> throw AuthenticationException.forbidden("ACCOUNT_PENDING", MSG_ACCOUNT_PENDING);
+            case "REJECTED" -> {
+                String msg = user.getRejectionReason() != null && !user.getRejectionReason().isBlank()
+                        ? MSG_ACCOUNT_REJECTED + " Lý do: " + user.getRejectionReason().trim()
+                        : MSG_ACCOUNT_REJECTED;
+                throw AuthenticationException.forbidden("ACCOUNT_REJECTED", msg);
+            }
+            default -> throw AuthenticationException.forbidden("ACCOUNT_LOCKED", MSG_ACCOUNT_LOCKED);
+        }
+    }
+
+    private Set<String> extractRoleStrings(User user) {
+        return user.getRoles() != null && !user.getRoles().isEmpty()
+                ? user.getRoles().stream().map(Enum::name).collect(Collectors.toSet())
+                : Collections.singleton("ROLE_DEVELOPER");
     }
 
     private String resolveFullName(GitHubProfileRequest request) {
@@ -209,16 +312,20 @@ public class AuthServiceImpl implements AuthServicePort {
         User user = userRepositoryPort.findByEmail(email.toLowerCase().trim())
                 .orElseThrow(() -> new AuthenticationException("Không tìm thấy thông tin người dùng"));
 
-        java.util.List<String> roles = user.getRoles() != null
-                ? user.getRoles().stream().map(Enum::name).toList()
-                : java.util.List.of("ROLE_DEVELOPER");
+        ensureAccountActive(user, false);
 
-        String newToken = jwtTokenProvider.generateToken(user.getUserId(), user.getEmail(), roles);
+        List<String> roles = user.getRoles() != null && !user.getRoles().isEmpty()
+                ? user.getRoles().stream().map(Enum::name).toList()
+                : List.of("ROLE_DEVELOPER");
+
+        String newToken = jwtTokenProvider.generateToken(
+                user.getUserId(), user.getEmail(), roles, user.getWorkspaceId());
 
         return AuthResponse.builder()
                 .token(newToken)
                 .tokenType("Bearer")
                 .expiresIn(jwtTokenProvider.getExpirationSeconds())
+                .pendingApproval(false)
                 .user(toProfileResponse(user))
                 .build();
     }
@@ -232,12 +339,12 @@ public class AuthServiceImpl implements AuthServicePort {
     }
 
     @Override
-    @org.springframework.transaction.annotation.Transactional
+    @Transactional
     public UserProfileResponse updateProfile(String email, UpdateProfileRequest request) {
         User user = userRepositoryPort.findByEmail(email.toLowerCase().trim())
                 .orElseThrow(() -> new AuthenticationException("Không tìm thấy thông tin người dùng"));
 
-        java.util.List<String> changedFields = new java.util.ArrayList<>();
+        List<String> changedFields = new ArrayList<>();
 
         // 1. Cập nhật họ tên nếu có
         if (request.getFullName() != null && !request.getFullName().isBlank()) {
@@ -292,7 +399,7 @@ public class AuthServiceImpl implements AuthServicePort {
     }
 
     @Override
-    @org.springframework.transaction.annotation.Transactional
+    @Transactional
     public UserNotificationPreferencesDto updateNotificationPreferences(String email, UserNotificationPreferencesDto request) {
         User user = userRepositoryPort.findByEmail(email.toLowerCase().trim())
                 .orElseThrow(() -> new AuthenticationException("Không tìm thấy thông tin người dùng"));
@@ -323,7 +430,7 @@ public class AuthServiceImpl implements AuthServicePort {
         }
         if (notificationPreferenceRepository != null) {
             try {
-                java.util.Optional<UserNotificationPreferenceEntity> opt = notificationPreferenceRepository.findById(userId);
+                Optional<UserNotificationPreferenceEntity> opt = notificationPreferenceRepository.findById(userId);
                 if (opt.isPresent()) {
                     return toNotificationPreferencesDto(opt.get());
                 }
@@ -416,16 +523,16 @@ public class AuthServiceImpl implements AuthServicePort {
     }
 
     private UserProfileResponse toProfileResponse(User user) {
-        java.util.Set<String> roleStrings = user.getRoles() != null
-                ? user.getRoles().stream().map(Enum::name).collect(java.util.stream.Collectors.toSet())
-                : java.util.Collections.singleton("ROLE_DEVELOPER");
+        Set<String> roleStrings = extractRoleStrings(user);
 
-        String githubUsername = null;
-        try {
-            githubUsername = gitHubConnectionRepository.findFirstByUserIdOrderByCreatedAtDesc(user.getUserId())
-                    .map(com.example.livingdocs_backend.infrastructure.persistence.entity.GitHubConnectionEntity::getGithubUsername)
-                    .orElse(null);
-        } catch (Exception ignored) {
+        String githubUsername = user.getGithubUsername();
+        if ((githubUsername == null || githubUsername.isBlank()) && gitHubConnectionRepository != null) {
+            try {
+                githubUsername = gitHubConnectionRepository.findFirstByUserIdOrderByCreatedAtDesc(user.getUserId())
+                        .map(GitHubConnectionEntity::getGithubUsername)
+                        .orElse(null);
+            } catch (Exception ignored) {
+            }
         }
 
         return UserProfileResponse.builder()
@@ -435,6 +542,9 @@ public class AuthServiceImpl implements AuthServicePort {
                 .avatarUrl(user.getAvatarUrl())
                 .status(user.getStatus())
                 .roles(roleStrings)
+                .enterpriseId(user.getWorkspaceId())
+                .enterpriseName(user.getWorkspaceName())
+                .workspaceId(user.getWorkspaceId())
                 .githubUsername(githubUsername)
                 .createdAt(user.getCreatedAt())
                 .notificationPreferences(loadOrDefaultNotificationPreferences(user.getUserId()))

@@ -4,6 +4,7 @@ import com.example.livingdocs_backend.application.dto.github.*;
 import com.example.livingdocs_backend.application.port.AuditServicePort;
 import com.example.livingdocs_backend.application.port.GitHubClientPort;
 import com.example.livingdocs_backend.application.port.RepositoryServicePort;
+import com.example.livingdocs_backend.domain.exception.AuthenticationException;
 import com.example.livingdocs_backend.domain.exception.GitHubApiException;
 import com.example.livingdocs_backend.domain.model.AuditAction;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.CommitEntity;
@@ -14,8 +15,10 @@ import com.example.livingdocs_backend.infrastructure.persistence.repository.Spri
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataPullRequestRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
+import com.example.livingdocs_backend.infrastructure.security.TenantAccessService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -45,12 +48,17 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
     private final GitHubClientPort gitHubClient;
     private final AuditServicePort auditServicePort;
 
+    @Autowired(required = false)
+    private TenantAccessService tenantAccessService;
+
     private static final Long DEFAULT_WORKSPACE_ID = 1L;
 
     @Override
     @Transactional
     public RepoResponse addRepository(CreateRepoRequest request, Long currentUserId) {
-        Long workspaceId = request.workspaceId() != null ? request.workspaceId() : DEFAULT_WORKSPACE_ID;
+        Long workspaceId = tenantAccessService != null
+                ? tenantAccessService.resolveWriteWorkspaceId(request.workspaceId())
+                : (request.workspaceId() != null ? request.workspaceId() : DEFAULT_WORKSPACE_ID);
         String repoFullName = request.repoFullName().trim();
         String repoName = StringUtils.hasText(request.repoName())
                 ? request.repoName().trim()
@@ -93,11 +101,17 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
     @Override
     @Transactional
     public SyncRepoResponse syncRepository(Long repositoryId, String explicitToken, Long currentUserId) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireRepositoryAccess(repositoryId);
+        }
         Object lock = repoSyncLocks.computeIfAbsent(repositoryId, k -> new Object());
         synchronized (lock) {
             RepositoryEntity repo = repositoryRepository.findById(repositoryId)
                     .orElseThrow(
                             () -> new GitHubApiException("Không tìm thấy repository với ID: " + repositoryId, 404));
+            if (tenantAccessService != null) {
+                tenantAccessService.requireWorkspaceAccess(repo.getWorkspaceId());
+            }
 
             String[] parts = parseOwnerAndRepo(repo.getRepoFullName());
             String owner = parts[0];
@@ -136,14 +150,21 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
     @Override
     @Transactional(readOnly = true)
     public List<RepoResponse> listRepositories(Long workspaceId) {
-        Long targetWorkspaceId = workspaceId != null ? workspaceId : DEFAULT_WORKSPACE_ID;
-        List<RepositoryEntity> list = repositoryRepository.findByWorkspaceId(targetWorkspaceId);
-        if (list.isEmpty() && workspaceId == null) {
-            // ponytail: fallback lấy tất cả repository nếu workspaceId mặc định (1L) chưa
-            // có repo
-            list = repositoryRepository.findAll();
+        if (tenantAccessService != null) {
+            TenantAccessService.TenantScope scope = tenantAccessService.currentScope();
+            if (scope.unassigned()) {
+                return List.of();
+            }
+            Long targetWorkspaceId = tenantAccessService.resolveReadWorkspaceId(workspaceId);
+            List<RepositoryEntity> list = targetWorkspaceId != null
+                    ? repositoryRepository.findByWorkspaceId(targetWorkspaceId)
+                    : repositoryRepository.findAll();
+            return list.stream()
+                    .map(this::mapToRepoResponse)
+                    .toList();
         }
-        return list.stream()
+        Long targetWorkspaceId = workspaceId != null ? workspaceId : DEFAULT_WORKSPACE_ID;
+        return repositoryRepository.findByWorkspaceId(targetWorkspaceId).stream()
                 .map(this::mapToRepoResponse)
                 .toList();
     }
@@ -151,28 +172,46 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
     @Override
     @Transactional(readOnly = true)
     public RepoResponse getRepository(Long repositoryId) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireRepositoryAccess(repositoryId);
+        }
         RepositoryEntity repo = repositoryRepository.findById(repositoryId)
                 .orElseThrow(() -> new GitHubApiException("Không tìm thấy repository với ID: " + repositoryId, 404));
+        if (tenantAccessService != null) {
+            tenantAccessService.requireWorkspaceAccess(repo.getWorkspaceId());
+        }
         return mapToRepoResponse(repo);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<PullRequestEntity> getRepoPullRequests(Long repositoryId) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireRepositoryAccess(repositoryId);
+        }
         return pullRequestRepository.findByRepositoryIdOrderByGithubCreatedAtDesc(repositoryId);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<CommitEntity> getRepoCommits(Long repositoryId) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireRepositoryAccess(repositoryId);
+        }
         return commitRepository.findByRepositoryIdOrderByCommittedAtDesc(repositoryId);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<GitHubFileDto> getRepositoryTree(Long repositoryId, String treeSha, Long currentUserId) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireRepositoryAccess(repositoryId);
+        }
         RepositoryEntity repo = repositoryRepository.findById(repositoryId)
                 .orElseThrow(() -> new GitHubApiException("Không tìm thấy repository với ID: " + repositoryId, 404));
+        if (tenantAccessService != null) {
+            tenantAccessService.requireWorkspaceAccess(repo.getWorkspaceId());
+        }
 
         String[] parts = parseOwnerAndRepo(repo.getRepoFullName());
         String owner = parts[0];
@@ -366,9 +405,15 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
     @Override
     @Transactional
     public GitHubConnectionStatusResponse verifyConnectionToken(Long connectionId, Long currentUserId) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireConnectionAccess(connectionId);
+        }
         GitHubConnectionEntity connection = gitHubConnectionRepository.findById(connectionId)
                 .orElseThrow(
                         () -> new IllegalArgumentException("Không tìm thấy kết nối GitHub với ID: " + connectionId));
+        if (tenantAccessService != null) {
+            tenantAccessService.requireWorkspaceAccess(connection.getWorkspaceId());
+        }
 
         return doVerifyAndProcessConnection(connection, currentUserId);
     }
@@ -376,9 +421,18 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
     @Override
     @Transactional
     public List<GitHubConnectionStatusResponse> verifyWorkspaceConnections(Long workspaceId, Long currentUserId) {
+        Long effectiveWorkspaceId = workspaceId;
+        if (tenantAccessService != null) {
+            TenantAccessService.TenantScope scope = tenantAccessService.currentScope();
+            if (scope.unassigned()) {
+                throw AuthenticationException.forbidden(
+                        TenantAccessService.ERR_NO_ENTERPRISE, TenantAccessService.MSG_NO_ENTERPRISE);
+            }
+            effectiveWorkspaceId = tenantAccessService.resolveReadWorkspaceId(workspaceId);
+        }
         List<GitHubConnectionEntity> connections;
-        if (workspaceId != null) {
-            connections = gitHubConnectionRepository.findByWorkspaceId(workspaceId);
+        if (effectiveWorkspaceId != null) {
+            connections = gitHubConnectionRepository.findByWorkspaceId(effectiveWorkspaceId);
         } else {
             connections = gitHubConnectionRepository.findAll();
         }
@@ -467,8 +521,14 @@ public class RepositoryServiceImpl implements RepositoryServicePort {
     @Override
     @Transactional(readOnly = true)
     public String getFileContent(Long repositoryId, String filePath, String branch, Long currentUserId) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireRepositoryAccess(repositoryId);
+        }
         RepositoryEntity repo = repositoryRepository.findById(repositoryId)
                 .orElseThrow(() -> new GitHubApiException("Không tìm thấy repository với ID: " + repositoryId, 404));
+        if (tenantAccessService != null) {
+            tenantAccessService.requireWorkspaceAccess(repo.getWorkspaceId());
+        }
 
         String[] parts = parseOwnerAndRepo(repo.getRepoFullName());
         String owner = parts[0];

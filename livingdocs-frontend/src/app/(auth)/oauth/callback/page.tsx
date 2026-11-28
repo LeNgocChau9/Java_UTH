@@ -3,9 +3,10 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import axios from "axios";
 import { Loader2, ShieldAlert } from "lucide-react";
 import { VideoBackground } from "@/components/VideoBackground";
-import { apiClient } from "@/services/apiClient";
+import { apiClient, clearAuthStorage, INACTIVE_ACCOUNT_REDIRECT } from "@/services/apiClient";
 import { saveProfile, saveToken } from "@/services/authService";
 import type { UserProfile } from "@/types/auth";
 
@@ -35,8 +36,19 @@ function CallbackContent() {
     const token = params.get("token");
     const redirect = safeRedirect(params.get("redirect"));
     const oauthError = params.get("error");
+    const oauthNotice = params.get("notice");
 
-    if (oauthError || !token) {
+    if (oauthNotice) {
+      router.replace(`/login?notice=${encodeURIComponent(oauthNotice)}`);
+      return;
+    }
+
+    if (oauthError) {
+      router.replace(`/login?error=${encodeURIComponent(oauthError)}`);
+      return;
+    }
+
+    if (!token) {
       router.replace("/login?error=oauth_failed");
       return;
     }
@@ -46,6 +58,17 @@ function CallbackContent() {
         // Lưu token trước để interceptor tự gắn Authorization cho lời gọi /api/me.
         saveToken(token);
         const { data } = await apiClient.get<UserProfile>("/api/me");
+        if (data.status && data.status !== "ACTIVE") {
+          clearAuthStorage();
+          const target =
+            data.status === "PENDING"
+              ? "/login?notice=account_pending"
+              : data.status === "REJECTED"
+                ? "/login?error=account_rejected"
+                : "/login?error=account_locked";
+          router.replace(target);
+          return;
+        }
         saveProfile(data);
 
         const isRenewed = params.get("githubRenewed") === "true";
@@ -55,8 +78,20 @@ function CallbackContent() {
 
         router.replace(redirect);
         router.refresh();
-      } catch {
-        setError("Không thể hoàn tất gia hạn quyền GitHub. Vui lòng thử lại.");
+      } catch (caught) {
+        clearAuthStorage();
+        if (axios.isAxiosError(caught)) {
+          const payload = caught.response?.data as { errorCode?: string; message?: string } | undefined;
+          if (payload?.errorCode && payload.errorCode in INACTIVE_ACCOUNT_REDIRECT) {
+            router.replace(INACTIVE_ACCOUNT_REDIRECT[payload.errorCode]);
+            return;
+          }
+          if (typeof payload?.message === "string" && payload.message.trim()) {
+            setError(payload.message);
+            return;
+          }
+        }
+        setError("Không thể hoàn tất đăng nhập GitHub. Vui lòng thử lại.");
       }
     })();
   }, [params, router]);

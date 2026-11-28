@@ -10,14 +10,17 @@ import com.example.livingdocs_backend.infrastructure.persistence.entity.Document
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentChangeAlertRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentRepository;
+import com.example.livingdocs_backend.infrastructure.security.TenantAccessService;
 import com.example.livingdocs_backend.infrastructure.security.UserPrincipal;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -35,16 +38,32 @@ public class DriftAlertService {
     private final SpringDataDocumentRepository documentRepository;
     private final AuditServicePort auditServicePort;
 
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @Autowired(required = false)
     private com.example.livingdocs_backend.infrastructure.persistence.repository.JpaDriftAlertRepository jpaDriftAlertRepository;
+
+    @Autowired(required = false)
+    private TenantAccessService tenantAccessService;
 
     @Transactional(readOnly = true)
     public List<DocumentChangeAlertEntity> findAll(Long repositoryId, String status) {
-        if (repositoryId != null && status != null && !status.isBlank()) {
-            return alertRepository.findByRepositoryIdAndStatus(repositoryId, status.toUpperCase());
+        TenantAccessService.TenantScope scope = currentScope();
+        if (scope.unassigned()) {
+            return Collections.emptyList();
         }
         if (repositoryId != null) {
+            if (tenantAccessService != null) {
+                tenantAccessService.requireRepositoryAccess(repositoryId);
+            }
+            if (status != null && !status.isBlank()) {
+                return alertRepository.findByRepositoryIdAndStatus(repositoryId, status.toUpperCase());
+            }
             return alertRepository.findByRepositoryId(repositoryId);
+        }
+        if (scope.hasTenantFilter()) {
+            if (status != null && !status.isBlank()) {
+                return alertRepository.findByWorkspaceIdAndStatusIgnoreCase(scope.workspaceId(), status.trim());
+            }
+            return alertRepository.findByWorkspaceId(scope.workspaceId());
         }
         if (status != null && !status.isBlank()) {
             return alertRepository.findByStatusIgnoreCase(status.trim());
@@ -54,11 +73,21 @@ public class DriftAlertService {
 
     @Transactional(readOnly = true)
     public DriftAlertSummaryResponse getNotificationSummary(Long repositoryId) {
+        TenantAccessService.TenantScope scope = currentScope();
+        if (scope.unassigned()) {
+            return DriftAlertSummaryResponse.builder()
+                    .pendingCount(0L)
+                    .recentAlerts(Collections.emptyList())
+                    .build();
+        }
         List<String> pendingStatuses = List.of(PENDING, OPEN);
         long count;
         List<DocumentChangeAlertEntity> alertEntities;
 
         if (repositoryId != null) {
+            if (tenantAccessService != null) {
+                tenantAccessService.requireRepositoryAccess(repositoryId);
+            }
             List<DocumentChangeAlertEntity> list = alertRepository.findByRepositoryId(repositoryId).stream()
                     .filter(a -> a.getStatus() != null && pendingStatuses.contains(a.getStatus().toUpperCase(Locale.ROOT)))
                     .sorted((a, b) -> {
@@ -69,6 +98,10 @@ public class DriftAlertService {
                     .toList();
             count = list.size();
             alertEntities = list.stream().limit(10).toList();
+        } else if (scope.hasTenantFilter()) {
+            count = alertRepository.countByWorkspaceIdAndStatusInIgnoreCase(scope.workspaceId(), pendingStatuses);
+            alertEntities = alertRepository.findTop10ByWorkspaceIdAndStatusInIgnoreCaseOrderByCreatedAtDesc(
+                    scope.workspaceId(), pendingStatuses);
         } else {
             count = alertRepository.countByStatusInIgnoreCase(pendingStatuses);
             alertEntities = alertRepository.findTop10ByStatusInIgnoreCaseOrderByCreatedAtDesc(pendingStatuses);
@@ -125,6 +158,9 @@ public class DriftAlertService {
     @Transactional
     public DriftAlertResponse handle(Long alertId, DriftAlertActionRequest request, UserPrincipal actor) {
         requireHandler(actor);
+        if (tenantAccessService != null) {
+            tenantAccessService.requireAlertAccess(alertId);
+        }
         DocumentChangeAlertEntity alert = alertRepository.findById(alertId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy cảnh báo drift " + alertId));
         if (!OPEN.equalsIgnoreCase(alert.getStatus()) && !PENDING.equalsIgnoreCase(alert.getStatus())) {
@@ -219,6 +255,12 @@ public class DriftAlertService {
 
     private static String normalize(String value) {
         return value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private TenantAccessService.TenantScope currentScope() {
+        return tenantAccessService != null
+                ? tenantAccessService.currentScope()
+                : new TenantAccessService.TenantScope(true, false, false, null, false, null);
     }
 
     private static DriftAlertResponse toResponse(DocumentChangeAlertEntity alert) {

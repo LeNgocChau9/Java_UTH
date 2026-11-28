@@ -44,6 +44,14 @@ public class CiTokenRepositoryAdapter implements CiTokenRepositoryPort {
     }
 
     @Override
+    public List<CiToken> findByWorkspaceId(Long workspaceId) {
+        return jpaCiTokenRepository.findByWorkspaceIdOrderByCreatedAtDesc(workspaceId)
+                .stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    @Override
     public List<CiToken> findByRepositoryId(Long repositoryId) {
         return jpaCiTokenRepository.findByRepositoryIdOrderByCreatedAtDesc(repositoryId)
                 .stream()
@@ -61,6 +69,7 @@ public class CiTokenRepositoryAdapter implements CiTokenRepositoryPort {
         if (entity == null) return null;
         return CiToken.builder()
                 .tokenId(entity.getTokenId())
+                .workspaceId(entity.getWorkspaceId())
                 .tokenName(entity.getTokenName())
                 .tokenHash(entity.getTokenHash())
                 .tokenPrefix(entity.getTokenPrefix())
@@ -79,6 +88,7 @@ public class CiTokenRepositoryAdapter implements CiTokenRepositoryPort {
         if (domain == null) return null;
         return CiTokenEntity.builder()
                 .tokenId(domain.getTokenId())
+                .workspaceId(domain.getWorkspaceId() != null ? domain.getWorkspaceId() : 1L)
                 .tokenName(domain.getTokenName())
                 .tokenHash(domain.getTokenHash())
                 .tokenPrefix(domain.getTokenPrefix())

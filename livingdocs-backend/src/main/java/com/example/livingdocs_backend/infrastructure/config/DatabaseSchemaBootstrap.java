@@ -257,5 +257,194 @@ public class DatabaseSchemaBootstrap implements ApplicationRunner {
                     "[DatabaseSchemaBootstrap] Bỏ qua đồng bộ schema tự động (có thể đang chạy môi trường H2/Test): {}",
                     ex.getMessage());
         }
+
+        // Multi-tenant & Approval Gate DDL, constraints, indexes, sequence syncs & idempotent backfills
+        // Kept in its own top-level try/catch so any earlier legacy statement error never skips tenant migration.
+        try {
+            bootstrapMultiTenantAndApprovalSchema();
+            log.info("[DatabaseSchemaBootstrap] Đã đồng bộ schema multi-tenant & approval gate thành công.");
+        } catch (Exception ex) {
+            log.debug("[DatabaseSchemaBootstrap] Bỏ qua đồng bộ schema multi-tenant: {}", ex.getMessage());
+        }
+    }
+
+    private void bootstrapMultiTenantAndApprovalSchema() {
+        // 1. Columns on users (approval gate + 0..1 enterprise/workspace + authoritative role_id + GitHub identity)
+        execQuietly("ALTER TABLE users ADD COLUMN IF NOT EXISTS workspace_id BIGINT");
+        execQuietly("ALTER TABLE users ADD COLUMN IF NOT EXISTS role_id BIGINT");
+        execQuietly("ALTER TABLE users ADD COLUMN IF NOT EXISTS github_user_id BIGINT");
+        execQuietly("ALTER TABLE users ADD COLUMN IF NOT EXISTS github_username VARCHAR(100)");
+        execQuietly("ALTER TABLE users ADD COLUMN IF NOT EXISTS rejection_reason TEXT");
+        execQuietly("ALTER TABLE users ADD COLUMN IF NOT EXISTS approved_by BIGINT");
+        execQuietly("ALTER TABLE users ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP WITH TIME ZONE");
+
+        // 2. Tenant workspace_id columns on domain tables
+        execQuietly("ALTER TABLE doc_collections ADD COLUMN IF NOT EXISTS workspace_id BIGINT NOT NULL DEFAULT 1");
+        execQuietly("ALTER TABLE ci_tokens ADD COLUMN IF NOT EXISTS workspace_id BIGINT NOT NULL DEFAULT 1");
+        execQuietly("ALTER TABLE document_update_policies ADD COLUMN IF NOT EXISTS workspace_id BIGINT NOT NULL DEFAULT 1");
+        execQuietly("ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS workspace_id BIGINT");
+        execQuietly("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS workspace_id BIGINT");
+        execQuietly("ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS workspace_id BIGINT");
+        execQuietly("ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS workspace_id BIGINT");
+
+        // 3. Postgres-safe idempotent FK & unique constraints via pg_constraint check
+        execQuietly("""
+            DO $$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_users_workspace') THEN
+                    ALTER TABLE users ADD CONSTRAINT fk_users_workspace
+                        FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id) ON DELETE SET NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_users_role') THEN
+                    ALTER TABLE users ADD CONSTRAINT fk_users_role
+                        FOREIGN KEY (role_id) REFERENCES roles(role_id) ON DELETE SET NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_users_approved_by') THEN
+                    ALTER TABLE users ADD CONSTRAINT fk_users_approved_by
+                        FOREIGN KEY (approved_by) REFERENCES users(user_id) ON DELETE SET NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_doc_collections_workspace') THEN
+                    ALTER TABLE doc_collections ADD CONSTRAINT fk_doc_collections_workspace
+                        FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id) ON DELETE CASCADE;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_ci_tokens_workspace') THEN
+                    ALTER TABLE ci_tokens ADD CONSTRAINT fk_ci_tokens_workspace
+                        FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id) ON DELETE CASCADE;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_doc_update_policies_workspace') THEN
+                    ALTER TABLE document_update_policies ADD CONSTRAINT fk_doc_update_policies_workspace
+                        FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id) ON DELETE CASCADE;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_audit_logs_workspace') THEN
+                    ALTER TABLE audit_logs ADD CONSTRAINT fk_audit_logs_workspace
+                        FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id) ON DELETE SET NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_jobs_workspace') THEN
+                    ALTER TABLE jobs ADD CONSTRAINT fk_jobs_workspace
+                        FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id) ON DELETE SET NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_webhook_deliveries_workspace') THEN
+                    ALTER TABLE webhook_deliveries ADD CONSTRAINT fk_webhook_deliveries_workspace
+                        FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id) ON DELETE SET NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_doc_templates_workspace') THEN
+                    ALTER TABLE doc_templates ADD CONSTRAINT fk_doc_templates_workspace
+                        FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id) ON DELETE CASCADE;
+                END IF;
+                IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'document_update_policies_document_type_key') THEN
+                    ALTER TABLE document_update_policies DROP CONSTRAINT document_update_policies_document_type_key;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uk_doc_update_policy_workspace_type') THEN
+                    ALTER TABLE document_update_policies ADD CONSTRAINT uk_doc_update_policy_workspace_type
+                        UNIQUE (workspace_id, document_type);
+                END IF;
+                IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uk_doc_templates_type') THEN
+                    ALTER TABLE doc_templates DROP CONSTRAINT uk_doc_templates_type;
+                END IF;
+            END $$;
+        """);
+
+        // 4. Partial unique indexes for doc_templates + FK & composite indexes (Supabase Postgres best practices)
+        execQuietly("CREATE UNIQUE INDEX IF NOT EXISTS uk_doc_templates_global_type ON doc_templates(type) WHERE workspace_id IS NULL");
+        execQuietly("CREATE UNIQUE INDEX IF NOT EXISTS uk_doc_templates_ws_type ON doc_templates(workspace_id, type) WHERE workspace_id IS NOT NULL");
+
+        execQuietly("CREATE INDEX IF NOT EXISTS idx_users_workspace_id ON users(workspace_id)");
+        execQuietly("CREATE INDEX IF NOT EXISTS idx_users_status ON users(status)");
+        execQuietly("CREATE INDEX IF NOT EXISTS idx_users_role_id ON users(role_id)");
+        execQuietly("CREATE INDEX IF NOT EXISTS idx_users_github_user_id ON users(github_user_id)");
+        execQuietly("CREATE INDEX IF NOT EXISTS idx_workspace_members_user_id ON workspace_members(user_id)");
+        execQuietly("CREATE INDEX IF NOT EXISTS idx_doc_collections_workspace_id ON doc_collections(workspace_id)");
+        execQuietly("CREATE INDEX IF NOT EXISTS idx_ci_tokens_workspace_id ON ci_tokens(workspace_id)");
+        execQuietly("CREATE INDEX IF NOT EXISTS idx_ci_tokens_repo_id ON ci_tokens(repository_id)");
+        execQuietly("CREATE INDEX IF NOT EXISTS idx_audit_logs_workspace_created ON audit_logs(workspace_id, created_at DESC)");
+        execQuietly("CREATE INDEX IF NOT EXISTS idx_jobs_workspace_status ON jobs(workspace_id, status)");
+        execQuietly("CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_ws_time ON webhook_deliveries(workspace_id, delivered_at DESC)");
+        execQuietly("CREATE INDEX IF NOT EXISTS idx_documents_repo_id ON documents(repo_id)");
+        execQuietly("CREATE INDEX IF NOT EXISTS idx_documents_collection_id ON documents(collection_id)");
+        execQuietly("CREATE INDEX IF NOT EXISTS idx_document_versions_doc_id ON document_versions(doc_id)");
+        execQuietly("CREATE INDEX IF NOT EXISTS idx_reviews_doc_id ON reviews(doc_id)");
+        execQuietly("CREATE INDEX IF NOT EXISTS idx_code_entities_repository_id ON code_entities(repository_id)");
+        execQuietly("CREATE INDEX IF NOT EXISTS idx_pull_requests_repository_id ON pull_requests(repository_id)");
+        execQuietly("CREATE INDEX IF NOT EXISTS idx_commits_repository_id ON commits(repository_id)");
+        execQuietly("CREATE INDEX IF NOT EXISTS idx_doc_change_alerts_repo_status ON document_change_alerts(repository_id, status)");
+        execQuietly("CREATE INDEX IF NOT EXISTS idx_drift_alerts_repo_id ON drift_alerts(repo_id)");
+        execQuietly("CREATE INDEX IF NOT EXISTS idx_doc_change_policies_workspace_id ON document_change_policies(workspace_id)");
+        execQuietly("CREATE INDEX IF NOT EXISTS idx_manager_delegations_workspace_id ON manager_approval_delegations(workspace_id)");
+
+        // 5. Sync sequences after explicit seed IDs (prevents duplicate PK on first POST /api/admin/enterprises)
+        execQuietly("SELECT setval(pg_get_serial_sequence('workspaces', 'workspace_id'), COALESCE((SELECT MAX(workspace_id) FROM workspaces), 1), true)");
+        execQuietly("SELECT setval(pg_get_serial_sequence('roles', 'role_id'), COALESCE((SELECT MAX(role_id) FROM roles), 1), true)");
+        execQuietly("SELECT setval(pg_get_serial_sequence('users', 'user_id'), COALESCE((SELECT MAX(user_id) FROM users), 1), true)");
+
+        // 6. Zero-breakage idempotent data backfills
+        // Only backfill users.role_id & users.workspace_id where a workspace_members row already exists,
+        // preserving deliberate Admin unassignments (0 rows in workspace_members) and seeded test user_id=1.
+        execQuietly("""
+            UPDATE users u
+            SET role_id = (
+                SELECT wm.role_id FROM workspace_members wm
+                WHERE wm.user_id = u.user_id
+                ORDER BY wm.workspace_id ASC
+                LIMIT 1
+            )
+            WHERE u.role_id IS NULL
+              AND EXISTS (SELECT 1 FROM workspace_members wm WHERE wm.user_id = u.user_id)
+        """);
+        execQuietly("""
+            UPDATE users u
+            SET workspace_id = (
+                SELECT wm.workspace_id FROM workspace_members wm
+                WHERE wm.user_id = u.user_id
+                ORDER BY wm.workspace_id ASC
+                LIMIT 1
+            )
+            WHERE u.workspace_id IS NULL
+              AND UPPER(u.status) = 'ACTIVE'
+              AND EXISTS (SELECT 1 FROM workspace_members wm WHERE wm.user_id = u.user_id)
+        """);
+        execQuietly("""
+            UPDATE users u
+            SET github_user_id = COALESCE(u.github_user_id, gc.github_user_id),
+                github_username = COALESCE(u.github_username, gc.github_username)
+            FROM (
+                SELECT DISTINCT ON (user_id) user_id, github_user_id, github_username
+                FROM github_connections
+                ORDER BY user_id, updated_at DESC NULLS LAST
+            ) gc
+            WHERE u.user_id = gc.user_id
+              AND (u.github_user_id IS NULL OR u.github_username IS NULL)
+        """);
+        execQuietly("""
+            UPDATE ci_tokens t
+            SET workspace_id = r.workspace_id
+            FROM repositories r
+            WHERE t.repository_id = r.repository_id
+              AND t.workspace_id <> r.workspace_id
+        """);
+        execQuietly("""
+            UPDATE webhook_deliveries w
+            SET workspace_id = r.workspace_id
+            FROM repositories r
+            WHERE w.repository_id = r.repository_id
+              AND w.workspace_id IS NULL
+        """);
+        execQuietly("""
+            UPDATE audit_logs a
+            SET workspace_id = u.workspace_id
+            FROM users u
+            WHERE a.user_id = u.user_id
+              AND a.workspace_id IS NULL
+              AND u.workspace_id IS NOT NULL
+        """);
+        execQuietly("UPDATE jobs SET workspace_id = 1 WHERE workspace_id IS NULL");
+    }
+
+    private void execQuietly(String sql) {
+        try {
+            jdbcTemplate.execute(sql);
+        } catch (Exception ex) {
+            log.debug("[DatabaseSchemaBootstrap] Skipped statement ({}): {}",
+                    sql.length() > 80 ? sql.substring(0, 80) + "..." : sql,
+                    ex.getMessage());
+        }
     }
 }

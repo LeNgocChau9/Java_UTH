@@ -10,6 +10,7 @@ public interface CiTokenRepositoryPort {
     Optional<CiToken> findById(Long tokenId);
     Optional<CiToken> findByTokenHash(String tokenHash);
     List<CiToken> findAll();
+    List<CiToken> findByWorkspaceId(Long workspaceId);
     List<CiToken> findByRepositoryId(Long repositoryId);
     void revokeToken(Long tokenId);
 }

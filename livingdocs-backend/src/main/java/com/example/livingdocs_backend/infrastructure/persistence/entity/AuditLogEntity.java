@@ -21,6 +21,9 @@ public class AuditLogEntity {
     @Column(name = "log_id")
     private Long logId;
 
+    @Column(name = "workspace_id")
+    private Long workspaceId;
+
     @Column(name = "user_id")
     private Long actorId;
 

@@ -23,12 +23,16 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(AuthenticationException.class)
     public ResponseEntity<Map<String, Object>> handleAuthenticationException(AuthenticationException ex) {
+        HttpStatus status = ex.getHttpStatus() != null ? ex.getHttpStatus() : HttpStatus.UNAUTHORIZED;
         Map<String, Object> error = new HashMap<>();
-        error.put("status", HttpStatus.UNAUTHORIZED.value());
-        error.put("error", "Unauthorized");
+        error.put("status", status.value());
+        error.put("error", status.getReasonPhrase());
+        if (ex.getErrorCode() != null && !ex.getErrorCode().isBlank()) {
+            error.put("errorCode", ex.getErrorCode());
+        }
         error.put("message", ex.getMessage());
         error.put("timestamp", Instant.now().toString());
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(error);
+        return ResponseEntity.status(status).body(error);
     }
 
     @ExceptionHandler(EmailAlreadyExistsException.class)

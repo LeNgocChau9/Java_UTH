@@ -32,6 +32,9 @@ public class WebhookDeliveryService {
     @Autowired(required = false)
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.security.TenantAccessService tenantAccessService;
+
     @PostConstruct
     public void ensureTableExists() {
         if (jdbcTemplate == null) {
@@ -41,6 +44,7 @@ public class WebhookDeliveryService {
             jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS public.webhook_deliveries (
                     id bigserial NOT NULL,
+                    workspace_id bigint,
                     delivery_id character varying(128),
                     event_type character varying(64) NOT NULL,
                     repository_id bigint,
@@ -53,10 +57,13 @@ public class WebhookDeliveryService {
                     delivered_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     CONSTRAINT webhook_deliveries_pkey PRIMARY KEY (id)
                 );
+                ALTER TABLE public.webhook_deliveries ADD COLUMN IF NOT EXISTS workspace_id bigint;
                 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_repo_time
                     ON public.webhook_deliveries(repository_id, delivered_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_delivered_at
                     ON public.webhook_deliveries(delivered_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_ws_time
+                    ON public.webhook_deliveries(workspace_id, delivered_at DESC);
                 """);
         } catch (Exception ex) {
             log.warn("[WebhookDeliveryService] Không thể tự động khởi tạo bảng webhook_deliveries: {}", ex.getMessage());
@@ -76,37 +83,40 @@ public class WebhookDeliveryService {
         try {
             String resolvedRepoFullName = repoFullName;
             Long resolvedRepoId = null;
+            Long resolvedWorkspaceId = null;
 
             if (!StringUtils.hasText(resolvedRepoFullName) && StringUtils.hasText(rawPayload)) {
                 resolvedRepoFullName = extractRepoFullName(rawPayload);
             }
 
-            if (StringUtils.hasText(resolvedRepoFullName) && repositoryRepository != null) {
-                Optional<RepositoryEntity> byName = repositoryRepository.findByWorkspaceIdAndRepoFullName(1L, resolvedRepoFullName);
-                if (byName.isPresent()) {
-                    resolvedRepoId = byName.get().getRepositoryId();
-                } else {
-                    final String target = resolvedRepoFullName;
-                    resolvedRepoId = repositoryRepository.findAll().stream()
-                            .filter(r -> target.equalsIgnoreCase(r.getRepoFullName()))
-                            .map(RepositoryEntity::getRepositoryId)
+            if (repositoryRepository != null) {
+                RepositoryEntity matchedRepo = null;
+                Long ghRepoId = StringUtils.hasText(rawPayload) ? extractGithubRepoId(rawPayload) : null;
+                List<RepositoryEntity> allRepos = repositoryRepository.findAll();
+
+                if (ghRepoId != null) {
+                    matchedRepo = allRepos.stream()
+                            .filter(r -> ghRepoId.equals(r.getGithubRepoId()))
                             .findFirst()
                             .orElse(null);
                 }
-            }
-
-            if (resolvedRepoId == null && StringUtils.hasText(rawPayload)) {
-                Long ghRepoId = extractGithubRepoId(rawPayload);
-                if (ghRepoId != null && repositoryRepository != null) {
-                    resolvedRepoId = repositoryRepository.findByWorkspaceIdAndGithubRepoId(1L, ghRepoId)
-                            .map(RepositoryEntity::getRepositoryId)
+                if (matchedRepo == null && StringUtils.hasText(resolvedRepoFullName)) {
+                    final String target = resolvedRepoFullName;
+                    matchedRepo = allRepos.stream()
+                            .filter(r -> target.equalsIgnoreCase(r.getRepoFullName()))
+                            .findFirst()
                             .orElse(null);
+                }
+                if (matchedRepo != null) {
+                    resolvedRepoId = matchedRepo.getRepositoryId();
+                    resolvedWorkspaceId = matchedRepo.getWorkspaceId();
                 }
             }
 
             String summary = buildPayloadSummary(eventType, rawPayload);
 
             WebhookDeliveryEntity entity = WebhookDeliveryEntity.builder()
+                    .workspaceId(resolvedWorkspaceId)
                     .deliveryId(StringUtils.hasText(deliveryId) ? deliveryId.trim() : null)
                     .eventType(StringUtils.hasText(eventType) ? eventType.trim() : "unknown")
                     .repositoryId(resolvedRepoId)
@@ -129,13 +139,25 @@ public class WebhookDeliveryService {
     @Transactional(readOnly = true)
     public List<WebhookDeliveryEntity> getDeliveriesByRepository(Long repositoryId) {
         if (repositoryId == null) {
-            return deliveryRepository.findTop100ByOrderByDeliveredAtDesc();
+            return getRecentDeliveries();
+        }
+        if (tenantAccessService != null) {
+            tenantAccessService.requireRepositoryAccess(repositoryId);
         }
         return deliveryRepository.findTop100ByRepositoryIdOrderByDeliveredAtDesc(repositoryId);
     }
 
     @Transactional(readOnly = true)
     public List<WebhookDeliveryEntity> getRecentDeliveries() {
+        if (tenantAccessService != null) {
+            var scope = tenantAccessService.currentScope();
+            if (scope.unassigned()) {
+                return java.util.Collections.emptyList();
+            }
+            if (scope.hasTenantFilter()) {
+                return deliveryRepository.findTop100ByWorkspaceIdOrderByDeliveredAtDesc(scope.workspaceId());
+            }
+        }
         return deliveryRepository.findTop100ByOrderByDeliveredAtDesc();
     }
 

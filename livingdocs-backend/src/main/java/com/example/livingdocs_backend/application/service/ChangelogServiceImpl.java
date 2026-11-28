@@ -23,6 +23,9 @@ public class ChangelogServiceImpl implements ChangelogServicePort {
 
         private final ChangelogRepositoryPort changelogRepositoryPort;
 
+        @org.springframework.beans.factory.annotation.Autowired(required = false)
+        private com.example.livingdocs_backend.infrastructure.security.TenantAccessService tenantAccessService;
+
         @Override
         @Transactional
         public Changelog logChange(Long documentId, Long versionId, Long actorId, String actorRole,
@@ -84,6 +87,9 @@ public class ChangelogServiceImpl implements ChangelogServicePort {
         @Override
         @Transactional(readOnly = true)
         public List<ChangelogResponse> getChangelogsByDocument(Long documentId) {
+                if (tenantAccessService != null) {
+                        tenantAccessService.requireDocumentAccess(documentId);
+                }
                 return changelogRepositoryPort.findByDocumentId(documentId)
                                 .stream()
                                 .map(this::toResponse)
@@ -93,6 +99,21 @@ public class ChangelogServiceImpl implements ChangelogServicePort {
         @Override
         @Transactional(readOnly = true)
         public List<ChangelogResponse> getChangelogs(Long documentId, String actorRole) {
+                if (tenantAccessService != null) {
+                        if (documentId != null) {
+                                tenantAccessService.requireDocumentAccess(documentId);
+                        }
+                        var scope = tenantAccessService.currentScope();
+                        if (scope.unassigned()) {
+                                return java.util.Collections.emptyList();
+                        }
+                        if (scope.hasTenantFilter()) {
+                                return changelogRepositoryPort.findAllByWorkspaceId(scope.workspaceId(), documentId, actorRole)
+                                                .stream()
+                                                .map(this::toResponse)
+                                                .collect(Collectors.toList());
+                        }
+                }
                 return changelogRepositoryPort.findAll(documentId, actorRole)
                                 .stream()
                                 .map(this::toResponse)
@@ -111,12 +132,47 @@ public class ChangelogServiceImpl implements ChangelogServicePort {
                 String normalizedRole = (actorRole != null && !actorRole.isBlank()) ? actorRole.trim().toUpperCase()
                                 : null;
 
-                Page<Changelog> page = changelogRepositoryPort.findWithFilters(
-                                normalizedRole,
-                                repoId,
-                                fromDate,
-                                toDate,
-                                pageable);
+                Page<Changelog> page;
+                if (tenantAccessService != null) {
+                        if (repoId != null) {
+                                tenantAccessService.requireRepositoryAccess(repoId);
+                        }
+                        var scope = tenantAccessService.currentScope();
+                        if (scope.unassigned()) {
+                                return PageResponse.<ChangelogResponse>builder()
+                                                .content(java.util.Collections.emptyList())
+                                                .page(pageable != null ? pageable.getPageNumber() : 0)
+                                                .size(pageable != null ? pageable.getPageSize() : 20)
+                                                .totalElements(0L)
+                                                .totalPages(0)
+                                                .first(true)
+                                                .last(true)
+                                                .build();
+                        }
+                        if (scope.hasTenantFilter()) {
+                                page = changelogRepositoryPort.findWithFiltersByWorkspaceId(
+                                                scope.workspaceId(),
+                                                normalizedRole,
+                                                repoId,
+                                                fromDate,
+                                                toDate,
+                                                pageable);
+                        } else {
+                                page = changelogRepositoryPort.findWithFilters(
+                                                normalizedRole,
+                                                repoId,
+                                                fromDate,
+                                                toDate,
+                                                pageable);
+                        }
+                } else {
+                        page = changelogRepositoryPort.findWithFilters(
+                                        normalizedRole,
+                                        repoId,
+                                        fromDate,
+                                        toDate,
+                                        pageable);
+                }
 
                 List<ChangelogResponse> content = page.getContent().stream()
                                 .map(this::toResponse)

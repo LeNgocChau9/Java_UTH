@@ -30,16 +30,46 @@ public interface SpringDataCodeEntityRepository extends JpaRepository<CodeEntity
 
     @Query("""
         SELECT c FROM CodeEntityJpaEntity c
+        JOIN RepositoryEntity r ON r.repositoryId = c.repositoryId
+        WHERE r.workspaceId = :workspaceId
+    """)
+    List<CodeEntityJpaEntity> findByWorkspaceId(@Param("workspaceId") Long workspaceId);
+
+    @Query("""
+        SELECT c FROM CodeEntityJpaEntity c
         WHERE (:repositoryId IS NULL OR c.repositoryId = :repositoryId)
           AND (c.docStatus IS NULL OR UPPER(c.docStatus) NOT IN ('DOCUMENTED', 'DRIFTED')
                OR NOT EXISTS (
                    SELECT 1 FROM DocCodeLinkEntity d
-                   WHERE (d.entityId IS NOT NULL AND d.entityId = c.entityId)
-                      OR (d.filePath = c.filePath
-                          AND ((c.methodName IS NOT NULL AND d.methodName = c.methodName)
-                               OR (c.methodName IS NULL AND c.className IS NOT NULL AND d.className = c.className)))
+                   JOIN DocumentEntity doc ON doc.docId = d.documentId
+                   WHERE doc.repoId = c.repositoryId
+                     AND ((d.entityId IS NOT NULL AND d.entityId = c.entityId)
+                          OR (d.filePath = c.filePath
+                              AND ((c.methodName IS NOT NULL AND d.methodName = c.methodName)
+                                   OR (c.methodName IS NULL AND c.className IS NOT NULL AND d.className = c.className))))
                ))
         ORDER BY c.filePath ASC, c.className ASC, c.startLine ASC
     """)
     List<CodeEntityJpaEntity> findCoverageGaps(@Param("repositoryId") Long repositoryId);
+
+    @Query("""
+        SELECT c FROM CodeEntityJpaEntity c
+        JOIN RepositoryEntity r ON r.repositoryId = c.repositoryId
+        WHERE r.workspaceId = :workspaceId
+          AND (:repositoryId IS NULL OR c.repositoryId = :repositoryId)
+          AND (c.docStatus IS NULL OR UPPER(c.docStatus) NOT IN ('DOCUMENTED', 'DRIFTED')
+               OR NOT EXISTS (
+                   SELECT 1 FROM DocCodeLinkEntity d
+                   JOIN DocumentEntity doc ON doc.docId = d.documentId
+                   WHERE doc.repoId = c.repositoryId
+                     AND ((d.entityId IS NOT NULL AND d.entityId = c.entityId)
+                          OR (d.filePath = c.filePath
+                              AND ((c.methodName IS NOT NULL AND d.methodName = c.methodName)
+                                   OR (c.methodName IS NULL AND c.className IS NOT NULL AND d.className = c.className))))
+               ))
+        ORDER BY c.filePath ASC, c.className ASC, c.startLine ASC
+    """)
+    List<CodeEntityJpaEntity> findCoverageGapsByWorkspaceId(
+            @Param("repositoryId") Long repositoryId,
+            @Param("workspaceId") Long workspaceId);
 }

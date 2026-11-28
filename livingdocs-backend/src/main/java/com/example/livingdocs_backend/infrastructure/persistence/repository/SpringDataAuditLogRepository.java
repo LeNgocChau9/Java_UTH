@@ -16,6 +16,8 @@ public interface SpringDataAuditLogRepository extends JpaRepository<AuditLogEnti
 
     List<AuditLogEntity> findTop300ByOrderByCreatedAtDesc();
 
+    List<AuditLogEntity> findTop300ByWorkspaceIdOrderByCreatedAtDesc(Long workspaceId);
+
     @Modifying
     @Query("DELETE FROM AuditLogEntity a WHERE a.createdAt < :cutoff")
     int deleteByCreatedAtBefore(@Param("cutoff") Instant cutoff);

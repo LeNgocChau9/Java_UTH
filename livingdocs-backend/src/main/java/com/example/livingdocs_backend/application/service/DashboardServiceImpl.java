@@ -8,8 +8,10 @@ import com.example.livingdocs_backend.application.port.DashboardStatsQueryPort;
 import com.example.livingdocs_backend.domain.model.DocumentStatus;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.*;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.*;
+import com.example.livingdocs_backend.infrastructure.security.TenantAccessService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,6 +20,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -32,25 +35,62 @@ public class DashboardServiceImpl implements DashboardServicePort {
     private final JpaDriftAlertRepository driftAlertRepository;
     private final DashboardStatsQueryPort dashboardStatsQueryPort;
 
+    @Autowired(required = false)
+    private TenantAccessService tenantAccessService;
+
     @Override
     @Transactional(readOnly = true)
     public DashboardStatsDto getDashboardStats() {
-        // 1. Thống kê Code Entities & Coverage
-        List<CodeEntityJpaEntity> allEntities = codeEntityRepository.findAll();
-        long totalEntities = allEntities.size();
-        long documentedEntities = allEntities.stream()
-                .filter(e -> "DOCUMENTED".equalsIgnoreCase(e.getDocStatus()))
-                .count();
+        TenantAccessService.TenantScope scope = tenantAccessService != null
+                ? tenantAccessService.currentScope()
+                : new TenantAccessService.TenantScope(true, false, false, null, false, null);
 
-        double coveragePercent;
-        if (totalEntities > 0) {
-            coveragePercent = Math.round(((double) documentedEntities / totalEntities) * 1000.0) / 10.0;
-        } else {
-            coveragePercent = 82.5; // Giá trị cơ sở cho demo hệ thống
+        if (scope.unassigned()) {
+            return DashboardStatsDto.builder()
+                    .coveragePercent(0.0)
+                    .freshnessPercent(0.0)
+                    .unresolvedDriftCount(0L)
+                    .criticalDriftCount(0L)
+                    .totalDocuments(0L)
+                    .approvedDocuments(0L)
+                    .pendingReviewDocuments(0L)
+                    .draftDocuments(0L)
+                    .totalPullRequests(0L)
+                    .totalRepositories(0L)
+                    .repoCoverages(Collections.emptyList())
+                    .build();
         }
 
+        boolean scoped = scope.hasTenantFilter();
+        List<RepositoryEntity> repos = scoped
+                ? repositoryRepository.findByWorkspaceId(scope.workspaceId())
+                : repositoryRepository.findAll();
+        Set<Long> allowedRepoIds = repos.stream()
+                .map(RepositoryEntity::getRepositoryId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        // 1. Thống kê Code Entities & Coverage
+        List<CodeEntityJpaEntity> allEntities = codeEntityRepository.findAll().stream()
+                .filter(e -> !scoped || (e.getRepositoryId() != null && allowedRepoIds.contains(e.getRepositoryId())))
+                .toList();
+        long totalEntities = allEntities.size();
+        long documentedEntities = allEntities.stream()
+                .filter(e -> "DOCUMENTED".equalsIgnoreCase(e.getDocStatus()) || "DRIFTED".equalsIgnoreCase(e.getDocStatus()))
+                .count();
+
+        double coveragePercent = totalEntities > 0
+                ? Math.round(((double) documentedEntities / totalEntities) * 1000.0) / 10.0
+                : 0.0;
+
         // 2. Thống kê Tài liệu (Documents) & Freshness
-        List<DocumentEntity> allDocs = documentRepository.findAll();
+        List<DocumentEntity> allDocs = scoped
+                ? documentRepository.findByWorkspaceId(scope.workspaceId())
+                : documentRepository.findAll();
+        Set<Long> allowedDocIds = allDocs.stream()
+                .map(DocumentEntity::getDocId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
         long totalDocs = allDocs.size();
         long approvedCount = allDocs.stream()
                 .filter(d -> d.getStatus() == DocumentStatus.APPROVED || d.getStatus() == DocumentStatus.PUBLISHED)
@@ -62,23 +102,22 @@ public class DashboardServiceImpl implements DashboardServicePort {
                 .filter(d -> d.getStatus() == DocumentStatus.DRAFT)
                 .count();
 
-        // Độ tươi mới: % tài liệu có version được cập nhật trong 30 ngày qua
         Instant thirtyDaysAgo = Instant.now().minus(30, ChronoUnit.DAYS);
-        List<DocumentVersionEntity> allVersions = versionRepository.findAll();
+        List<DocumentVersionEntity> allVersions = versionRepository.findAll().stream()
+                .filter(v -> !scoped || (v.getDocId() != null && allowedDocIds.contains(v.getDocId())))
+                .toList();
         long freshVersions = allVersions.stream()
                 .filter(v -> v.getCreatedAt() != null && v.getCreatedAt().isAfter(thirtyDaysAgo))
                 .count();
 
-        double freshnessPercent;
-        if (!allVersions.isEmpty()) {
-            freshnessPercent = Math.min(100.0, Math.round(((double) freshVersions / Math.max(1, allDocs.size())) * 1000.0) / 10.0);
-            if (freshnessPercent == 0) freshnessPercent = 89.0;
-        } else {
-            freshnessPercent = 91.4;
-        }
+        double freshnessPercent = (!allVersions.isEmpty() && totalDocs > 0)
+                ? Math.min(100.0, Math.round(((double) freshVersions / totalDocs) * 1000.0) / 10.0)
+                : 0.0;
 
         // 3. Thống kê Cảnh báo sai lệch (Drift Alerts)
-        List<DriftAlertEntity> allAlerts = driftAlertRepository.findAll();
+        List<DriftAlertEntity> allAlerts = driftAlertRepository.findAll().stream()
+                .filter(a -> !scoped || (a.getRepoId() != null && allowedRepoIds.contains(a.getRepoId())))
+                .toList();
         long openAlerts = allAlerts.stream()
                 .filter(a -> "OPEN".equalsIgnoreCase(a.getStatus()))
                 .count();
@@ -87,9 +126,10 @@ public class DashboardServiceImpl implements DashboardServicePort {
                 .count();
 
         // 4. Thống kê Repositories & PRs
-        List<RepositoryEntity> repos = repositoryRepository.findAll();
         long totalRepos = repos.size();
-        long totalPrs = pullRequestRepository.count();
+        long totalPrs = scoped
+                ? dashboardStatsQueryPort.countTotalPullRequests(null)
+                : pullRequestRepository.count();
 
         // 5. Thống kê độ phủ chi tiết từng kho lưu trữ
         List<DashboardStatsDto.RepoCoverageDto> repoCoverages = new ArrayList<>();
@@ -98,7 +138,8 @@ public class DashboardServiceImpl implements DashboardServicePort {
                     .filter(e -> repo.getRepositoryId().equals(e.getRepositoryId()))
                     .count();
             long repoDocCount = allEntities.stream()
-                    .filter(e -> repo.getRepositoryId().equals(e.getRepositoryId()) && "DOCUMENTED".equalsIgnoreCase(e.getDocStatus()))
+                    .filter(e -> repo.getRepositoryId().equals(e.getRepositoryId())
+                            && ("DOCUMENTED".equalsIgnoreCase(e.getDocStatus()) || "DRIFTED".equalsIgnoreCase(e.getDocStatus())))
                     .count();
             long repoOpenAlerts = allAlerts.stream()
                     .filter(a -> repo.getRepositoryId().equals(a.getRepoId()) && "OPEN".equalsIgnoreCase(a.getStatus()))
@@ -106,40 +147,29 @@ public class DashboardServiceImpl implements DashboardServicePort {
 
             double repoCov = repoEntitiesCount > 0
                     ? Math.round(((double) repoDocCount / repoEntitiesCount) * 1000.0) / 10.0
-                    : 85.0;
+                    : 0.0;
 
             repoCoverages.add(DashboardStatsDto.RepoCoverageDto.builder()
                     .repoId(repo.getRepositoryId())
                     .repoName(repo.getRepoFullName())
                     .coveragePercent(repoCov)
-                    .totalEntities(repoEntitiesCount > 0 ? repoEntitiesCount : 45L)
-                    .documentedEntities(repoDocCount > 0 ? repoDocCount : 38L)
+                    .totalEntities(repoEntitiesCount)
+                    .documentedEntities(repoDocCount)
                     .openDriftCount(repoOpenAlerts)
-                    .build());
-        }
-
-        if (repoCoverages.isEmpty()) {
-            repoCoverages.add(DashboardStatsDto.RepoCoverageDto.builder()
-                    .repoId(1L)
-                    .repoName("LeNgocChau9/Java_UTH")
-                    .coveragePercent(84.6)
-                    .totalEntities(65L)
-                    .documentedEntities(55L)
-                    .openDriftCount(openAlerts)
                     .build());
         }
 
         return DashboardStatsDto.builder()
                 .coveragePercent(coveragePercent)
                 .freshnessPercent(freshnessPercent)
-                .unresolvedDriftCount(openAlerts > 0 ? openAlerts : 3L)
-                .criticalDriftCount(criticalAlerts > 0 ? criticalAlerts : 1L)
-                .totalDocuments(totalDocs > 0 ? totalDocs : 14L)
-                .approvedDocuments(approvedCount > 0 ? approvedCount : 10L)
-                .pendingReviewDocuments(pendingReviewCount > 0 ? pendingReviewCount : 2L)
-                .draftDocuments(draftCount > 0 ? draftCount : 2L)
-                .totalPullRequests(totalPrs > 0 ? totalPrs : 18L)
-                .totalRepositories(totalRepos > 0 ? totalRepos : 1L)
+                .unresolvedDriftCount(openAlerts)
+                .criticalDriftCount(criticalAlerts)
+                .totalDocuments(totalDocs)
+                .approvedDocuments(approvedCount)
+                .pendingReviewDocuments(pendingReviewCount)
+                .draftDocuments(draftCount)
+                .totalPullRequests(totalPrs)
+                .totalRepositories(totalRepos)
                 .repoCoverages(repoCoverages)
                 .build();
     }
@@ -147,6 +177,9 @@ public class DashboardServiceImpl implements DashboardServicePort {
     @Override
     @Transactional(readOnly = true)
     public List<DashboardTrendItemDto> getUpdateTrend() {
+        if (tenantAccessService != null && tenantAccessService.currentScope().unassigned()) {
+            return Collections.emptyList();
+        }
         List<WeeklyTrendBucket> buckets = dashboardStatsQueryPort.findWeeklyTrend(null, 4);
         DateTimeFormatter day = DateTimeFormatter.ofPattern("dd/MM");
         List<DashboardTrendItemDto> items = new ArrayList<>();
@@ -165,4 +198,3 @@ public class DashboardServiceImpl implements DashboardServicePort {
         return items;
     }
 }
-

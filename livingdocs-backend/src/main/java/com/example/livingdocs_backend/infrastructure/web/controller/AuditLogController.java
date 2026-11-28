@@ -45,7 +45,8 @@ public class AuditLogController {
     }
 
     @PutMapping("/retention/config")
-    @Operation(summary = "Cập nhật chính sách lưu trữ nhật ký kiểm toán", description = "Cấu hình số ngày lưu trữ (30 - 365 ngày), bật/tắt dọn dẹp tự động và chu kỳ cron.")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Cập nhật chính sách lưu trữ nhật ký kiểm toán", description = "Chỉ ADMIN. Cấu hình số ngày lưu trữ (30 - 365 ngày), bật/tắt dọn dẹp tự động và chu kỳ cron.")
     public ResponseEntity<AuditRetentionConfigDto> updateRetentionConfig(
             @Valid @RequestBody AuditRetentionConfigDto request,
             Authentication authentication) {
@@ -54,7 +55,8 @@ public class AuditLogController {
     }
 
     @PostMapping("/cleanup")
-    @Operation(summary = "Dọn dẹp nhật ký kiểm toán thủ công", description = "Xóa an toàn các bản ghi audit_logs và changelogs cũ hơn số ngày chỉ định (hoặc theo cấu hình mặc định) và tự động ghi nhật ký kiểm toán AUDIT_LOG_CLEANUP.")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Dọn dẹp nhật ký kiểm toán thủ công", description = "Chỉ ADMIN. Xóa an toàn các bản ghi audit_logs và changelogs cũ hơn số ngày chỉ định (hoặc theo cấu hình mặc định) và tự động ghi nhật ký kiểm toán AUDIT_LOG_CLEANUP.")
     public ResponseEntity<AuditCleanupResultDto> triggerManualCleanup(
             @RequestParam(required = false) Integer retentionDays,
             Authentication authentication) {

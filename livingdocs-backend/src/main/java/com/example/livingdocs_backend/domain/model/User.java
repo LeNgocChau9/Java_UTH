@@ -6,6 +6,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
+import java.util.HashSet;
+import java.util.Set;
 
 @Data
 @Builder
@@ -18,8 +20,16 @@ public class User {
     private String fullName;
     private String avatarUrl;
     private String status;
+    private Long workspaceId;
+    private String workspaceName;
+    private Long roleId;
+    private Long githubUserId;
+    private String githubUsername;
+    private String rejectionReason;
+    private Long approvedBy;
+    private Instant approvedAt;
     @Builder.Default
-    private java.util.Set<RoleType> roles = new java.util.HashSet<>();
+    private Set<RoleType> roles = new HashSet<>();
     private Instant createdAt;
     private Instant updatedAt;
 }

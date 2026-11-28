@@ -175,10 +175,10 @@ public class AutoDocUpdateJobHandler implements JobHandler {
             log.warn("[JobHandler - AUTO_DOC_UPDATE] Lỗi phân tích AST, tiếp tục với liên kết CSDL: {}", ex.getMessage());
         }
 
-        // 3.2. Tra cứu trực tiếp bảng doc_code_links thực tế theo đường dẫn file
-        if (docCodeLinkRepository != null) {
+        // 3.2. Tra cứu trực tiếp bảng doc_code_links trong phạm vi repository (tránh rò rỉ cross-tenant)
+        if (docCodeLinkRepository != null && payload.getRepositoryId() != null) {
             for (String filePath : targetFiles) {
-                List<DocCodeLinkEntity> links = docCodeLinkRepository.findByFilePath(filePath);
+                List<DocCodeLinkEntity> links = docCodeLinkRepository.findByRepositoryIdAndFilePath(payload.getRepositoryId(), filePath);
                 for (DocCodeLinkEntity link : links) {
                     docToChanges.computeIfAbsent(link.getDocumentId(), k -> new ArrayList<>());
                 }

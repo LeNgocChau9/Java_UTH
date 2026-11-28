@@ -7,6 +7,7 @@ import com.example.livingdocs_backend.application.port.CodeIndexServicePort;
 import com.example.livingdocs_backend.application.port.JobQueue;
 import com.example.livingdocs_backend.domain.model.CodeEntity;
 import com.example.livingdocs_backend.domain.model.Job;
+import com.example.livingdocs_backend.infrastructure.security.TenantAccessService;
 import com.example.livingdocs_backend.infrastructure.security.UserPrincipal;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
@@ -36,6 +37,9 @@ public class CodeEntityController {
 
     @Autowired(required = false)
     private ObjectMapper objectMapper;
+
+    @Autowired(required = false)
+    private TenantAccessService tenantAccessService;
 
     @Builder
     public record IndexFileRequest(
@@ -94,6 +98,9 @@ public class CodeEntityController {
             @RequestParam(name = "branch", required = false) String branch,
             @RequestParam(name = "async", defaultValue = "false") boolean async,
             @AuthenticationPrincipal UserPrincipal userPrincipal) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireRepositoryAccess(repositoryId);
+        }
         if (async && jobQueue != null) {
             try {
                 RepoScanJobPayload payload = RepoScanJobPayload.builder()

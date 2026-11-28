@@ -42,9 +42,15 @@ public class ExternalIntegrationService {
     @Autowired(required = false)
     private AuditServicePort auditServicePort;
 
+    @Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.security.TenantAccessService tenantAccessService;
+
     @Transactional(readOnly = true)
     public List<ExternalIntegrationDto> listIntegrations(Long workspaceId) {
-        Long wsId = workspaceId != null ? workspaceId : DEFAULT_WORKSPACE_ID;
+        if (tenantAccessService != null && tenantAccessService.currentScope().unassigned()) {
+            return Collections.emptyList();
+        }
+        Long wsId = resolveReadWorkspace(workspaceId);
         List<ExternalIntegrationEntity> existing = integrationRepository.findByWorkspaceIdOrderByProviderAsc(wsId);
 
         Map<String, ExternalIntegrationEntity> byProvider = new LinkedHashMap<>();
@@ -69,7 +75,7 @@ public class ExternalIntegrationService {
     @Transactional(readOnly = true)
     public ExternalIntegrationDto getIntegration(String provider, Long workspaceId) {
         String normalizedProvider = normalizeProvider(provider);
-        Long wsId = workspaceId != null ? workspaceId : DEFAULT_WORKSPACE_ID;
+        Long wsId = resolveWriteOrStrictWorkspace(workspaceId);
         return integrationRepository.findByProviderAndWorkspaceId(normalizedProvider, wsId)
                 .map(this::toDto)
                 .orElseGet(() -> defaultDto(normalizedProvider, wsId));
@@ -82,9 +88,10 @@ public class ExternalIntegrationService {
             Long actorId,
             Long workspaceId) {
         String normalizedProvider = normalizeProvider(provider);
-        Long wsId = workspaceId != null
+        Long requestedWs = workspaceId != null
                 ? workspaceId
-                : (request != null && request.getWorkspaceId() != null ? request.getWorkspaceId() : DEFAULT_WORKSPACE_ID);
+                : (request != null ? request.getWorkspaceId() : null);
+        Long wsId = resolveWriteOrStrictWorkspace(requestedWs);
 
         ExternalIntegrationEntity entity = integrationRepository
                 .findByProviderAndWorkspaceId(normalizedProvider, wsId)
@@ -198,9 +205,8 @@ public class ExternalIntegrationService {
             throw new IllegalArgumentException("Provider không được để trống");
         }
         String provider = normalizeProvider(request.getProvider());
-        Long wsId = workspaceId != null
-                ? workspaceId
-                : (request.getWorkspaceId() != null ? request.getWorkspaceId() : DEFAULT_WORKSPACE_ID);
+        Long requestedWs = workspaceId != null ? workspaceId : request.getWorkspaceId();
+        Long wsId = resolveWriteOrStrictWorkspace(requestedWs);
 
         String targetUrl = request.getWebhookUrl() != null ? request.getWebhookUrl().trim() : "";
         String secret = request.getSecret() != null ? request.getSecret().trim() : "";
@@ -277,10 +283,28 @@ public class ExternalIntegrationService {
     @Transactional(readOnly = true)
     public Map<String, Object> getRawConfig(String provider, Long workspaceId) {
         String norm = normalizeProvider(provider);
-        Long wsId = workspaceId != null ? workspaceId : DEFAULT_WORKSPACE_ID;
+        if (tenantAccessService != null && tenantAccessService.currentScope().unassigned()) {
+            return Collections.emptyMap();
+        }
+        Long wsId = resolveReadWorkspace(workspaceId);
         return integrationRepository.findByProviderAndWorkspaceId(norm, wsId)
                 .map(e -> parseConfig(e.getConfigJson()))
                 .orElseGet(Collections::emptyMap);
+    }
+
+    private Long resolveReadWorkspace(Long requestedWorkspaceId) {
+        if (tenantAccessService == null) {
+            return requestedWorkspaceId != null ? requestedWorkspaceId : DEFAULT_WORKSPACE_ID;
+        }
+        Long resolved = tenantAccessService.resolveReadWorkspaceId(requestedWorkspaceId);
+        return resolved != null ? resolved : DEFAULT_WORKSPACE_ID;
+    }
+
+    private Long resolveWriteOrStrictWorkspace(Long requestedWorkspaceId) {
+        if (tenantAccessService == null) {
+            return requestedWorkspaceId != null ? requestedWorkspaceId : DEFAULT_WORKSPACE_ID;
+        }
+        return tenantAccessService.resolveWriteWorkspaceId(requestedWorkspaceId);
     }
 
     private ExternalIntegrationDto toDto(ExternalIntegrationEntity entity) {

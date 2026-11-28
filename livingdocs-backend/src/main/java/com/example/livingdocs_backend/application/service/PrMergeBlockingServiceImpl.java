@@ -73,10 +73,35 @@ public class PrMergeBlockingServiceImpl implements PrMergeBlockingServicePort {
     @Value("${app.frontend.url:http://localhost:3000}")
     private String frontendUrl;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.security.TenantAccessService tenantAccessService;
+
+    private static String workspaceSettingKey(Long workspaceId) {
+        return PR_BLOCKING_SETTING_KEY + ":ws:" + workspaceId;
+    }
+
     @Override
     @Transactional(readOnly = true)
     public PrMergeBlockingPolicyDto getBlockingPolicy() {
-        return adminSettingRepository.findById(PR_BLOCKING_SETTING_KEY)
+        Long wsId = null;
+        if (tenantAccessService != null) {
+            var scope = tenantAccessService.currentScope();
+            if (scope.hasTenantFilter()) {
+                wsId = scope.workspaceId();
+            }
+        }
+        return getBlockingPolicyForWorkspace(wsId);
+    }
+
+    private PrMergeBlockingPolicyDto getBlockingPolicyForWorkspace(Long workspaceId) {
+        Optional<AdminSettingEntity> entityOpt = Optional.empty();
+        if (workspaceId != null) {
+            entityOpt = adminSettingRepository.findById(workspaceSettingKey(workspaceId));
+        }
+        if (entityOpt.isEmpty()) {
+            entityOpt = adminSettingRepository.findById(PR_BLOCKING_SETTING_KEY);
+        }
+        return entityOpt
                 .map(entity -> {
                     try {
                         return objectMapper.readValue(entity.getSettingValue(), PrMergeBlockingPolicyDto.class);
@@ -91,6 +116,15 @@ public class PrMergeBlockingServiceImpl implements PrMergeBlockingServicePort {
     @Override
     @Transactional
     public PrMergeBlockingPolicyDto updateBlockingPolicy(PrMergeBlockingPolicyDto dto, Long actorId, String actorUsername) {
+        String targetKey = PR_BLOCKING_SETTING_KEY;
+        if (tenantAccessService != null) {
+            var scope = tenantAccessService.currentScope();
+            if (!scope.systemBypass() && !scope.globalAdmin()) {
+                Long wsId = tenantAccessService.resolveWriteWorkspaceId(null);
+                targetKey = workspaceSettingKey(wsId);
+            }
+        }
+
         PrMergeBlockingPolicyDto current = getBlockingPolicy();
         PrMergeBlockingPolicyDto toSave = PrMergeBlockingPolicyDto.builder()
                 .enabled(dto.getEnabled() != null ? dto.getEnabled() : current.getEnabled())
@@ -108,13 +142,13 @@ public class PrMergeBlockingServiceImpl implements PrMergeBlockingServicePort {
         try {
             String json = objectMapper.writeValueAsString(toSave);
             adminSettingRepository.save(AdminSettingEntity.builder()
-                    .settingKey(PR_BLOCKING_SETTING_KEY)
+                    .settingKey(targetKey)
                     .settingValue(json)
                     .updatedBy(actorId)
                     .updatedAt(Instant.now())
                     .build());
-            log.info("[PrMergeBlocking] Đã cập nhật chính sách chặn gộp PR: enabled={}, mode={}, minSeverity={}",
-                    toSave.getEnabled(), toSave.getBlockingMode(), toSave.getMinSeverity());
+            log.info("[PrMergeBlocking] Đã cập nhật chính sách chặn gộp PR (key={}): enabled={}, mode={}, minSeverity={}",
+                    targetKey, toSave.getEnabled(), toSave.getBlockingMode(), toSave.getMinSeverity());
             return toSave;
         } catch (Exception e) {
             log.error("[PrMergeBlocking] Lỗi lưu chính sách chặn gộp PR: {}", e.getMessage(), e);
@@ -125,13 +159,22 @@ public class PrMergeBlockingServiceImpl implements PrMergeBlockingServicePort {
     @Override
     @Transactional
     public GitHubCheckRunResultDto evaluateAndSendPrCheck(Long repositoryId, int prNumber, String headSha) {
+        if (tenantAccessService != null && repositoryId != null) {
+            tenantAccessService.requireRepositoryAccess(repositoryId);
+        }
         PrMergeBlockingPolicyDto policy = getBlockingPolicy();
+        RepositoryEntity repo = repositoryRepository.findById(repositoryId).orElse(null);
+        if (repo != null && repo.getWorkspaceId() != null) {
+            Optional<AdminSettingEntity> wsOverride = adminSettingRepository.findById(workspaceSettingKey(repo.getWorkspaceId()));
+            if (wsOverride.isPresent()) {
+                policy = getBlockingPolicyForWorkspace(repo.getWorkspaceId());
+            }
+        }
         if (!Boolean.TRUE.equals(policy.getEnabled())) {
             log.info("[PrMergeBlocking] Tính năng kiểm tra chặn PR đang TẮT. Bỏ qua Check Run cho PR #{}", prNumber);
             return null;
         }
 
-        RepositoryEntity repo = repositoryRepository.findById(repositoryId).orElse(null);
         if (repo == null) {
             log.warn("[PrMergeBlocking] Không tìm thấy repositoryId={}", repositoryId);
             return null;

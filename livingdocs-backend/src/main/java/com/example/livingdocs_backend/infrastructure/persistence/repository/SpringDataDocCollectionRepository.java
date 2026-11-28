@@ -4,6 +4,10 @@ import com.example.livingdocs_backend.infrastructure.persistence.entity.DocColle
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
+
 @Repository
 public interface SpringDataDocCollectionRepository extends JpaRepository<DocCollectionEntity, Long> {
+
+    List<DocCollectionEntity> findByWorkspaceId(Long workspaceId);
 }

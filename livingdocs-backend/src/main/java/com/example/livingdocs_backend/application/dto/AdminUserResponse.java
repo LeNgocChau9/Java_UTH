@@ -20,5 +20,10 @@ public class AdminUserResponse {
     private String avatarUrl;
     private String status;
     private Set<String> roles;
+    private Long enterpriseId;
+    private String enterpriseName;
+    private String githubUsername;
+    private String rejectionReason;
+    private Instant approvedAt;
     private Instant createdAt;
 }

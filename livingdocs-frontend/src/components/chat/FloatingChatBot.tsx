@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import axios from "axios";
 import {
   Sparkles,
   Send,
@@ -114,12 +115,20 @@ function FloatingChatBotInner() {
       if (!isOpen) {
         setUnreadCount((c) => c + 1);
       }
-    } catch {
+    } catch (caught) {
+      let replyText =
+        "Xin lỗi bạn, kết nối tới dịch vụ AI tạm thời bị gián đoạn. Bạn vui lòng thử lại sau giây lát hoặc kiểm tra kết nối mạng nhé!";
+      if (axios.isAxiosError(caught) && caught.response?.status === 403) {
+        const backendMsg = (caught.response.data as { message?: string } | undefined)?.message;
+        replyText =
+          typeof backendMsg === "string" && backendMsg.trim()
+            ? backendMsg
+            : "Bạn không có quyền truy cập ngữ cảnh tài liệu hoặc kho lưu trữ thuộc doanh nghiệp khác.";
+      }
       const errorMsg: ChatMessage = {
         id: "err-" + Date.now(),
         role: "assistant",
-        content:
-          "Xin lỗi bạn, kết nối tới dịch vụ AI tạm thời bị gián đoạn. Bạn vui lòng thử lại sau giây lát hoặc kiểm tra kết nối mạng nhé!",
+        content: replyText,
         provider: "fallback",
         model: "Offline Fallback",
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),

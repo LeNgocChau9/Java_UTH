@@ -13,6 +13,7 @@ import java.time.Instant;
 @AllArgsConstructor
 public class CiToken {
     private Long tokenId;
+    private Long workspaceId;
     private String tokenName;
     private String tokenHash;
     private String tokenPrefix;

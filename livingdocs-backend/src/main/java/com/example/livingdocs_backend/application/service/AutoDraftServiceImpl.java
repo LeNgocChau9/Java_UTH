@@ -56,6 +56,9 @@ public class AutoDraftServiceImpl implements AutoDraftServicePort {
     @Autowired(required = false)
     private GeminiDirectClient geminiDirectClient;
 
+    @Autowired(required = false)
+    private com.example.livingdocs_backend.infrastructure.security.TenantAccessService tenantAccessService;
+
     @Autowired
     public AutoDraftServiceImpl(
             SpringDataDocumentChangeAlertRepository alertRepository,
@@ -98,6 +101,9 @@ public class AutoDraftServiceImpl implements AutoDraftServicePort {
     @Override
     @Transactional
     public AutoDraftOnDriftResponse generateDraftFromAlert(Long alertId, UserPrincipal actor) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireAlertAccess(alertId);
+        }
         DocumentChangeAlertEntity alert = alertRepository.findById(alertId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy cảnh báo drift " + alertId));
 
@@ -130,6 +136,9 @@ public class AutoDraftServiceImpl implements AutoDraftServicePort {
             String summaryReason,
             UserPrincipal actor
     ) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireDocumentAccess(docId);
+        }
         DocumentEntity document = documentRepository.findById(docId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy tài liệu ID " + docId));
 
@@ -239,6 +248,9 @@ public class AutoDraftServiceImpl implements AutoDraftServicePort {
         }
 
         Long alertId = request.getAlertId();
+        if (tenantAccessService != null) {
+            tenantAccessService.requireAlertAccess(alertId);
+        }
         DocumentChangeAlertEntity alert = alertRepository.findById(alertId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy cảnh báo drift " + alertId));
 
@@ -361,6 +373,9 @@ public class AutoDraftServiceImpl implements AutoDraftServicePort {
     @Override
     @Transactional
     public AutoDraftOnDriftResponse acceptDraft(Long alertId, UserPrincipal actor) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireAlertAccess(alertId);
+        }
         DocumentChangeAlertEntity alert = alertRepository.findById(alertId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy cảnh báo drift " + alertId));
 

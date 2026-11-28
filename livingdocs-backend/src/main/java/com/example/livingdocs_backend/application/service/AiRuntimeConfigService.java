@@ -3,19 +3,22 @@ package com.example.livingdocs_backend.application.service;
 import com.example.livingdocs_backend.application.dto.ai.AiSettingDto;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.AdminSettingEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataAdminSettingRepository;
+import com.example.livingdocs_backend.infrastructure.security.TenantAccessService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Service quản lý và lan truyền cấu hình AI Runtime (R4).
- * Đảm bảo che giấu apiKey khi trả về cho UI và lan truyền tham số tới tất cả REST clients gọi AI Engine.
+ * Hỗ trợ phân tách cấu hình theo doanh nghiệp (ai_configuration:ws:{id}) với fallback về cấu hình chung.
  */
 @Slf4j
 @Service
@@ -27,14 +30,39 @@ public class AiRuntimeConfigService {
     private final SpringDataAdminSettingRepository adminSettingRepository;
     private final ObjectMapper objectMapper;
 
+    @Autowired(required = false)
+    private TenantAccessService tenantAccessService;
+
+    private static String workspaceSettingKey(Long workspaceId) {
+        return AI_SETTING_KEY + ":ws:" + workspaceId;
+    }
+
     /**
      * Lấy cấu hình AI thô (chứa API Key thật) dùng nội bộ trong backend để gọi AI Engine.
      */
     public AiSettingDto getRawSettings() {
+        Long wsId = null;
+        if (tenantAccessService != null) {
+            var scope = tenantAccessService.currentScope();
+            if (scope.hasTenantFilter()) {
+                wsId = scope.workspaceId();
+            }
+        }
+        return getRawSettingsForWorkspace(wsId);
+    }
+
+    public AiSettingDto getRawSettingsForWorkspace(Long workspaceId) {
         if (adminSettingRepository == null) {
             return defaultSettings();
         }
-        return adminSettingRepository.findById(AI_SETTING_KEY)
+        Optional<AdminSettingEntity> entityOpt = Optional.empty();
+        if (workspaceId != null) {
+            entityOpt = adminSettingRepository.findById(workspaceSettingKey(workspaceId));
+        }
+        if (entityOpt.isEmpty()) {
+            entityOpt = adminSettingRepository.findById(AI_SETTING_KEY);
+        }
+        return entityOpt
                 .map(entity -> {
                     try {
                         Map<String, Object> map = objectMapper.readValue(entity.getSettingValue(), Map.class);
@@ -83,6 +111,7 @@ public class AiRuntimeConfigService {
      */
     public AiSettingDto saveSettings(AiSettingDto dto) {
         try {
+            String targetKey = resolveWriteSettingKey();
             AiSettingDto current = getRawSettings();
 
             String effectiveApiKey = dto.apiKey() != null ? dto.apiKey().trim() : "";
@@ -107,21 +136,21 @@ public class AiRuntimeConfigService {
 
             String json = objectMapper.writeValueAsString(map);
 
-            AdminSettingEntity entity = adminSettingRepository.findById(AI_SETTING_KEY)
+            AdminSettingEntity entity = adminSettingRepository.findById(targetKey)
                     .map(existing -> {
                         existing.setSettingValue(json);
                         existing.setUpdatedAt(Instant.now());
                         return existing;
                     })
                     .orElseGet(() -> AdminSettingEntity.builder()
-                            .settingKey(AI_SETTING_KEY)
+                            .settingKey(targetKey)
                             .settingValue(json)
                             .updatedAt(Instant.now())
                             .build());
 
             adminSettingRepository.save(entity);
-            log.info("[AiRuntimeConfigService] Đã lưu cấu hình AI thành công: provider={}, routingMode={}, localModel={}",
-                    provider, routingMode, localModel);
+            log.info("[AiRuntimeConfigService] Đã lưu cấu hình AI (key={}) thành công: provider={}, routingMode={}, localModel={}",
+                    targetKey, provider, routingMode, localModel);
 
             return AiSettingDto.builder()
                     .cloudProvider(cloudProvider)
@@ -131,10 +160,24 @@ public class AiRuntimeConfigService {
                     .routingMode(routingMode)
                     .provider(provider)
                     .build();
+        } catch (com.example.livingdocs_backend.domain.exception.AuthenticationException authEx) {
+            throw authEx;
         } catch (Exception e) {
             log.error("[AiRuntimeConfigService] Lỗi lưu cấu hình AI: {}", e.getMessage(), e);
             throw new RuntimeException("Không thể lưu cấu hình AI: " + e.getMessage(), e);
         }
+    }
+
+    private String resolveWriteSettingKey() {
+        if (tenantAccessService == null) {
+            return AI_SETTING_KEY;
+        }
+        var scope = tenantAccessService.currentScope();
+        if (scope.systemBypass() || scope.globalAdmin()) {
+            return AI_SETTING_KEY;
+        }
+        Long wsId = tenantAccessService.resolveWriteWorkspaceId(null);
+        return workspaceSettingKey(wsId);
     }
 
     /**

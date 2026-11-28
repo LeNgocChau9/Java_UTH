@@ -60,7 +60,7 @@ public class AuthController {
     private final Map<String, String> pendingRedirects = new ConcurrentHashMap<>();
 
     @PostMapping("/auth/register")
-    @Operation(summary = "Đăng ký tài khoản mới", description = "Tạo tài khoản mới với email và mật khẩu, kiểm tra trùng lặp email và cấp JWT token")
+    @Operation(summary = "Đăng ký tài khoản mới", description = "Tạo tài khoản mới ở trạng thái chờ Quản trị viên phê duyệt (PENDING), chưa cấp JWT token")
     public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
         AuthResponse response = authServicePort.register(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
@@ -252,9 +252,24 @@ public class AuthController {
                 java.util.Optional<com.example.livingdocs_backend.domain.model.User> userOpt = userRepositoryPort.findById(linkUserId);
                 if (userOpt.isPresent()) {
                     com.example.livingdocs_backend.domain.model.User currentUser = userOpt.get();
+                    String userStatus = currentUser.getStatus() != null ? currentUser.getStatus().trim().toUpperCase() : "ACTIVE";
+                    if (!"ACTIVE".equals(userStatus)) {
+                        response.sendRedirect(loginUrl + redirectQueryForBlockedStatus(userStatus));
+                        return;
+                    }
 
-                    // 1. Lưu hoặc cập nhật kết nối GitHub cho chính tài khoản đang đăng nhập (linkUserId)
-                    Long workspaceId = 1L; // Workspace mặc định
+                    boolean isAdmin = currentUser.getRoles() != null && currentUser.getRoles().contains(com.example.livingdocs_backend.domain.model.RoleType.ROLE_ADMIN);
+                    Long workspaceId = currentUser.getWorkspaceId();
+                    if (workspaceId == null) {
+                        if (isAdmin) {
+                            workspaceId = 1L;
+                        } else {
+                            response.sendRedirect(gitHubOAuthProperties.getFrontendUrl() + "/cai-dat?error=no_enterprise");
+                            return;
+                        }
+                    }
+
+                    // 1. Lưu hoặc cập nhật kết nối GitHub trong đúng doanh nghiệp của tài khoản đang đăng nhập
                     GitHubConnectionEntity conn =
                             gitHubConnectionRepository.findByWorkspaceIdAndUserId(workspaceId, linkUserId)
                                     .orElse(GitHubConnectionEntity.builder()
@@ -270,25 +285,28 @@ public class AuthController {
                     conn = gitHubConnectionRepository.save(conn);
                     recordGitHubLink(linkUserId, conn);
 
-                    // 2. Chuyển quyền sở hữu repo và gỡ liên kết GitHub trùng lặp khỏi tài khoản cũ (nếu có)
-                    reassignAndRemoveDuplicateConnections(linkUserId, conn, identity);
+                    // 2. Chuyển quyền sở hữu repo và gỡ liên kết GitHub trùng lặp CHỈ trong CÙNG workspaceId
+                    reassignAndRemoveDuplicateConnections(workspaceId, linkUserId, conn, identity);
 
-                    // 3. Tự động kéo danh sách Repositories từ tài khoản GitHub vừa liên kết về Workspace
+                    // 3. Tự động kéo danh sách Repositories từ tài khoản GitHub vừa liên kết về đúng Workspace
                     autoSyncGitHubRepositories(workspaceId, conn);
                     syncAllWorkspaceRepositories(workspaceId, linkUserId);
 
-                    // 4. Cập nhật avatar nếu người dùng chưa có
+                    // 4. Lưu danh tính GitHub & cập nhật avatar nếu chưa có
+                    currentUser.setGithubUserId(identity.id());
+                    currentUser.setGithubUsername(identity.login());
                     if (currentUser.getAvatarUrl() == null || currentUser.getAvatarUrl().isBlank()) {
                         currentUser.setAvatarUrl(identity.avatarUrl());
-                        userRepositoryPort.save(currentUser);
                     }
+                    userRepositoryPort.save(currentUser);
 
-                    // 5. Cấp lại token JWT cho chính user hiện tại để bảo toàn quyền hạn (DEVELOPER, ADMIN, ...)
+                    // 5. Cấp lại token JWT cho chính user hiện tại kèm workspaceId
                     java.util.Set<String> roleStrings = currentUser.getRoles() != null
                             ? currentUser.getRoles().stream().map(Enum::name).collect(java.util.stream.Collectors.toSet())
                             : java.util.Collections.singleton("ROLE_DEVELOPER");
 
-                    String newToken = jwtTokenProvider.generateToken(currentUser.getUserId(), currentUser.getEmail(), roleStrings);
+                    String newToken = jwtTokenProvider.generateToken(
+                            currentUser.getUserId(), currentUser.getEmail(), roleStrings, currentUser.getWorkspaceId());
 
                     String target = sanitizeRedirect(redirectTarget);
                     String callbackUrl = gitHubOAuthProperties.getFrontendCallbackUrl()
@@ -305,26 +323,39 @@ public class AuthController {
                     identity.id(), identity.login(), identity.name(), identity.email(), identity.avatarUrl());
             AuthResponse auth = authServicePort.loginWithGithub(profile);
 
-            // Tự động lưu/cập nhật bảng github_connections và đồng bộ danh sách repo cho user này
+            // Tài khoản GitHub đăng nhập lần đầu -> ở trạng thái PENDING, không cấp JWT, không tạo github_connections
+            if (Boolean.TRUE.equals(auth.getPendingApproval()) || !StringUtils.hasText(auth.getToken())) {
+                response.sendRedirect(loginUrl + "?notice=pending_approval");
+                return;
+            }
+
+            // Tài khoản ACTIVE: chỉ tạo/đồng bộ github_connections nếu user đã thuộc 1 doanh nghiệp (hoặc ADMIN)
             try {
                 Long userId = auth.getUser().getUserId();
-                Long workspaceId = 1L; // Workspace mặc định
-                GitHubConnectionEntity conn =
-                        gitHubConnectionRepository.findByWorkspaceIdAndUserId(workspaceId, userId)
-                                .orElse(GitHubConnectionEntity.builder()
-                                        .workspaceId(workspaceId)
-                                        .userId(userId)
-                                        .build());
+                boolean isAdmin = auth.getUser().getRoles() != null && auth.getUser().getRoles().stream()
+                        .anyMatch(r -> "ADMIN".equalsIgnoreCase(r) || "ROLE_ADMIN".equalsIgnoreCase(r));
+                Long workspaceId = auth.getUser().getWorkspaceId();
+                if (workspaceId == null && isAdmin) {
+                    workspaceId = 1L;
+                }
+                if (workspaceId != null) {
+                    GitHubConnectionEntity conn =
+                            gitHubConnectionRepository.findByWorkspaceIdAndUserId(workspaceId, userId)
+                                    .orElse(GitHubConnectionEntity.builder()
+                                            .workspaceId(workspaceId)
+                                            .userId(userId)
+                                            .build());
 
-                conn.setGithubUserId(identity.id());
-                conn.setGithubUsername(identity.login());
-                conn.setAccessTokenEncrypted(identity.accessToken() != null ? identity.accessToken() : "placeholder");
-                conn.setStatus("CONNECTED");
-                conn.setUpdatedAt(Instant.now());
-                conn = gitHubConnectionRepository.save(conn);
-                recordGitHubLink(userId, conn);
+                    conn.setGithubUserId(identity.id());
+                    conn.setGithubUsername(identity.login());
+                    conn.setAccessTokenEncrypted(identity.accessToken() != null ? identity.accessToken() : "placeholder");
+                    conn.setStatus("CONNECTED");
+                    conn.setUpdatedAt(Instant.now());
+                    conn = gitHubConnectionRepository.save(conn);
+                    recordGitHubLink(userId, conn);
 
-                autoSyncGitHubRepositories(workspaceId, conn);
+                    autoSyncGitHubRepositories(workspaceId, conn);
+                }
             } catch (Exception connEx) {
                 // Không để lỗi connection chặn đăng nhập
             }
@@ -334,9 +365,35 @@ public class AuthController {
                     + "?token=" + urlEncode(auth.getToken())
                     + "&redirect=" + urlEncode(target);
             response.sendRedirect(callbackUrl);
+        } catch (com.example.livingdocs_backend.domain.exception.AuthenticationException authEx) {
+            String query = redirectQueryForErrorCode(authEx.getErrorCode());
+            response.sendRedirect(loginUrl + query);
         } catch (Exception ex) {
             response.sendRedirect(loginUrl + "?error=oauth_failed");
         }
+    }
+
+    private static String redirectQueryForErrorCode(String errorCode) {
+        if ("ACCOUNT_PENDING".equals(errorCode)) {
+            return "?notice=account_pending";
+        }
+        if ("ACCOUNT_REJECTED".equals(errorCode)) {
+            return "?error=account_rejected";
+        }
+        if ("ACCOUNT_LOCKED".equals(errorCode)) {
+            return "?error=account_locked";
+        }
+        return "?error=oauth_failed";
+    }
+
+    private static String redirectQueryForBlockedStatus(String status) {
+        if ("PENDING".equalsIgnoreCase(status)) {
+            return "?notice=account_pending";
+        }
+        if ("REJECTED".equalsIgnoreCase(status)) {
+            return "?error=account_rejected";
+        }
+        return "?error=account_locked";
     }
 
     private void recordGitHubLink(Long userId, GitHubConnectionEntity conn) {
@@ -351,16 +408,22 @@ public class AuthController {
                 "Liên kết GitHub @" + conn.getGithubUsername());
     }
 
-    private void reassignAndRemoveDuplicateConnections(Long linkUserId,
+    private void reassignAndRemoveDuplicateConnections(Long workspaceId,
+                                                       Long linkUserId,
                                                        GitHubConnectionEntity activeConn,
                                                        GitHubOAuthClient.GitHubIdentity identity) {
+        if (workspaceId == null) {
+            return;
+        }
         try {
             if (identity.id() != null) {
                 for (var oldConn : gitHubConnectionRepository.findByGithubUserId(identity.id())) {
-                    if (!linkUserId.equals(oldConn.getUserId())) {
+                    if (workspaceId.equals(oldConn.getWorkspaceId()) && !linkUserId.equals(oldConn.getUserId())) {
                         for (RepositoryEntity repo : repositoryRepository.findByConnectionId(oldConn.getConnectionId())) {
-                            repo.setConnectionId(activeConn.getConnectionId());
-                            repositoryRepository.save(repo);
+                            if (workspaceId.equals(repo.getWorkspaceId())) {
+                                repo.setConnectionId(activeConn.getConnectionId());
+                                repositoryRepository.save(repo);
+                            }
                         }
                         gitHubConnectionRepository.delete(oldConn);
                     }
@@ -368,10 +431,12 @@ public class AuthController {
             }
             if (identity.login() != null) {
                 for (var oldConn : gitHubConnectionRepository.findByGithubUsernameIgnoreCase(identity.login())) {
-                    if (!linkUserId.equals(oldConn.getUserId())) {
+                    if (workspaceId.equals(oldConn.getWorkspaceId()) && !linkUserId.equals(oldConn.getUserId())) {
                         for (RepositoryEntity repo : repositoryRepository.findByConnectionId(oldConn.getConnectionId())) {
-                            repo.setConnectionId(activeConn.getConnectionId());
-                            repositoryRepository.save(repo);
+                            if (workspaceId.equals(repo.getWorkspaceId())) {
+                                repo.setConnectionId(activeConn.getConnectionId());
+                                repositoryRepository.save(repo);
+                            }
                         }
                         gitHubConnectionRepository.delete(oldConn);
                     }

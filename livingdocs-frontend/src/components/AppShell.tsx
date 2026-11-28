@@ -84,10 +84,14 @@ import {
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
+  Building2,
 } from "lucide-react";
 import { useSession } from "@/hooks/useSession";
 import { useRouter } from "next/navigation";
 import { templateService, type DriftAlertNotificationItem } from "@/services/templateService";
+import { listEnterprises } from "@/services/adminService";
+import { getAdminEnterpriseScope, setAdminEnterpriseScope } from "@/services/apiClient";
+import type { EnterpriseItem } from "@/types/auth";
 import {
   refreshSession,
   updateCurrentUserProfile,
@@ -411,10 +415,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (!ready || !signedIn) {
+      setDriftSummary({ pendingCount: 0, recentAlerts: [] });
+      return;
+    }
+
     fetchDriftAlerts();
     const interval = setInterval(fetchDriftAlerts, 20000);
 
-    // Real-Time Server-Sent Events (SSE) cho chuông thông báo
+    // Real-Time Server-Sent Events (SSE) cho chuông thông báo (scoped per Enterprise via cookie JWT)
     let eventSource: EventSource | null = null;
     try {
       const sseUrl = "/api/drift-alerts/stream";
@@ -433,7 +442,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       clearInterval(interval);
       if (eventSource) eventSource.close();
     };
-  }, [fetchDriftAlerts]);
+  }, [ready, signedIn, user?.userId, fetchDriftAlerts]);
 
   // Modal cảnh báo hết phiên & gia hạn quyền
   const [showSessionModal, setShowSessionModal] = useState(false);
@@ -605,6 +614,53 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [clearSession, router]);
 
   const roleSet = new Set(roles as AppRole[]);
+  const isAdmin = roleSet.has("ADMIN");
+  const effectiveUserEnterpriseId = user?.enterpriseId ?? user?.workspaceId ?? null;
+  const isUnassignedNonAdmin = ready && signedIn && !isAdmin && !effectiveUserEnterpriseId;
+
+  // Phạm vi doanh nghiệp tùy chọn cho ADMIN (gửi header X-Enterprise-Id qua apiClient)
+  const [adminEnterprises, setAdminEnterprises] = useState<EnterpriseItem[]>([]);
+  const [adminScopeId, setAdminScopeId] = useState<number | null>(null);
+
+  const loadAdminEnterprises = useCallback(async () => {
+    if (!ready || !signedIn || !isAdmin) return;
+    try {
+      const list = await listEnterprises();
+      setAdminEnterprises(list);
+      const saved = getAdminEnterpriseScope();
+      if (saved && list.some((ent) => ent.enterpriseId === saved)) {
+        setAdminScopeId(saved);
+      } else {
+        if (saved) setAdminEnterpriseScope(null);
+        setAdminScopeId(null);
+      }
+    } catch {
+      // ignore if user does not have admin permission
+    }
+  }, [ready, signedIn, isAdmin]);
+
+  useEffect(() => {
+    void loadAdminEnterprises();
+    if (!isAdmin) return;
+    const onChanged = () => {
+      void loadAdminEnterprises();
+    };
+    window.addEventListener("livingdocs:enterprises_changed", onChanged);
+    return () => {
+      window.removeEventListener("livingdocs:enterprises_changed", onChanged);
+    };
+  }, [isAdmin, loadAdminEnterprises]);
+
+  const handleAdminScopeChange = (rawVal: string) => {
+    const nextId = rawVal ? Number(rawVal) : null;
+    setAdminEnterpriseScope(nextId);
+    setAdminScopeId(nextId);
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem("livingdocs_selected_repo_id");
+      window.localStorage.removeItem("selected_repository_id");
+      window.location.reload();
+    }
+  };
 
   const sections: { title: string; role: AppRole; items: NavItem[] }[] = [
     {
@@ -833,6 +889,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <p style={{ fontSize: 11, color: "#087f5b", fontWeight: 600, margin: 0 }}>
                 {roles[0]?.replace("ROLE_", "") || ""}
               </p>
+              <p
+                style={{
+                  fontSize: 10.5,
+                  color: user?.enterpriseName ? "#475569" : isAdmin ? "#64748b" : "#b45309",
+                  fontWeight: 500,
+                  margin: "1px 0 0",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 3,
+                }}
+                title={user?.enterpriseName || (isAdmin ? "Quản trị toàn hệ thống" : "Chưa phân doanh nghiệp")}
+              >
+                <Building2 size={10} style={{ flexShrink: 0 }} />
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {user?.enterpriseName || (isAdmin ? "Toàn hệ thống" : "Chưa phân DN")}
+                </span>
+              </p>
             </div>
             <button
               type="button"
@@ -983,6 +1059,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Link href="#quy-trinh" className="hover:text-[#087f5b] transition-colors">
                 Quy trình Review
               </Link>
+            </div>
+          )}
+
+          {/* Admin Enterprise Scope Selector */}
+          {ready && signedIn && isAdmin && adminEnterprises.length > 0 && (
+            <div
+              className="hidden sm:flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1"
+              title="Lọc dữ liệu toàn hệ thống theo phạm vi doanh nghiệp (chỉ ADMIN)"
+            >
+              <Building2 size={14} className="shrink-0 text-emerald-700" />
+              <select
+                aria-label="Phạm vi doanh nghiệp"
+                value={adminScopeId ? String(adminScopeId) : ""}
+                onChange={(e) => handleAdminScopeChange(e.target.value)}
+                className="max-w-[180px] cursor-pointer bg-transparent text-xs font-semibold text-slate-700 outline-none"
+              >
+                <option value="">Tất cả doanh nghiệp</option>
+                {adminEnterprises.map((ent) => (
+                  <option key={ent.enterpriseId} value={String(ent.enterpriseId)}>
+                    {ent.name}
+                  </option>
+                ))}
+              </select>
             </div>
           )}
 
@@ -1321,6 +1420,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           }}
           onClick={() => { setNotifOpen(false); }}
         >
+          {isUnassignedNonAdmin && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "9px 16px",
+                background: "#fffbeb",
+                borderBottom: "1px solid #fde68a",
+                color: "#92400e",
+                fontSize: 12.5,
+                fontWeight: 500,
+              }}
+            >
+              <Building2 size={15} style={{ flexShrink: 0, color: "#d97706" }} />
+              <span>
+                Tài khoản của bạn chưa được gán vào doanh nghiệp nào. Vui lòng liên hệ Quản trị viên để truy cập dữ liệu doanh nghiệp.
+              </span>
+            </div>
+          )}
           {children}
         </main>
       </div>
@@ -1655,6 +1774,32 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   border: "1px solid #e2e8f0",
                 }}
               >
+                {/* Enterprise */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 8,
+                      background: "#ecfdf5",
+                      color: "#059669",
+                      display: "grid",
+                      placeItems: "center",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Building2 size={15} />
+                  </div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <span style={{ fontSize: 11, color: "#64748b", fontWeight: 500, display: "block" }}>
+                      Doanh nghiệp
+                    </span>
+                    <span style={{ fontSize: 13, color: "#0f172a", fontWeight: 600 }}>
+                      {user?.enterpriseName || (isAdmin ? "Quản trị toàn hệ thống" : "Chưa phân doanh nghiệp")}
+                    </span>
+                  </div>
+                </div>
+
                 {/* Email */}
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <div
@@ -2510,7 +2655,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                             </div>
                           )}
                           <div style={{ minWidth: 0, flex: 1 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                               <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                 {entry.user?.fullName || "Người dùng"}
                               </span>
@@ -2527,6 +2672,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                               >
                                 {roleBadge}
                               </span>
+                              {entry.user?.enterpriseName && (
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: 600,
+                                    padding: "1px 6px",
+                                    borderRadius: 999,
+                                    background: "#eef2ff",
+                                    color: "#4338ca",
+                                    border: "1px solid #c7d2fe",
+                                  }}
+                                >
+                                  {entry.user.enterpriseName}
+                                </span>
+                              )}
                             </div>
                             <span style={{ fontSize: 11, color: "#64748b", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                               {entry.user?.email}

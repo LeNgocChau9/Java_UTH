@@ -11,5 +11,7 @@ public interface SpringDataWebhookDeliveryRepository extends JpaRepository<Webho
 
     List<WebhookDeliveryEntity> findTop100ByRepositoryIdOrderByDeliveredAtDesc(Long repositoryId);
 
+    List<WebhookDeliveryEntity> findTop100ByWorkspaceIdOrderByDeliveredAtDesc(Long workspaceId);
+
     List<WebhookDeliveryEntity> findTop100ByOrderByDeliveredAtDesc();
 }

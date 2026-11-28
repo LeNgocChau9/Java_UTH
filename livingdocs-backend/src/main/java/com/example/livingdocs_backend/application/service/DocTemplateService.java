@@ -11,15 +11,18 @@ import com.example.livingdocs_backend.application.dto.TemplatePreviewResponse;
 import com.example.livingdocs_backend.application.dto.TemplateValidationResult;
 import com.example.livingdocs_backend.application.dto.TemplateVersionRequest;
 import com.example.livingdocs_backend.application.dto.TemplateVersionResponse;
+import com.example.livingdocs_backend.domain.exception.AuthenticationException;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.CodeEntityJpaEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocTemplate;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentTemplateVersion;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.DocTemplateRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.DocumentTemplateVersionRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataCodeEntityRepository;
+import com.example.livingdocs_backend.infrastructure.security.TenantAccessService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,27 +41,33 @@ public class DocTemplateService {
     private final SpringDataCodeEntityRepository codeEntityRepository;
     private final ObjectMapper objectMapper;
 
+    @Autowired(required = false)
+    private TenantAccessService tenantAccessService;
+
     @Transactional(readOnly = true)
     public List<DocTemplateResponse> list() {
-        return docTemplateRepository.findAll().stream()
+        return findAccessibleTemplates().stream()
                 .map(DocTemplateResponse::from)
                 .toList();
     }
 
     @Transactional(readOnly = true)
     public DocTemplateResponse getById(Long id) {
-        return DocTemplateResponse.from(findOrThrow(id));
+        return DocTemplateResponse.from(findReadableOrThrow(id));
     }
 
     @Transactional
     public DocTemplateResponse create(DocTemplateRequest request) {
         String type = normalizeType(request.getType());
-        if (docTemplateRepository.existsByType(type)) {
+        Long targetWorkspaceId = resolveCreateWorkspaceId();
+        boolean duplicate = isDuplicateTypeForCreate(type, targetWorkspaceId);
+        if (duplicate) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Loại mẫu đã tồn tại: " + type);
         }
 
         String structureJson = requireJson(request.getStructureJson());
         DocTemplate template = DocTemplate.builder()
+                .workspaceId(targetWorkspaceId)
                 .name(request.getName().trim())
                 .type(type)
                 .structureJson(structureJson)
@@ -71,9 +80,9 @@ public class DocTemplateService {
 
     @Transactional
     public DocTemplateResponse update(Long id, DocTemplateRequest request) {
-        DocTemplate template = findOrThrow(id);
+        DocTemplate template = findWritableOrThrow(id);
         String type = normalizeType(request.getType());
-        if (docTemplateRepository.existsByTypeAndIdNot(type, id)) {
+        if (isDuplicateTypeForUpdate(type, template.getWorkspaceId(), id)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Loại mẫu đã tồn tại: " + type);
         }
 
@@ -96,7 +105,7 @@ public class DocTemplateService {
 
     @Transactional(readOnly = true)
     public List<TemplateVersionResponse> listVersions(Long templateId) {
-        findOrThrow(templateId);
+        findReadableOrThrow(templateId);
         return versionRepository.findByTemplateIdOrderByVersionNumDesc(templateId).stream()
                 .map(TemplateVersionResponse::from)
                 .toList();
@@ -104,13 +113,13 @@ public class DocTemplateService {
 
     @Transactional(readOnly = true)
     public TemplateVersionResponse getVersion(Long templateId, Long versionId) {
-        findOrThrow(templateId);
+        findReadableOrThrow(templateId);
         return TemplateVersionResponse.from(findVersionOrThrow(templateId, versionId));
     }
 
     @Transactional
     public TemplateVersionResponse createVersion(Long templateId, TemplateVersionRequest request) {
-        DocTemplate template = findOrThrow(templateId);
+        DocTemplate template = findWritableOrThrow(templateId);
         String structureJson = requireJson(request.getStructureJson());
         DocumentTemplateVersion saved = appendVersion(
                 templateId, structureJson, rulesOrEmpty(request.getRulesJson()), request.getCreatedBy());
@@ -121,7 +130,7 @@ public class DocTemplateService {
 
     @Transactional
     public TemplateVersionResponse updateVersion(Long templateId, Long versionId, TemplateVersionRequest request) {
-        findOrThrow(templateId);
+        findWritableOrThrow(templateId);
         DocumentTemplateVersion version = findVersionOrThrow(templateId, versionId);
         String structureJson = requireJson(request.getStructureJson());
         version.setStructureJson(structureJson);
@@ -143,7 +152,7 @@ public class DocTemplateService {
 
     @Transactional
     public TemplateVersionResponse rollbackVersion(Long templateId, Long versionId) {
-        DocTemplate template = findOrThrow(templateId);
+        DocTemplate template = findWritableOrThrow(templateId);
         DocumentTemplateVersion targetVersion = findVersionOrThrow(templateId, versionId);
 
         String structureJson = targetVersion.getStructureJson();
@@ -158,20 +167,20 @@ public class DocTemplateService {
 
     @Transactional
     public void deleteVersion(Long templateId, Long versionId) {
-        findOrThrow(templateId);
+        findWritableOrThrow(templateId);
         DocumentTemplateVersion version = findVersionOrThrow(templateId, versionId);
         versionRepository.delete(version);
     }
 
     @Transactional(readOnly = true)
     public TemplateValidationResult validate(Long id, String markdown) {
-        findOrThrow(id);
+        findReadableOrThrow(id);
         return templateStructureCheck.check(id, markdown);
     }
 
     @Transactional(readOnly = true)
     public TemplatePreviewResponse preview(Long id, TemplatePreviewRequest request) {
-        DocTemplate template = findOrThrow(id);
+        DocTemplate template = findReadableOrThrow(id);
         try {
             String markdown = templateMarkdownRenderer.render(template.getName(), template.getStructureJson(), request);
             return TemplatePreviewResponse.builder()
@@ -187,9 +196,7 @@ public class DocTemplateService {
 
     @Transactional
     public void delete(Long id) {
-        if (!docTemplateRepository.existsById(id)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy mẫu id=" + id);
-        }
+        findWritableOrThrow(id);
         versionRepository.deleteByTemplateId(id);
         docTemplateRepository.deleteById(id);
     }
@@ -197,6 +204,77 @@ public class DocTemplateService {
     private DocTemplate findOrThrow(Long id) {
         return docTemplateRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy mẫu id=" + id));
+    }
+
+    private DocTemplate findReadableOrThrow(Long id) {
+        DocTemplate template = findOrThrow(id);
+        if (tenantAccessService != null && template.getWorkspaceId() != null) {
+            tenantAccessService.requireWorkspaceAccess(template.getWorkspaceId());
+        }
+        return template;
+    }
+
+    private DocTemplate findWritableOrThrow(Long id) {
+        DocTemplate template = findOrThrow(id);
+        if (tenantAccessService != null) {
+            TenantAccessService.TenantScope scope = tenantAccessService.currentScope();
+            if (template.getWorkspaceId() == null) {
+                if (!scope.systemBypass() && !scope.admin()) {
+                    throw AuthenticationException.forbidden(
+                            TenantAccessService.ERR_TENANT_DENIED,
+                            "Chỉ Quản trị viên mới được phép chỉnh sửa hoặc xóa mẫu hệ thống dùng chung.");
+                }
+            } else {
+                tenantAccessService.requireWorkspaceAccess(template.getWorkspaceId());
+            }
+        }
+        return template;
+    }
+
+    private List<DocTemplate> findAccessibleTemplates() {
+        if (tenantAccessService == null) {
+            return docTemplateRepository.findAll();
+        }
+        TenantAccessService.TenantScope scope = tenantAccessService.currentScope();
+        if (scope.unassigned()) {
+            return docTemplateRepository.findByWorkspaceIdIsNull();
+        }
+        Long workspaceId = tenantAccessService.resolveReadWorkspaceId(null);
+        return workspaceId != null
+                ? docTemplateRepository.findAccessibleByWorkspaceId(workspaceId)
+                : docTemplateRepository.findAll();
+    }
+
+    private Long resolveCreateWorkspaceId() {
+        if (tenantAccessService == null) {
+            return null;
+        }
+        TenantAccessService.TenantScope scope = tenantAccessService.currentScope();
+        if (scope.systemBypass()) {
+            return null;
+        }
+        if (scope.admin()) {
+            return scope.workspaceId();
+        }
+        return tenantAccessService.resolveWriteWorkspaceId(null);
+    }
+
+    private boolean isDuplicateTypeForCreate(String type, Long targetWorkspaceId) {
+        if (tenantAccessService == null) {
+            return docTemplateRepository.existsByType(type);
+        }
+        return targetWorkspaceId == null
+                ? docTemplateRepository.existsByTypeAndWorkspaceIdIsNull(type)
+                : docTemplateRepository.existsByTypeAndWorkspaceId(type, targetWorkspaceId);
+    }
+
+    private boolean isDuplicateTypeForUpdate(String type, Long workspaceId, Long id) {
+        if (tenantAccessService == null) {
+            return docTemplateRepository.existsByTypeAndIdNot(type, id);
+        }
+        return workspaceId == null
+                ? docTemplateRepository.existsByTypeAndWorkspaceIdIsNullAndIdNot(type, id)
+                : docTemplateRepository.existsByTypeAndWorkspaceIdAndIdNot(type, workspaceId, id);
     }
 
     private DocumentTemplateVersion appendVersion(Long templateId, String structureJson, String rulesJson, Long createdBy) {
@@ -243,18 +321,25 @@ public class DocTemplateService {
     public DocumentCrossCheckResponse crossCheck(DocumentCrossCheckRequest request) {
         String markdown = request.getMarkdown() != null ? request.getMarkdown() : "";
         Long repoId = request.getRepositoryId();
+        if (tenantAccessService != null && repoId != null) {
+            tenantAccessService.requireRepositoryAccess(repoId);
+        }
 
         // 1. Đối chiếu Template (Direction 1)
         Long templateId = request.getTemplateId();
         DocTemplate template = null;
         if (templateId != null) {
             template = docTemplateRepository.findById(templateId).orElse(null);
+            if (template != null && tenantAccessService != null && template.getWorkspaceId() != null) {
+                tenantAccessService.requireWorkspaceAccess(template.getWorkspaceId());
+            }
         }
         if (template == null) {
-            template = docTemplateRepository.findAll().stream()
+            List<DocTemplate> accessible = findAccessibleTemplates();
+            template = accessible.stream()
                     .filter(t -> Boolean.TRUE.equals(t.getIsDefault()))
                     .findFirst()
-                    .orElseGet(() -> docTemplateRepository.findAll().stream().findFirst().orElse(null));
+                    .orElseGet(() -> accessible.stream().findFirst().orElse(null));
         }
 
         List<String> missingHeadings = new ArrayList<>();

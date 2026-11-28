@@ -64,6 +64,7 @@ import com.example.livingdocs_backend.infrastructure.persistence.repository.Spri
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocCodeLinkRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataGitHubConnectionRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
+import com.example.livingdocs_backend.infrastructure.security.TenantAccessService;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -103,6 +104,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private ExternalDocumentFetchService externalDocumentFetchService;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private TenantAccessService tenantAccessService;
+
     @org.springframework.beans.factory.annotation.Value("${ai.engine.url:http://localhost:8000}")
     private String aiEngineUrl;
 
@@ -129,6 +133,16 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @Override
     @Transactional
     public DocumentResponse createDocument(CreateDocumentRequest request, Long actorId, String actorRole) {
+        if (tenantAccessService != null) {
+            if (request.getRepoId() != null) {
+                tenantAccessService.requireRepositoryAccess(request.getRepoId());
+            } else {
+                tenantAccessService.resolveWriteWorkspaceId(null);
+            }
+            if (request.getCollectionId() != null) {
+                tenantAccessService.requireCollectionAccess(request.getCollectionId());
+            }
+        }
         ActorRole role = resolveActorRole(request.getActorRole(), actorRole);
         String triggerType = (request.getTriggerType() != null && !request.getTriggerType().isBlank())
                 ? request.getTriggerType()
@@ -198,6 +212,12 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @Override
     @Transactional
     public DocumentResponse updateDocument(Long docId, UpdateDocumentRequest request, Long actorId, String actorRole) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireDocumentAccess(docId);
+            if (request != null && request.getCollectionId() != null) {
+                tenantAccessService.requireCollectionAccess(request.getCollectionId());
+            }
+        }
         Document document = documentRepositoryPort.findById(docId)
                 .orElseThrow(() -> new DocumentNotFoundException(docId));
 
@@ -304,6 +324,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @Override
     @Transactional(readOnly = true)
     public DocumentDetailResponse getDocumentById(Long docId) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireDocumentAccess(docId);
+        }
         Document document = documentRepositoryPort.findById(docId)
                 .orElseThrow(() -> new DocumentNotFoundException(docId));
 
@@ -343,22 +366,36 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @Override
     @Transactional(readOnly = true)
     public List<DocumentResponse> searchDocuments(Long repoId, Long collectionId, String keyword, String status, Long templateId) {
+        Long workspaceId = null;
+        if (tenantAccessService != null) {
+            if (repoId != null) {
+                tenantAccessService.requireRepositoryAccess(repoId);
+            }
+            if (collectionId != null) {
+                tenantAccessService.requireCollectionAccess(collectionId);
+            }
+            TenantAccessService.TenantScope scope = tenantAccessService.currentScope();
+            if (scope.unassigned()) {
+                return Collections.emptyList();
+            }
+            workspaceId = tenantAccessService.resolveReadWorkspaceId(null);
+        }
         if (jdbcTemplate != null) {
             try {
-                return executeSqlHybridSearch(repoId, collectionId, keyword, status, templateId);
+                return executeSqlHybridSearch(repoId, collectionId, keyword, status, templateId, workspaceId);
             } catch (Exception ex) {
                 log.warn("[SearchDocuments] SQL Hybrid Search không thực thi được (fallback sang tìm kiếm an toàn): {}", ex.getMessage());
             }
         }
         try {
-            return fallbackSearch(repoId, collectionId, keyword, status, templateId);
+            return fallbackSearch(repoId, collectionId, keyword, status, templateId, workspaceId);
         } catch (Exception ex) {
             log.error("[SearchDocuments] Fallback search không thực thi được: {}", ex.getMessage(), ex);
             return Collections.emptyList();
         }
     }
 
-    private List<DocumentResponse> executeSqlHybridSearch(Long repoId, Long collectionId, String keyword, String status, Long templateId) {
+    private List<DocumentResponse> executeSqlHybridSearch(Long repoId, Long collectionId, String keyword, String status, Long templateId, Long workspaceId) {
         String kw = (keyword != null && !keyword.isBlank()) ? keyword.trim() : null;
         String st = (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status)) ? status.trim().toUpperCase() : null;
         boolean isUnderReviewFilter = "UNDER_REVIEW".equals(st) || "REVIEW".equals(st);
@@ -386,18 +423,18 @@ public class DocumentServiceImpl implements DocumentServicePort {
 
             if (queryVector != null) {
                 try {
-                    return executeVectorFtsQuery(repoId, collectionId, kw, st, isUnderReviewFilter, templateId, queryVector);
+                    return executeVectorFtsQuery(repoId, collectionId, kw, st, isUnderReviewFilter, templateId, queryVector, workspaceId);
                 } catch (Exception ex) {
                     log.debug("[SearchDocuments] Truy vấn Vector FTS thất bại, thử lại với FTS thuần: {}", ex.getMessage());
                 }
             }
-            return executePureFtsQuery(repoId, collectionId, kw, st, isUnderReviewFilter, templateId);
+            return executePureFtsQuery(repoId, collectionId, kw, st, isUnderReviewFilter, templateId, workspaceId);
         } else {
-            return executeFilteredQuery(repoId, collectionId, st, isUnderReviewFilter, templateId);
+            return executeFilteredQuery(repoId, collectionId, st, isUnderReviewFilter, templateId, workspaceId);
         }
     }
 
-    private List<DocumentResponse> executeVectorFtsQuery(Long repoId, Long collectionId, String kw, String st, boolean isUnderReviewFilter, Long templateId, String queryVector) {
+    private List<DocumentResponse> executeVectorFtsQuery(Long repoId, Long collectionId, String kw, String st, boolean isUnderReviewFilter, Long templateId, String queryVector, Long workspaceId) {
         String statusClause = "";
         if (isUnderReviewFilter) {
             statusClause = " AND (d.status IN ('UNDER_REVIEW_STAFF', 'UNDER_REVIEW_MANAGER')) ";
@@ -422,8 +459,10 @@ public class DocumentServiceImpl implements DocumentServicePort {
                        ts_headline('simple', COALESCE(v.content, ''), plainto_tsquery('simple', ?), 
                                    'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') AS fts_snippet
                 FROM documents d
+                JOIN repositories r ON r.repository_id = d.repo_id
                 JOIN document_versions v ON v.doc_id = d.doc_id AND v.version_num = d.current_version
-                WHERE (CAST(? AS bigint) IS NULL OR d.repo_id = CAST(? AS bigint))
+                WHERE (CAST(? AS bigint) IS NULL OR r.workspace_id = CAST(? AS bigint))
+                  AND (CAST(? AS bigint) IS NULL OR d.repo_id = CAST(? AS bigint))
                   AND (CAST(? AS bigint) IS NULL OR d.collection_id = CAST(? AS bigint))
                   """ + statusClause + templateClause + """
                   AND (to_tsvector('simple', COALESCE(d.title, '') || ' ' || COALESCE(v.content, '')) @@ plainto_tsquery('simple', ?)
@@ -435,7 +474,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
                        MAX(1 - (kc.embedding <=> ?::vector)) AS vec_score,
                        (ARRAY_AGG(kc.content ORDER BY (kc.embedding <=> ?::vector) ASC))[1] AS vec_snippet
                 FROM knowledge_chunks kc
-                WHERE (CAST(? AS bigint) IS NULL OR kc.repository_id = CAST(? AS bigint))
+                JOIN repositories r ON r.repository_id = kc.repository_id
+                WHERE (CAST(? AS bigint) IS NULL OR r.workspace_id = CAST(? AS bigint))
+                  AND (CAST(? AS bigint) IS NULL OR kc.repository_id = CAST(? AS bigint))
                   AND kc.embedding IS NOT NULL
                   AND kc.document_id IS NOT NULL
                 GROUP BY kc.document_id
@@ -446,10 +487,12 @@ public class DocumentServiceImpl implements DocumentServicePort {
                    COALESCE(fts.fts_snippet, SUBSTRING(COALESCE(vec.vec_snippet, v.content) FROM 1 FOR 200)) AS snippet,
                    COALESCE(vec.vec_score, 0.0) * 0.6 + COALESCE(fts.fts_score, 0.0) * 0.4 AS combined_score
             FROM documents d
+            JOIN repositories r ON r.repository_id = d.repo_id
             JOIN document_versions v ON v.doc_id = d.doc_id AND v.version_num = d.current_version
             LEFT JOIN fts ON fts.doc_id = d.doc_id
             LEFT JOIN vec ON vec.doc_id = d.doc_id
             WHERE (fts.doc_id IS NOT NULL OR vec.doc_id IS NOT NULL)
+              AND (CAST(? AS bigint) IS NULL OR r.workspace_id = CAST(? AS bigint))
               AND (CAST(? AS bigint) IS NULL OR d.repo_id = CAST(? AS bigint))
               AND (CAST(? AS bigint) IS NULL OR d.collection_id = CAST(? AS bigint))
               """ + statusClause + templateClause + """
@@ -460,6 +503,8 @@ public class DocumentServiceImpl implements DocumentServicePort {
         List<Object> params = new ArrayList<>();
         params.add(kw);
         params.add(kw);
+        params.add(workspaceId);
+        params.add(workspaceId);
         params.add(repoId);
         params.add(repoId);
         params.add(collectionId);
@@ -472,9 +517,13 @@ public class DocumentServiceImpl implements DocumentServicePort {
 
         params.add(queryVector);
         params.add(queryVector);
+        params.add(workspaceId);
+        params.add(workspaceId);
         params.add(repoId);
         params.add(repoId);
 
+        params.add(workspaceId);
+        params.add(workspaceId);
         params.add(repoId);
         params.add(repoId);
         params.add(collectionId);
@@ -485,7 +534,7 @@ public class DocumentServiceImpl implements DocumentServicePort {
         return jdbcTemplate.query(sql, this::mapDocumentResponseRow, params.toArray());
     }
 
-    private List<DocumentResponse> executePureFtsQuery(Long repoId, Long collectionId, String kw, String st, boolean isUnderReviewFilter, Long templateId) {
+    private List<DocumentResponse> executePureFtsQuery(Long repoId, Long collectionId, String kw, String st, boolean isUnderReviewFilter, Long templateId, Long workspaceId) {
         String statusClause = "";
         if (isUnderReviewFilter) {
             statusClause = " AND (d.status IN ('UNDER_REVIEW_STAFF', 'UNDER_REVIEW_MANAGER')) ";
@@ -511,8 +560,10 @@ public class DocumentServiceImpl implements DocumentServicePort {
                    ts_rank_cd(to_tsvector('simple', COALESCE(d.title, '') || ' ' || COALESCE(v.content, '')), 
                               plainto_tsquery('simple', ?)) AS combined_score
             FROM documents d
+            JOIN repositories r ON r.repository_id = d.repo_id
             JOIN document_versions v ON v.doc_id = d.doc_id AND v.version_num = d.current_version
-            WHERE (CAST(? AS bigint) IS NULL OR d.repo_id = CAST(? AS bigint))
+            WHERE (CAST(? AS bigint) IS NULL OR r.workspace_id = CAST(? AS bigint))
+              AND (CAST(? AS bigint) IS NULL OR d.repo_id = CAST(? AS bigint))
               AND (CAST(? AS bigint) IS NULL OR d.collection_id = CAST(? AS bigint))
               """ + statusClause + templateClause + """
               AND (to_tsvector('simple', COALESCE(d.title, '') || ' ' || COALESCE(v.content, '')) @@ plainto_tsquery('simple', ?)
@@ -525,6 +576,8 @@ public class DocumentServiceImpl implements DocumentServicePort {
         List<Object> params = new ArrayList<>();
         params.add(kw);
         params.add(kw);
+        params.add(workspaceId);
+        params.add(workspaceId);
         params.add(repoId);
         params.add(repoId);
         params.add(collectionId);
@@ -538,7 +591,7 @@ public class DocumentServiceImpl implements DocumentServicePort {
         return jdbcTemplate.query(sql, this::mapDocumentResponseRow, params.toArray());
     }
 
-    private List<DocumentResponse> executeFilteredQuery(Long repoId, Long collectionId, String st, boolean isUnderReviewFilter, Long templateId) {
+    private List<DocumentResponse> executeFilteredQuery(Long repoId, Long collectionId, String st, boolean isUnderReviewFilter, Long templateId, Long workspaceId) {
         String statusClause = "";
         if (isUnderReviewFilter) {
             statusClause = " AND (d.status IN ('UNDER_REVIEW_STAFF', 'UNDER_REVIEW_MANAGER')) ";
@@ -562,8 +615,10 @@ public class DocumentServiceImpl implements DocumentServicePort {
                    SUBSTRING(COALESCE(v.content, '') FROM 1 FOR 200) AS snippet,
                    1.0 AS combined_score
             FROM documents d
+            JOIN repositories r ON r.repository_id = d.repo_id
             JOIN document_versions v ON v.doc_id = d.doc_id AND v.version_num = d.current_version
-            WHERE (CAST(? AS bigint) IS NULL OR d.repo_id = CAST(? AS bigint))
+            WHERE (CAST(? AS bigint) IS NULL OR r.workspace_id = CAST(? AS bigint))
+              AND (CAST(? AS bigint) IS NULL OR d.repo_id = CAST(? AS bigint))
               AND (CAST(? AS bigint) IS NULL OR d.collection_id = CAST(? AS bigint))
               """ + statusClause + templateClause + """
             ORDER BY d.updated_at DESC
@@ -571,6 +626,8 @@ public class DocumentServiceImpl implements DocumentServicePort {
         """;
 
         List<Object> params = new ArrayList<>();
+        params.add(workspaceId);
+        params.add(workspaceId);
         params.add(repoId);
         params.add(repoId);
         params.add(collectionId);
@@ -636,7 +693,7 @@ public class DocumentServiceImpl implements DocumentServicePort {
                 .build();
     }
 
-    private List<DocumentResponse> fallbackSearch(Long repoId, Long collectionId, String keyword, String status, Long templateId) {
+    private List<DocumentResponse> fallbackSearch(Long repoId, Long collectionId, String keyword, String status, Long templateId, Long workspaceId) {
         List<Document> docs;
         if (repoId != null && collectionId != null) {
             docs = documentRepositoryPort.findByRepoIdAndCollectionId(repoId, collectionId);
@@ -644,6 +701,8 @@ public class DocumentServiceImpl implements DocumentServicePort {
             docs = documentRepositoryPort.findByRepoId(repoId);
         } else if (collectionId != null) {
             docs = documentRepositoryPort.findByCollectionId(collectionId);
+        } else if (workspaceId != null) {
+            docs = documentRepositoryPort.findByWorkspaceId(workspaceId);
         } else {
             docs = documentRepositoryPort.findAll();
         }
@@ -708,6 +767,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @Override
     @Transactional
     public void deleteDocument(Long docId, Long actorId) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireDocumentAccess(docId);
+        }
         Document document = documentRepositoryPort.findById(docId)
                 .orElseThrow(() -> new DocumentNotFoundException(docId));
 
@@ -732,6 +794,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @Override
     @Transactional(readOnly = true)
     public List<DocumentVersionResponse> getDocumentVersions(Long docId) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireDocumentAccess(docId);
+        }
         if (!documentRepositoryPort.existsById(docId)) {
             throw new DocumentNotFoundException(docId);
         }
@@ -744,6 +809,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @Override
     @Transactional(readOnly = true)
     public DocumentVersionResponse getDocumentVersion(Long docId, Integer versionNum) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireDocumentAccess(docId);
+        }
         if (!documentRepositoryPort.existsById(docId)) {
             throw new DocumentNotFoundException(docId);
         }
@@ -756,6 +824,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @Override
     @Transactional
     public DocumentResponse submitForReview(Long docId, Long actorId) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireDocumentAccess(docId);
+        }
         Document document = documentRepositoryPort.findById(docId)
                 .orElseThrow(() -> new DocumentNotFoundException(docId));
 
@@ -791,6 +862,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @Transactional
     public DocumentResponse processStaffReview(Long docId, StaffReviewDecisionRequest request, Long actorId,
             String actorRole) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireDocumentAccess(docId);
+        }
         Document document = documentRepositoryPort.findById(docId)
                 .orElseThrow(() -> new DocumentNotFoundException(docId));
 
@@ -876,6 +950,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @Transactional
     public DocumentResponse processManagerReview(Long docId, ManagerReviewDecisionRequest request, Long actorId,
             String actorRole) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireDocumentAccess(docId);
+        }
         Document document = documentRepositoryPort.findById(docId)
                 .orElseThrow(() -> new DocumentNotFoundException(docId));
 
@@ -981,6 +1058,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @Override
     @Transactional(readOnly = true)
     public IntegrityCheckResponse verifyIntegrity(Long docId) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireDocumentAccess(docId);
+        }
         if (!documentRepositoryPort.existsById(docId)) {
             throw new DocumentNotFoundException(docId);
         }
@@ -1081,6 +1161,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @Transactional
     public RollbackResponse rollbackToVersion(Long docId, Integer targetVersion, String reason, Long actorId,
             String actorRole) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireDocumentAccess(docId);
+        }
         if (targetVersion == null || targetVersion < 1) {
             throw new IllegalArgumentException("Phiên bản mục tiêu để khôi phục không hợp lệ: " + targetVersion);
         }
@@ -1177,6 +1260,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @Override
     @Transactional
     public RollbackResponse rollbackByVersionId(Long docId, Long versionId, String reason, Long actorId, String actorRole) {
+        if (tenantAccessService != null && docId != null) {
+            tenantAccessService.requireDocumentAccess(docId);
+        }
         if (versionId == null || versionId <= 0) {
             throw new IllegalArgumentException("ID phiên bản (versionId) cần khôi phục không hợp lệ: " + versionId);
         }
@@ -1200,6 +1286,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
             com.example.livingdocs_backend.application.dto.CollectionRollbackRequest request,
             Long actorId,
             String actorRole) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireCollectionAccess(collectionId);
+        }
         if (collectionId == null || collectionId <= 0) {
             throw new IllegalArgumentException("collectionId phải là số nguyên dương hợp lệ");
         }
@@ -1318,6 +1407,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @Override
     @Transactional
     public PublishToGitHubResponse publishToGitHub(Long docId, PublishToGitHubRequest request, Long actorId) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireDocumentAccess(docId);
+        }
         // 1. Kiểm tra tài liệu tồn tại
         Document document = documentRepositoryPort.findById(docId)
                 .orElseThrow(() -> new DocumentNotFoundException(docId));
@@ -1499,6 +1591,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @Override
     @Transactional(readOnly = true)
     public List<DocumentAuditLogResponse> getDocumentAuditLogs(Long docId) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireDocumentAccess(docId);
+        }
         if (!documentRepositoryPort.existsById(docId)) {
             throw new DocumentNotFoundException(docId);
         }
@@ -1523,6 +1618,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @Override
     @Transactional(readOnly = true)
     public List<ChangelogResponse> getDocumentChangelogs(Long docId) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireDocumentAccess(docId);
+        }
         if (!documentRepositoryPort.existsById(docId)) {
             throw new DocumentNotFoundException(docId);
         }
@@ -1539,6 +1637,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
 
     @Override
     public String commitMarkdownToDefaultBranch(Long docId, Long actorId, String approverLabel) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireDocumentAccess(docId);
+        }
         Document doc = documentRepositoryPort.findById(docId)
                 .orElseThrow(() -> new DocumentNotFoundException(docId));
         DocumentVersion latest = documentVersionRepositoryPort.findLatestByDocId(docId)
@@ -1608,9 +1709,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
     }
 
     private String resolveWriteToken(RepositoryEntity repo, Long actorId) {
-        if (actorId != null) {
+        if (actorId != null && repo.getWorkspaceId() != null) {
             String actorToken = usableGitHubToken(
-                    gitHubConnectionRepository.findFirstByUserIdOrderByCreatedAtDesc(actorId));
+                    gitHubConnectionRepository.findByWorkspaceIdAndUserId(repo.getWorkspaceId(), actorId));
             if (actorToken != null) {
                 return actorToken;
             }
@@ -1657,6 +1758,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @Transactional
     public RegenerateEntityDocResponse regenerateEntityDoc(Long docId, RegenerateEntityDocRequest request, Long actorId,
             String actorRole) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireDocumentAccess(docId);
+        }
         Document document = documentRepositoryPort.findById(docId)
                 .orElseThrow(() -> new DocumentNotFoundException(docId));
 
@@ -1669,11 +1773,15 @@ public class DocumentServiceImpl implements DocumentServicePort {
         CodeEntityJpaEntity targetEntity = null;
         if (request.getEntityId() != null && codeEntityRepository != null) {
             targetEntity = codeEntityRepository.findById(request.getEntityId()).orElse(null);
+            if (targetEntity != null && tenantAccessService != null && targetEntity.getRepositoryId() != null) {
+                tenantAccessService.requireRepositoryAccess(targetEntity.getRepositoryId());
+            }
         }
 
-        if (targetEntity == null && StringUtils.hasText(request.getSignature()) && codeEntityRepository != null) {
-            var allEntities = codeEntityRepository.findAll();
-            for (CodeEntityJpaEntity ce : allEntities) {
+        if (targetEntity == null && StringUtils.hasText(request.getSignature()) && codeEntityRepository != null
+                && document.getRepoId() != null) {
+            var repoEntities = codeEntityRepository.findByRepositoryId(document.getRepoId());
+            for (CodeEntityJpaEntity ce : repoEntities) {
                 if (ce.getSignature() != null && ce.getSignature().contains(request.getSignature())) {
                     targetEntity = ce;
                     break;
@@ -1870,6 +1978,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
         if (repoId == null) {
             throw new IllegalArgumentException("repoId không được để trống");
         }
+        if (tenantAccessService != null) {
+            tenantAccessService.requireRepositoryAccess(repoId);
+        }
 
         String fileName = file.getOriginalFilename();
         String docTitle = (title != null && !title.isBlank())
@@ -1949,6 +2060,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
         }
         if (request.getRepoId() == null) {
             throw new IllegalArgumentException("repoId không được để trống");
+        }
+        if (tenantAccessService != null) {
+            tenantAccessService.requireRepositoryAccess(request.getRepoId());
         }
         if (request.getTitle() == null || request.getTitle().isBlank()) {
             throw new IllegalArgumentException("Tiêu đề tài liệu không được để trống");
@@ -2082,6 +2196,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @Override
     @Transactional
     public DocumentResponse reopenDraft(Long docId, Long actorId, String actorRole) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireDocumentAccess(docId);
+        }
         Document document = documentRepositoryPort.findById(docId)
                 .orElseThrow(() -> new DocumentNotFoundException(docId));
 
@@ -2108,6 +2225,9 @@ public class DocumentServiceImpl implements DocumentServicePort {
     @Override
     @Transactional
     public int reindexRepository(Long repoId) {
+        if (tenantAccessService != null && repoId != null) {
+            tenantAccessService.requireRepositoryAccess(repoId);
+        }
         if (repoId == null || jdbcTemplate == null) {
             return 0;
         }

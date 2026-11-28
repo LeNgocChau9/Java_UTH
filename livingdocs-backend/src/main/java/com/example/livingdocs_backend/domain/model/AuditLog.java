@@ -9,6 +9,7 @@ import java.time.Instant;
 @Builder
 public class AuditLog {
     private Long logId;
+    private Long workspaceId;
     private Long actorId;
     private AuditAction action;
     private String resourceType;

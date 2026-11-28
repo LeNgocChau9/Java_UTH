@@ -27,21 +27,36 @@ public class JwtTokenProvider {
     }
 
     public String generateToken(Long userId, String email, java.util.Collection<String> roles) {
+        return generateToken(userId, email, roles, null);
+    }
+
+    public String generateToken(Long userId, String email, java.util.Collection<String> roles, Long workspaceId) {
         Date now = new Date();
         Date validity = new Date(now.getTime() + tokenValidityInMilliseconds);
 
-        return Jwts.builder()
+        var builder = Jwts.builder()
                 .subject(email)
                 .claim("userId", userId)
                 .claim("roles", roles != null ? roles : java.util.Collections.emptyList())
                 .issuedAt(now)
-                .expiration(validity)
-                .signWith(secretKey)
-                .compact();
+                .expiration(validity);
+        if (workspaceId != null) {
+            builder.claim("workspaceId", workspaceId);
+        }
+        return builder.signWith(secretKey).compact();
     }
 
     public String generateToken(Long userId, String email) {
-        return generateToken(userId, email, java.util.Collections.emptyList());
+        return generateToken(userId, email, java.util.Collections.emptyList(), null);
+    }
+
+    public Long getWorkspaceIdFromToken(String token) {
+        Claims claims = getClaims(token);
+        Object wsObj = claims.get("workspaceId");
+        if (wsObj instanceof Number number) {
+            return number.longValue();
+        }
+        return null;
     }
 
     public String getEmailFromToken(String token) {

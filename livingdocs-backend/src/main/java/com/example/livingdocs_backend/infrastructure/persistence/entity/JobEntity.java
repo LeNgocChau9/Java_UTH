@@ -22,6 +22,9 @@ public class JobEntity {
     @Column(name = "job_id")
     private Long jobId;
 
+    @Column(name = "workspace_id")
+    private Long workspaceId;
+
     @Column(name = "type", nullable = false, length = 100)
     private String type;
 

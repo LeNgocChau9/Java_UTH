@@ -21,6 +21,7 @@ import com.example.livingdocs_backend.infrastructure.persistence.repository.Spri
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataAdminSettingRepository;
 import com.example.livingdocs_backend.infrastructure.ai.GeminiDirectClient;
+import com.example.livingdocs_backend.infrastructure.security.TenantAccessService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -69,6 +70,9 @@ public class AiDocumentationService implements AiDocumentationServicePort {
 
     @Autowired(required = false)
     private GeminiDirectClient geminiDirectClient;
+
+    @Autowired(required = false)
+    private TenantAccessService tenantAccessService;
 
     public AiDocumentationService(
             @Value("${ai.engine.url:http://localhost:8000}") String aiEngineUrl
@@ -136,6 +140,13 @@ public class AiDocumentationService implements AiDocumentationServicePort {
     @Override
     @Transactional
     public AiDocGenerateResponseDto generateDocumentation(AiDocGenerateRequestDto request, Long actorId, String actorRole) {
+        if (tenantAccessService != null) {
+            if (request.repository_id() != null && request.repository_id() > 0) {
+                tenantAccessService.requireRepositoryAccess(request.repository_id());
+            } else if (tenantAccessService.currentScope().unassigned()) {
+                tenantAccessService.resolveWriteWorkspaceId(null);
+            }
+        }
         String resolvedScope = normalizeScope(request.scope());
         Long repoId = resolveRepositoryId(request.repository_id());
         RepositoryEntity repoEntity = findRepositoryEntity(repoId, actorId);
@@ -1060,9 +1071,21 @@ public class AiDocumentationService implements AiDocumentationServicePort {
             return requestedRepoId;
         }
         if (repositoryRepository != null) {
-            List<RepositoryEntity> all = repositoryRepository.findAll();
-            if (!all.isEmpty()) {
-                return all.get(0).getRepositoryId();
+            List<RepositoryEntity> candidates;
+            if (tenantAccessService != null) {
+                TenantAccessService.TenantScope scope = tenantAccessService.currentScope();
+                if (scope.unassigned()) {
+                    return null;
+                }
+                Long wsId = tenantAccessService.resolveReadWorkspaceId(null);
+                candidates = wsId != null
+                        ? repositoryRepository.findByWorkspaceId(wsId)
+                        : repositoryRepository.findAll();
+            } else {
+                candidates = repositoryRepository.findAll();
+            }
+            if (!candidates.isEmpty()) {
+                return candidates.get(0).getRepositoryId();
             }
         }
         return null;
@@ -1075,19 +1098,55 @@ public class AiDocumentationService implements AiDocumentationServicePort {
         if (repoId != null) {
             Optional<RepositoryEntity> opt = repositoryRepository.findById(repoId);
             if (opt.isPresent()) {
+                if (tenantAccessService != null) {
+                    tenantAccessService.requireWorkspaceAccess(opt.get().getWorkspaceId());
+                }
                 return opt.get();
             }
+            return null;
         }
-        List<RepositoryEntity> all = repositoryRepository.findAll();
-        return all.isEmpty() ? null : all.get(0);
+        List<RepositoryEntity> candidates;
+        if (tenantAccessService != null) {
+            TenantAccessService.TenantScope scope = tenantAccessService.currentScope();
+            if (scope.unassigned()) {
+                return null;
+            }
+            Long wsId = tenantAccessService.resolveReadWorkspaceId(null);
+            candidates = wsId != null
+                    ? repositoryRepository.findByWorkspaceId(wsId)
+                    : repositoryRepository.findAll();
+        } else {
+            candidates = repositoryRepository.findAll();
+        }
+        return candidates.isEmpty() ? null : candidates.get(0);
     }
 
     private Long resolveTemplateId(Long requestedTemplateId, String requestedTemplateType, String scope) {
         if (requestedTemplateId != null && requestedTemplateId > 0) {
+            if (docTemplateRepository != null && tenantAccessService != null) {
+                docTemplateRepository.findById(requestedTemplateId).ifPresent(t -> {
+                    if (t.getWorkspaceId() != null) {
+                        tenantAccessService.requireWorkspaceAccess(t.getWorkspaceId());
+                    }
+                });
+            }
             return requestedTemplateId;
         }
         if (docTemplateRepository != null) {
-            List<DocTemplate> templates = docTemplateRepository.findAll();
+            List<DocTemplate> templates;
+            if (tenantAccessService != null) {
+                TenantAccessService.TenantScope tenantScope = tenantAccessService.currentScope();
+                if (tenantScope.unassigned()) {
+                    templates = docTemplateRepository.findByWorkspaceIdIsNull();
+                } else {
+                    Long wsId = tenantAccessService.resolveReadWorkspaceId(null);
+                    templates = wsId != null
+                            ? docTemplateRepository.findAccessibleByWorkspaceId(wsId)
+                            : docTemplateRepository.findAll();
+                }
+            } else {
+                templates = docTemplateRepository.findAll();
+            }
             if (StringUtils.hasText(requestedTemplateType)) {
                 for (DocTemplate t : templates) {
                     if (requestedTemplateType.equalsIgnoreCase(t.getType())) {

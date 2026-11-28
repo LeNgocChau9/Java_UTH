@@ -21,6 +21,7 @@ public class Job {
     public static final String TYPE_DRIFT_ANALYZE = "DRIFT_ANALYZE";
 
     private Long jobId;
+    private Long workspaceId;
     private String type;
     private String payloadJson;
     private String resultJson;

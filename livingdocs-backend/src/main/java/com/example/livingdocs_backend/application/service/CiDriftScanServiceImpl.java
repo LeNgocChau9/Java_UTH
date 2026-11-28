@@ -5,14 +5,19 @@ import com.example.livingdocs_backend.application.dto.drift.CiDriftScanResponse;
 import com.example.livingdocs_backend.application.dto.drift.DriftScanItemDto;
 import com.example.livingdocs_backend.application.port.CiDriftScanServicePort;
 import com.example.livingdocs_backend.application.port.DriftAlertRepositoryPort;
+import com.example.livingdocs_backend.domain.exception.AuthenticationException;
 import com.example.livingdocs_backend.domain.model.CiToken;
 import com.example.livingdocs_backend.domain.model.DriftAlert;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocCodeLinkEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.entity.DocumentChangeAlertEntity;
+import com.example.livingdocs_backend.infrastructure.persistence.entity.RepositoryEntity;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocCodeLinkRepository;
 import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataDocumentChangeAlertRepository;
+import com.example.livingdocs_backend.infrastructure.persistence.repository.SpringDataRepositoryRepository;
+import com.example.livingdocs_backend.infrastructure.security.TenantAccessService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,14 +34,32 @@ public class CiDriftScanServiceImpl implements CiDriftScanServicePort {
     private final DriftAlertRepositoryPort driftAlertRepository;
     private final SpringDataDocCodeLinkRepository docCodeLinkRepository;
 
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @Autowired(required = false)
     private SpringDataDocumentChangeAlertRepository documentChangeAlertRepository;
+
+    @Autowired(required = false)
+    private SpringDataRepositoryRepository repositoryRepository;
+
+    @Autowired(required = false)
+    private TenantAccessService tenantAccessService;
 
     @Override
     @Transactional
     public CiDriftScanResponse processCiDriftScan(CiDriftScanRequest request, CiToken ciToken) {
         log.info("[CI Drift Scan] Tiếp nhận kết quả quét từ GitHub Action. repoId={}, prNumber={}, tokenPrefix={}",
                 request.getRepoId(), request.getPrNumber(), ciToken != null ? ciToken.getTokenPrefix() : "N/A");
+
+        // Kiểm tra cách ly multi-tenant: CI Token phải thuộc cùng doanh nghiệp với Repository mục tiêu
+        if (ciToken != null && ciToken.getWorkspaceId() != null && request.getRepoId() != null && repositoryRepository != null) {
+            RepositoryEntity targetRepo = repositoryRepository.findById(request.getRepoId()).orElse(null);
+            if (targetRepo != null && targetRepo.getWorkspaceId() != null
+                    && !ciToken.getWorkspaceId().equals(targetRepo.getWorkspaceId())) {
+                throw AuthenticationException.forbidden(
+                        TenantAccessService.ERR_TENANT_DENIED,
+                        "CI Token không có quyền ghi nhận dữ liệu cho kho mã nguồn thuộc doanh nghiệp khác."
+                );
+            }
+        }
 
         List<DriftScanItemDto> items = request.getAlerts();
         if (items == null || items.isEmpty()) {
@@ -58,10 +81,10 @@ public class CiDriftScanServiceImpl implements CiDriftScanServicePort {
         for (DriftScanItemDto item : items) {
             Long docId = item.getDocumentId();
 
-            // Nếu CI chưa gắn sẵn documentId, thử tra cứu tự động qua bảng doc_code_links
-            if (docId == null) {
-                List<DocCodeLinkEntity> links = docCodeLinkRepository.findMatchingLinks(
-                        item.getFilePath(), null, item.getMethodName());
+            // Nếu CI chưa gắn sẵn documentId, tra cứu tự động trong phạm vi repository (tránh cross-tenant)
+            if (docId == null && request.getRepoId() != null) {
+                List<DocCodeLinkEntity> links = docCodeLinkRepository.findMatchingLinksByRepositoryId(
+                        request.getRepoId(), item.getFilePath(), null, item.getMethodName());
                 if (!links.isEmpty()) {
                     docId = links.get(0).getDocumentId();
                 }
@@ -121,11 +144,17 @@ public class CiDriftScanServiceImpl implements CiDriftScanServicePort {
 
     @Override
     public List<DriftAlert> getAlertsByRepo(Long repoId) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireRepositoryAccess(repoId);
+        }
         return driftAlertRepository.findByRepoId(repoId);
     }
 
     @Override
     public List<DriftAlert> getAlertsByPr(Long repoId, Integer prNumber) {
+        if (tenantAccessService != null) {
+            tenantAccessService.requireRepositoryAccess(repoId);
+        }
         return driftAlertRepository.findByRepoIdAndPrNumber(repoId, prNumber);
     }
 }
